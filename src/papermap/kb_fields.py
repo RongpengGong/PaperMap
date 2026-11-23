@@ -8,6 +8,7 @@ idempotent. The user's block between USER_BEGIN/USER_END is preserved.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -40,6 +41,13 @@ H = {
         "count": "papers",
     },
 }
+
+
+def tool_name(raw: str) -> str:
+    """'CellPhoneDB v5.0.0（xx）' -> 'CellPhoneDB' (for counting across papers)."""
+    t = re.split(r"[（(]", raw, maxsplit=1)[0]
+    t = re.sub(r"\s+v?\d+(\.\d+)*\w*$", "", t.strip())
+    return t.strip(" ,;")
 
 
 def field_rel_path(slug: str) -> str:
@@ -94,11 +102,17 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
 
     # Tools: counted across papers in this field
     tools: Counter[str] = Counter()
+    display: dict[str, str] = {}
     for r in rows:
-        for t in {t.split("（")[0].split(" (")[0].strip() for t in json.loads(r["card_json"] or "{}").get("tools", [])}:
-            if t:
-                tools[t] += 1
-    section(h["tools"], [", ".join(f"`{t}` ×{n}" if n > 1 else f"`{t}`" for t, n in tools.most_common(40))] if tools else [])
+        keys = set()
+        for t in json.loads(r["card_json"] or "{}").get("tools", []):
+            name = tool_name(t)
+            if name:
+                keys.add(name.lower())
+                display.setdefault(name.lower(), name)
+        tools.update(keys)
+    section(h["tools"], [", ".join(f"`{display[t]}` ×{n}" if n > 1 else f"`{display[t]}`"
+                                   for t, n in tools.most_common(40))] if tools else [])
 
     if field["axis"] == "method":
         section(h["progress"], [f"- {r['year'] or ''} {paper_link(r)}: {r['note']}" for r in rows if r["note"]])

@@ -11,7 +11,7 @@
   const COLORS = { method: color("--map-method"), topic: color("--map-topic"), paper: color("--map-paper") };
 
   let data = null, nodes = [], edges = [], byId = {};
-  let view = { x: 0, y: 0, k: 1 }, alpha = 1, dragging = null, panning = null, hover = null, moved = false;
+  let view = { x: 0, y: 0, k: 1 }, needFit = true, alpha = 1, dragging = null, panning = null, hover = null, moved = false;
 
   function size() {
     const r = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -34,12 +34,12 @@
     byId = {}; nodes.forEach(n => byId[n.id] = n);
     const src = fieldsOnly.checked ? data.field_edges : data.paper_edges;
     edges = src.filter(e => byId[e.source] && byId[e.target]).map(e => ({ s: byId[e.source], t: byId[e.target], w: e.weight || 1, primary: e.primary }));
-    alpha = 1;
+    alpha = 1; needFit = true;
   }
 
   function tick() {
     if (alpha < 0.005) return;
-    const rep = fieldsOnly.checked ? 9000 : 2600;
+    const rep = fieldsOnly.checked ? 14000 : 6000;
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
       for (let j = i + 1; j < nodes.length; j++) {
@@ -51,7 +51,7 @@
         a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
       }
     }
-    const len = fieldsOnly.checked ? 170 : 70;
+    const len = fieldsOnly.checked ? 200 : 120;
     edges.forEach(e => {
       const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
       const f = (d - len) * 0.02 * alpha * Math.min(3, e.w);
@@ -63,6 +63,18 @@
       n.vx *= 0.6; n.vy *= 0.6;
     });
     alpha *= 0.985;
+    if (needFit && alpha < 0.15) { fit(); needFit = false; }
+  }
+
+  // Zoom/pan so the whole graph (with labels) fills the canvas.
+  function fit() {
+    if (!nodes.length) return;
+    const r = canvas.getBoundingClientRect();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    nodes.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
+    const w = Math.max(80, x1 - x0) + 220, h = Math.max(80, y1 - y0) + 120;
+    view.k = Math.max(0.25, Math.min(2.2, Math.min(r.width / w, r.height / h)));
+    view.x = -(x0 + x1) / 2; view.y = -(y0 + y1) / 2;
   }
 
   function toScreen(n) {
@@ -152,6 +164,7 @@
     view.x += nx - wx; view.y += ny - wy;
   }, { passive: false });
   [fieldsOnly, showTopics].forEach(el => el.addEventListener("change", build));
+  canvas.addEventListener("dblclick", fit);
   window.addEventListener("resize", size);
 
   fetch("/api/graph").then(r => r.json()).then(d => {

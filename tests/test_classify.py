@@ -131,3 +131,11 @@ def test_resolve_unverified_with_user_doi(config, registry, pdfs):
     assert pipe.resolve_unverified(pid, "https://doi.org/" + OWN_DOI) == "processed"
     row = registry.get_paper(pid)
     assert row["doi"] == OWN_DOI and row["status"] == "done"
+
+
+def test_tool_name_normalization():
+    from papermap.kb_fields import tool_name
+    assert tool_name("CellPhoneDB v5.0.0") == "CellPhoneDB"
+    assert tool_name("SCENIC v1.3.1（GRNBoost2、RcisTarget）") == "SCENIC"
+    assert tool_name("R 4.1.0") == "R"
+    assert tool_name("Seurat") == "Seurat"
