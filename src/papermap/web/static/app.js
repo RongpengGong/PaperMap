@@ -2,6 +2,23 @@
 (function () {
   const csrf = document.body.dataset.csrf;
   const toastEl = document.getElementById("toast");
+  const sidebar = document.querySelector(".sidebar");
+  if (sidebar) {
+    // Navigating between server-rendered pages replaces the sidebar DOM.
+    // Restore this window's scroll position so its lower items stay in reach.
+    window.addEventListener("pagehide", () => {
+      try { sessionStorage.setItem("papermap.sidebarScroll", String(sidebar.scrollTop)); }
+      catch (_) { /* Storage may be disabled in a private webview. */ }
+    });
+    window.addEventListener("pageshow", event => {
+      if (event.persisted) return;
+      try {
+        const position = sessionStorage.getItem("papermap.sidebarScroll");
+        if (position !== null) { sidebar.scrollTop = Number(position); return; }
+      } catch (_) { /* Keep the active navigation link visible. */ }
+      sidebar.querySelector("a.active")?.scrollIntoView({ block: "nearest" });
+    });
+  }
   let toastTimer;
   function toast(msg, ms = 3500) {
     toastEl.textContent = msg; toastEl.classList.add("show");
@@ -248,7 +265,13 @@
   window.pmStartPolling = startPolling;
 
   // ------------------------------------------- native folder picker (app only)
-  window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
+  function enableNativeWindow() {
+    document.body.classList.add("native");
+    const root = document.documentElement;
+    if (root.hasAttribute("data-native-glass")) root.classList.add("native-glass");
+  }
+  if (window.pywebview?.api) enableNativeWindow();
+  else window.addEventListener("pywebviewready", enableNativeWindow, { once: true });
   document.querySelectorAll("[data-pick-folder]").forEach(btn => btn.addEventListener("click", async () => {
     if (!window.pywebview) { toast("在 PaperMap 应用里可以直接选择文件夹；浏览器里请手动填写路径"); return; }
     const path = await window.pywebview.api.pick_folder();

@@ -142,6 +142,7 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
     threading.Thread(target=watcher.start, name="watcher-start", daemon=True).start()
     app = create_app(cfg, reg, pipe)
     app.state.show_window = show_window
+    app.state.native_glass = sys.platform == "darwin"
     server = uvicorn.Server(uvicorn.Config(app, host=cfg.web["host"], port=int(cfg.web["port"]), log_level="warning"))
     threading.Thread(target=server.run, name="web", daemon=True).start()
     _wait_for(base + "/static/style.css")
@@ -153,6 +154,7 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
     window = webview.create_window(
         "PaperMap", base + start_page, width=1320, height=860, min_size=(900, 600),
         js_api=JsApi(), hidden=background, text_select=True, background_color="#FFFFFF",
+        transparent=app.state.native_glass, vibrancy=app.state.native_glass,
     )
     _state["window"] = window
 

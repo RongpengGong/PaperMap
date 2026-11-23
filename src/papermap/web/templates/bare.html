@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>{% block title %}PaperMap{% endblock %}</title>
 <link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
 <body class="bare" data-csrf="{{ csrf }}">
-<main class="content {% block content_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+<main id="main_content" class="content {% block content_class %}{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
 <div id="drop_overlay" hidden></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="ctx_menu" class="ctx-menu" hidden></div>
