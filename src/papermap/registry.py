@@ -89,6 +89,16 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evidence_questions (
+    id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS evidence_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL REFERENCES evidence_questions(id),
+    paper_id INTEGER NOT NULL REFERENCES papers(id), merged_from INTEGER, page INTEGER NOT NULL,
+    revision TEXT NOT NULL, rects_json TEXT NOT NULL, quote TEXT NOT NULL, source TEXT NOT NULL,
+    stance TEXT NOT NULL, note TEXT NOT NULL, anchor_key TEXT NOT NULL,
+    created_at TEXT NOT NULL, UNIQUE(question_id, paper_id, anchor_key)
+);
 CREATE TABLE IF NOT EXISTS annotations (
     id INTEGER PRIMARY KEY,
     paper_id INTEGER NOT NULL REFERENCES papers(id),
@@ -181,7 +191,8 @@ MIGRATIONS = {
     },
     "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0",
                "read_status": "TEXT NOT NULL DEFAULT 'unread'", "starred": "INTEGER NOT NULL DEFAULT 0",
-               "tags_json": "TEXT", "zotero_key": "TEXT"},
+               "tags_json": "TEXT", "zotero_key": "TEXT",
+               "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER"},
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
     "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
 }
@@ -241,6 +252,23 @@ class Registry:
     def one(self, sql: str, params: tuple | dict = ()) -> sqlite3.Row | None:
         with self._lock:
             return self.conn.execute(sql, params).fetchone()
+
+    def merge_duplicate_paper(self, paper_id: int, existing_id: int) -> None:
+        """Move a confirmed duplicate's files and evidence to the existing paper together."""
+        with self._lock, self.conn:
+            # Two records for the same PDF may have different personal notes on the same passage.
+            # Keep both entries (and their IDs); new captures still deduplicate against the original.
+            self.conn.execute("""
+                UPDATE evidence_entries AS incoming SET anchor_key=anchor_key || '-' || id
+                WHERE paper_id=? AND EXISTS (
+                    SELECT 1 FROM evidence_entries AS original WHERE original.paper_id=?
+                    AND original.question_id=incoming.question_id AND original.anchor_key=incoming.anchor_key
+                )
+            """, (paper_id, existing_id))
+            self.conn.execute("UPDATE evidence_entries SET merged_from=COALESCE(merged_from,paper_id), paper_id=? "
+                              "WHERE paper_id=?", (existing_id, paper_id))
+            self.conn.execute("UPDATE files SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
+            self.conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
 
     # -- events ------------------------------------------------------------
     def log(self, level: str, message: str, paper_id: int | None = None) -> None:

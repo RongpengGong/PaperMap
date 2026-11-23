@@ -1,0 +1,9 @@
+.library-list-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.library-list-scroll #paper_list { overflow:visible; }
+#recent-reading { padding:8px 12px; border-bottom:1px solid var(--line); }
+#recent-reading h2 { margin:0 0 3px; font-size:11px; color:var(--muted); font-weight:600; }
+#recent-reading ul { margin:0; padding:0; list-style:none; }
+#recent-reading a { display:flex; align-items:baseline; gap:8px; padding:4px 2px; color:var(--fg); font-size:12px; }
+#recent-reading a:hover { color:var(--accent); }
+#recent-reading span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#recent-reading small { flex:none; color:var(--muted); }

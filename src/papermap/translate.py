@@ -23,7 +23,7 @@ import httpx
 import pymupdf
 import yaml
 
-from . import __version__
+from . import __version__, ocr
 from .config import Config, effective_llm
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
@@ -70,13 +70,21 @@ _AFTER_REFS = re.compile(r"(online )?methods|materials and methods|data availabi
                          r"acknowledg(e)?ments|author contributions|supplementary information|extended data", re.I)
 
 
-def _blocks(pdf: str | Path) -> list[list[dict]]:
+def _blocks(pdf: str | Path, cache: Path | None = None) -> list[list[dict]]:
     """Per page: text blocks with their dominant font size and boldness."""
     pages = []
     with pymupdf.open(pdf) as doc:
+        auto = cache is not None and ocr.scanned_document(doc)
         for i in range(min(doc.page_count, MAX_PAGES_FOR_LLM)):
             blocks = []
-            for b in doc[i].get_text("dict").get("blocks", []):
+            page = doc[i]
+            found = ocr.page_words(page, cache, automatic=auto) if cache else None
+            if found:
+                text = ocr.lines(found)
+                pages.append([{"lines": [(line, False) for line in text], "size": 11., "bold": False,
+                               "chars": sum(map(len, text))}])
+                continue
+            for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES).get("blocks", []):
                 if b.get("type") != 0:
                     continue
                 lines, sizes, bold = [], Counter(), 0
@@ -100,13 +108,13 @@ def _blocks(pdf: str | Path) -> list[list[dict]]:
     return pages
 
 
-def paragraphs(pdf: str | Path) -> list[dict]:
+def paragraphs(pdf: str | Path, cache: Path | None = None) -> list[dict]:
     """Reading-order paragraphs of the article text.
 
     Drops running headers/footers, the reference list and the small text
     inside figures (axis labels etc.); keeps figure legends.
     """
-    pages = _blocks(pdf)
+    pages = _blocks(pdf, cache)
     sizes = Counter()
     for page in pages:
         for b in page:
@@ -434,7 +442,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     row = registry.get_paper(paper_id)
     service = service_by_id(config, service_id)
     target = config.raw["translation"].get("target_language") or "zh"
-    paras = paragraphs(pdf)
+    paras = paragraphs(pdf, cache=ocr.cache_for(pdf, config.data_dir))
     if not paras:
         raise TranslationError("no text found in the PDF (scanned image?)")
     card = json.loads(row["card_json"] or "{}")

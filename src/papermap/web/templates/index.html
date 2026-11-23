@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}论文 - PaperMap{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/resume.css?v={{ static_v }}">{% endblock %}
+{% block scripts %}<script src="/static/resume.js?v={{ static_v }}"></script>{% endblock %}
 {% block content_class %}split-content{% endblock %}
 {% block content %}
 <script type="application/json" id="plugin_exports">{{ plugin_exports|tojson }}</script>
@@ -32,7 +34,10 @@
     {% if current_collection or c == 'none' %}
     <div class="list-title">{{ icon('folder') if current_collection else icon('inbox') }}<span>{{ current_collection.name if current_collection else '未分组' }}</span><i class="muted small">{{ papers|length }} 篇{% if current_collection %} · 导入的 PDF 会自动放进这个分组{% endif %}</i></div>
     {% endif %}
-    <div id="paper_list" data-selected="{{ selected or '' }}" data-c="{{ c }}">{% include "_paper_list.html" %}</div>
+    <div class="library-list-scroll">
+      {% if not c %}{% include "_recent_reading.html" %}{% endif %}
+      <div id="paper_list" data-selected="{{ selected or '' }}" data-c="{{ c }}">{% include "_paper_list.html" %}</div>
+    </div>
   </section>
   <section class="detail-pane" id="detail">
     {% if p is defined and p %}{% include "_paper_panel.html" %}

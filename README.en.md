@@ -32,6 +32,10 @@ Papers · Knowledge map (blue = method, orange = topic, grey = paper) · Fields 
 
 Your own notes ("Relevance to me" in cards, "My notes" in field pages and handbooks) are never overwritten.
 
+Use **继续阅读** in the library to return to your last reading position. To collect evidence across papers, select a passage in the PDF reader, click **摘到证据笔记**, and choose or create a research question. You can record whether the passage supports or challenges your interpretation, or flag it for review. Open **证据笔记** in the sidebar and click **定位原文** to see the highlighted passage in its original PDF. You can also export the question and its excerpts as Markdown.
+
+On macOS, scanned pages gain a selectable text layer through Apple Vision on your Mac. Use **识别本页** to recognize a mixed-content page manually. Excerpts from recognized text carry an OCR label so you can check the transcription against the scan.
+
 ## Plugins and local API
 
 Open Settings → Application → Plugins and API to install the reading-club export template or Python event inspector. Issue a token there to let local tools query papers, import PDFs and subscribe to events. [Plugin guide and examples (Chinese)](src/papermap/extension_examples/GUIDE.md)

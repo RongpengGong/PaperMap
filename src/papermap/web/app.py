@@ -23,7 +23,8 @@ from starlette.concurrency import run_in_threadpool
 from ..config import PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
-from .. import kb_git, library
+from .. import kb_git, library, reading_progress
+from .. import ocr
 from .. import reader as reader_mod
 from ..llm import check_connection, list_chatgpt_model_options, list_models
 from ..pipeline import Pipeline
@@ -224,6 +225,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rcounts["starred"] = registry.one("SELECT count(*) AS n FROM papers WHERE starred=1")["n"]
         return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(), rcounts=rcounts,
                       status=status, q=q, c=c, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
+                      recent_reading=reading_progress.recent(registry) if not c else [],
                       plugin_exports=[{"id": key, "name": item["name"], "extension": item.get("extension", "md")}
                                       for key, item in export_templates(config).items()],
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
@@ -698,7 +700,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return f
 
     @app.get("/reader/{paper_id}", response_class=HTMLResponse)
-    def reader_page(request: Request, paper_id: int, embed: int = 0, page: int = 1, q: str = ""):
+    def reader_page(request: Request, paper_id: int, embed: int = 0, page: int | None = None, q: str = "",
+                    evidence: int | None = None):
+        if not 0 < paper_id < 2**63:
+            raise HTTPException(404)
+        if evidence is not None and 0 < evidence < 2**63:
+            # Preserve exported links when a pending DOI is merged, even if SQLite reuses the old paper ID.
+            moved = registry.one("SELECT paper_id FROM evidence_entries WHERE id=? AND merged_from=? AND paper_id!=?",
+                                 (evidence, paper_id, paper_id))
+            if moved:
+                return RedirectResponse(request.url.replace(path=f"/reader/{moved['paper_id']}"), status_code=307)
         reader_pdf(paper_id)
         if embed and request.headers.get("sec-fetch-dest") == "document":
             return RedirectResponse(request.url.remove_query_params("embed"), status_code=307,
@@ -709,10 +720,30 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             response.headers.add_vary_header("Sec-Fetch-Dest")
         return response
 
+    @app.get("/api/reading/recent")
+    def recent_reading():
+        return {"recent": reading_progress.recent(registry)}
+
+    @app.post("/api/reader/{paper_id}/progress")
+    def save_reading_progress(paper_id: int, body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        path = reader_pdf(paper_id)
+        doc, lock = reader_mod.DOCS.get(path)
+        with lock:
+            count = doc.page_count
+        try:
+            written = reading_progress.save(registry, paper_id, body, count)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"ok": True, "saved": written, "recent": reading_progress.recent(registry)}
+
     @app.get("/api/reader/{paper_id}/info")
     def reader_info(paper_id: int):
-        data = reader_mod.info(reader_pdf(paper_id))
-        registry.execute("UPDATE papers SET read_status='reading' WHERE id=? AND read_status='unread'", (paper_id,))
+        from ..evidence import document_revision
+
+        path = reader_pdf(paper_id)
+        data = reader_mod.info(path)
+        data.update(revision=document_revision(path), ocr_available=ocr.available())
         data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in registry.annotations(paper_id)]
         return data
 
@@ -724,16 +755,35 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             raise HTTPException(404) from None
         return FileResponse(f, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
 
-    @app.get("/api/reader/{paper_id}/page/{n}/words")
-    def reader_words(paper_id: int, n: int):
+    def text_layer(paper_id: int, n: int, *, force: bool = False):
+        from ..search import index_ocr_page
+
+        path = reader_pdf(paper_id)
         try:
-            return reader_mod.words(reader_pdf(paper_id), n)
+            layer = reader_mod.page_layer(path, n, ocr.cache_for(path, config.data_dir), force=force)
         except IndexError:
             raise HTTPException(404) from None
+        if layer["source"] == "ocr":
+            index_ocr_page(registry, paper_id, n, layer["words"])
+        return layer
+
+    @app.get("/api/reader/{paper_id}/page/{n}/words")
+    def reader_words(paper_id: int, n: int, details: bool = False):
+        layer = text_layer(paper_id, n)
+        return layer if details else layer["words"]
+
+    @app.post("/api/reader/{paper_id}/page/{n}/ocr")
+    def reader_ocr(paper_id: int, n: int, body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        try:
+            return {"ok": True, **text_layer(paper_id, n, force=True)}
+        except ocr.OCRError as exc:
+            return {"ok": False, "message": str(exc)}
 
     @app.get("/api/reader/{paper_id}/search")
     def reader_search(paper_id: int, q: str = ""):
-        return reader_mod.search(reader_pdf(paper_id), q)
+        path = reader_pdf(paper_id)
+        return reader_mod.search(path, q, cache=ocr.cache_for(path, config.data_dir))
 
     def annotations_changed(paper_id: int) -> None:
         def run():
@@ -1583,6 +1633,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       settings_section="extensions")
 
     mount_api(app, config, registry, pipeline, background)
+    from .evidence_routes import mount_evidence
+
+    mount_evidence(app, config, registry, render, csrf_token, reader_pdf)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
 

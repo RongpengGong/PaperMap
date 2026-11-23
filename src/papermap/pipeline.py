@@ -18,7 +18,9 @@ from .extract import PROMPT_VERSION, extract_paper
 from .kb_writer import atomic_write, write_card
 from .llm import BudgetExceeded, LLMClient, LLMError, LLMNotConfigured
 from .metadata import MetadataClient, MetadataUnavailable
-from .pdf_extract import extract_for_llm, read_info, sha256_file
+from . import ocr
+from .evidence import document_revision
+from .pdf_extract import extract_for_llm, read_info
 from . import classify as clf
 from . import handbook as hbmod
 from . import concepts as conceptmod
@@ -134,7 +136,7 @@ class Pipeline:
         if known is not None and known["paper_id"] is not None:
             return self._resume_if_pending(known["paper_id"]) or "known"
 
-        sha = sha256_file(p)
+        sha = document_revision(p)
         row = self.registry.file_by_sha(sha)
         if row is not None and row["paper_id"] is not None:
             new_path = row["path"] != str(p) and str(p) not in self.registry.paper_file_paths(row["paper_id"])
@@ -144,7 +146,7 @@ class Pipeline:
                 self._refresh_card(row["paper_id"])
             return self._resume_if_pending(row["paper_id"]) or "duplicate_file"
 
-        info = read_info(p)
+        info = read_info(p, cache=ocr.cache_for(p, self.config.data_dir))
         if info.error:
             pid = self.registry.create_paper(title=p.stem, status="error", status_detail=f"Cannot read PDF: {info.error}")
             self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, pid)
@@ -312,7 +314,11 @@ class Pipeline:
             self.llm.check_budget()
             self.llm._get_client()
         except (LLMNotConfigured, BudgetExceeded) as exc:
-            self.registry.update_paper(paper_id, status="new", status_detail=str(exc))
+            if row["status_detail"] != str(exc):
+                self.registry.update_paper(paper_id, status="new", status_detail=str(exc))
+                # Scanned papers can be searched locally before a model is configured.
+                if ocr.cache_for(path, self.config.data_dir).exists():
+                    self.reindex(paper_id)
             if not self._llm_block_reported:
                 self.registry.log("warning", str(exc))
                 self._llm_block_reported = True
@@ -320,13 +326,15 @@ class Pipeline:
 
         self.registry.update_paper(paper_id, status="extracting", status_detail=None)
         try:
-            text = extract_for_llm(path, int(self.config.llm.get("max_input_chars", 60000)))
+            text = extract_for_llm(path, int(self.config.llm.get("max_input_chars", 60000)),
+                                   cache=ocr.cache_for(path, self.config.data_dir))
         except Exception as exc:  # noqa: BLE001
             self.registry.update_paper(paper_id, status="error", status_detail=f"Text extraction failed: {exc}")
             self.registry.log("error", f"Text extraction failed for paper #{paper_id}: {exc}", paper_id)
             return "error"
         if len(text.strip()) < MIN_TEXT_CHARS:
-            msg = "PDF has (almost) no text layer - scanned image? OCR is not supported yet"
+            msg = ("未提取到足够的正文。可在阅读器中识别扫描页后重新处理。"
+                   if ocr.available() else "正文文字不足。扫描 PDF 可在 Mac 上使用本机文字识别。")
             self.registry.update_paper(paper_id, status="error", status_detail=msg)
             self.registry.log("error", f"{msg}: paper #{paper_id}", paper_id)
             return "error"
@@ -916,8 +924,7 @@ class Pipeline:
                     raise ValueError("not a valid DOI")
                 existing = self.registry.paper_by_doi(d)
                 if existing is not None:
-                    self.registry.execute("UPDATE files SET paper_id=? WHERE paper_id=?", (existing["id"], paper_id))
-                    self.registry.execute("DELETE FROM papers WHERE id=?", (paper_id,))
+                    self.registry.merge_duplicate_paper(paper_id, existing["id"])
                     self.registry.log("info", f"User-confirmed DOI {d} is already in the library; files merged", existing["id"])
                     self._refresh_card(existing["id"])
                     return "duplicate_doi"

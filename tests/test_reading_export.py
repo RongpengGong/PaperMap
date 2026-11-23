@@ -15,7 +15,8 @@ def test_reading_status_star_and_filters(config, registry, pdfs):
     c = TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765")
     tok = _token(c)
     assert 'class="unread-dot"' in c.get("/").text
-    c.get(f"/api/reader/{pid}/info")  # opening the reader marks it as reading
+    progress = c.post(f"/api/reader/{pid}/progress", json={"csrf": tok, "page": 0, "offset": 0, "at": 1})
+    assert progress.json()["saved"]
     assert registry.get_paper(pid)["read_status"] == "reading"
     assert c.post(f"/paper/{pid}/meta", json={"csrf": tok, "starred": True, "read_status": "read"}).json()["ok"]
     row = registry.get_paper(pid)

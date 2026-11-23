@@ -1,6 +1,7 @@
 {%- macro icon(name) -%}
 <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 {%- if name == 'papers' %}<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>
+{%- elif name == 'evidence' %}<path d="M5 3h12l2 2v16H5zM8 9h3l-1.5 3H8zm5 0h3l-1.5 3H13zM8 16h8"/>
 {%- elif name == 'map' %}<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="17" r="3"/><path d="M8 8.5l2.5 6M16.5 7.5l-3 7M8.5 7l7.5-.8"/>
 {%- elif name == 'fields' %}<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
 {%- elif name == 'handbooks' %}<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M9 7h6"/>
@@ -22,7 +23,7 @@
 {%- endmacro -%}
 {%- set path = request.url.path -%}
 {%- set nav = [
-  ('/', 'papers', '论文'), ('/qa', 'qa', '问答'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
+  ('/', 'papers', '论文'), ('/evidence', 'evidence', '证据笔记'), ('/qa', 'qa', '问答'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
   ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/figures', 'figures', '图片库'), ('/resources', 'resources', '数据资源'), ('/citations', 'citations', '引用'), ('/review', 'review', '待审核'),
 ] -%}
 {%- set nav2 = [('/skills', 'skills', '技能'), ('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}

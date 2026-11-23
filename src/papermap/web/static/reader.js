@@ -12,7 +12,10 @@
   let info = null, zoom = 1, fitWidth = 800, anns = [];
   if (document.body.classList.contains("bare")) root.classList.add("side-hidden");
   const pageEls = [];
+  const ocrButton = document.getElementById("reader_ocr");
+  let activeEvidence = null;
   const measure = document.createElement("canvas").getContext("2d");
+  const progress = window.pmReadingProgress(root, pagesEl, pageEls, csrf);
 
   async function post(url, body) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...body }) });
@@ -41,15 +44,69 @@
     const scale = [1, 1.5, 2, 2.5, 3].reduce((a, b) => Math.abs(b - want) < Math.abs(a - want) ? b : a);
     if (!force && el.dataset.imgScale == scale) return;
     el.dataset.imgScale = scale;
-    el.querySelector("img").src = `/api/reader/${pid}/page/${i}.png?scale=${scale}`;
+    el.querySelector("img").src = `/api/reader/${pid}/page/${i}.png?scale=${scale}&revision=${encodeURIComponent(info.revision)}`;
+  }
+  function setPageWords(i, result) {
+    const el = pageEls[i];
+    el._words = result.words;
+    el.dataset.source = result.source === "ocr" ? "ocr" : "native";
+    buildText(i);
+    drawHighlights(i);
+    syncOcrButton();
   }
   async function loadPage(i) {
     const el = pageEls[i];
-    if (el.dataset.loaded) return;
+    if (el._words || el._loading) return el._loading;
     el.dataset.loaded = "1";
     loadImage(i);
-    el._words = await (await fetch(`/api/reader/${pid}/page/${i}/words`)).json();
-    buildText(i); drawHighlights(i);
+    el._loading = (async () => {
+      try {
+        const response = await fetch(`/api/reader/${pid}/page/${i}/words?details=1`);
+        if (!response.ok) throw Error("无法读取本页文字。");
+        const result = await response.json();
+        if (!Array.isArray(result.words)) throw Error("本页文字暂不可用。");
+        setPageWords(i, result);
+        if (result.message && !result.words.length && +pageNo.value === i + 1) toast(result.message);
+      } catch (error) {
+        if (+pageNo.value === i + 1) toast(error.message);
+      } finally {
+        el._loading = null;
+      }
+    })();
+    return el._loading;
+  }
+  function syncOcrButton() {
+    const page = pageEls[(+pageNo.value || 1) - 1];
+    const recognized = page?.dataset.source === "ocr";
+    ocrButton.disabled = !page || !!page._recognizing || recognized;
+    ocrButton.textContent = page?._recognizing ? "识别中…" : recognized ? "本页已识别" : "识别本页";
+  }
+  ocrButton.addEventListener("click", async () => {
+    const i = Math.min(pageEls.length - 1, Math.max(0, (+pageNo.value || 1) - 1));
+    const el = pageEls[i];
+    if (!el || el._recognizing) return;
+    el._recognizing = true;
+    syncOcrButton();
+    try {
+      await loadPage(i);
+      const result = await post(`/api/reader/${pid}/page/${i}/ocr`, {});
+      if (!result.ok || !Array.isArray(result.words)) throw Error(result.message || "识别失败，请重试。");
+      setPageWords(i, result);
+      toast(result.message || (result.words.length ? "本页文字已就绪，可以选中原文摘录。" : "本页未识别到文字。"));
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      el._recognizing = false;
+      syncOcrButton();
+    }
+  });
+  function wordSeparator(current, next) {
+    if (!next || current[5] !== next[5]) return "";
+    const left = String(current[4]), right = String(next[4]);
+    const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+    if ((cjk.test(left.slice(-1)) || /[，。；：？！、）】》”’]$/.test(left)) && cjk.test(right.slice(0, 1))) return "";
+    if (/^[，。；：？！、）】》”’.,;:!?%)\]]/.test(right) || /[（【《“‘(\[]$/.test(left)) return "";
+    return " ";
   }
   function buildText(i) {
     const el = pageEls[i], layer = el.querySelector(".text-layer"), s = ps(i);
@@ -57,14 +114,15 @@
     if (!el._words) return;
     const frag = document.createDocumentFragment();
     let line = null;
-    for (const [x0, y0, x1, y1, text, lk] of el._words) {
+    for (const [index, word] of el._words.entries()) {
+      const [x0, y0, x1, y1, text, lk] = word;
       if (line !== null && lk !== line) frag.appendChild(document.createTextNode("\n"));
       line = lk;
       const span = document.createElement("span");
       const h = (y1 - y0) * s, w = (x1 - x0) * s, fs = h * 0.88;
-      span.textContent = text + " ";
+      span.textContent = text + wordSeparator(word, el._words[index + 1]);
       measure.font = `${fs}px sans-serif`;
-      const natural = measure.measureText(text + " ").width || w;
+      const natural = measure.measureText(span.textContent).width || w;
       span.style.cssText = `left:${x0 * s}px;top:${y0 * s}px;height:${h}px;font-size:${fs}px;transform:scaleX(${w / natural})`;
       frag.appendChild(span);
     }
@@ -73,6 +131,14 @@
   function drawHighlights(i) {
     const el = pageEls[i], layer = el.querySelector(".hl-layer"), s = ps(i);
     layer.innerHTML = "";
+    if (activeEvidence?.page === i) {
+      for (const [x0, y0, x1, y1] of activeEvidence.rects) {
+        const mark = document.createElement("div");
+        mark.className = "evidence-source-mark";
+        mark.style.cssText = `left:${x0 * s}px;top:${y0 * s}px;width:${(x1 - x0) * s}px;height:${(y1 - y0) * s}px`;
+        layer.appendChild(mark);
+      }
+    }
     anns.filter(a => a.page === i).forEach(a => {
       a.rects.forEach((r, k) => {
         const d = document.createElement("div");
@@ -88,6 +154,8 @@
   async function init() {
     info = await (await fetch(`/api/reader/${pid}/info`)).json();
     anns = info.annotations;
+    ocrButton.hidden = !info.ocr_available;
+    syncOcrButton();
     document.getElementById("page_total").textContent = info.pages.length;
     info.pages.forEach((p, i) => {
       const el = document.createElement("div");
@@ -102,7 +170,10 @@
     renderToc(); renderAnnList();
     const start = Math.max(1, Math.min(info.pages.length, +root.dataset.start || 1));
     const find = (root.dataset.find || "").replace(/"/g, "").trim();
-    if (find) {  // opened from full-text search: show the hits on that page
+    const evidenceId = new URLSearchParams(location.search).get("evidence");
+    if (evidenceId) {
+      await openEvidence(evidenceId, start - 1);
+    } else if (find) {  // opened from full-text search: show the hits on that page
       const q = find.split(/\s+/).sort((a, b) => b.length - a.length)[0];
       document.getElementById("search_q").value = q;
       const hits = await (await fetch(`/api/reader/${pid}/search?q=${encodeURIComponent(q)}`)).json();
@@ -110,7 +181,12 @@
       await loadPage(start - 1);
       goto(start - 1, (onPage[0] || {}).rect);
       onPage.slice(1).forEach(h => flash(h.page, h.rect));
-    } else if (start > 1) goto(start - 1);
+    } else if (root.dataset.start !== "") {
+      goto(start - 1);
+    } else {
+      progress.restore();
+    }
+    progress.start();
   }
 
   function goto(i, rect) {
@@ -119,6 +195,37 @@
     pagesEl.scrollTop = el.offsetTop - 12 + (rect ? Math.max(0, rect[1] * s - 120) : 0);
     if (rect) flash(i, rect);
   }
+  async function openEvidence(id, fallbackPage) {
+    const notice = document.getElementById("evidence_location");
+    const status = document.getElementById("evidence_location_text");
+    notice.hidden = false;
+    try {
+      const response = await fetch(`/api/reader/${pid}/evidence/${encodeURIComponent(id)}`);
+      const entry = await response.json();
+      if (!response.ok || !entry.ok) throw Error(typeof entry.detail === "string" ? entry.detail : "原文位置已不可用。");
+      activeEvidence = entry;
+      const rect = entry.rects[0];
+      document.getElementById("evidence_location_back").href = `/evidence?question=${entry.question_id}#evidence-${encodeURIComponent(id)}`;
+      status.textContent = `已定位证据 · 第 ${entry.page + 1} 页`;
+      drawHighlights(entry.page);
+      goto(entry.page, rect);
+      const left = pageEls[entry.page].getBoundingClientRect().left - pagesEl.getBoundingClientRect().left;
+      const s = ps(entry.page);
+      if (left + rect[0] * s < 0 || left + rect[2] * s > pagesEl.clientWidth) {
+        pagesEl.scrollLeft += left + rect[0] * s - 24;
+      }
+    } catch (error) {
+      activeEvidence = null;
+      goto(fallbackPage);
+      status.textContent = error.message;
+    }
+  }
+  document.getElementById("evidence_location_close").addEventListener("click", () => {
+    const page = activeEvidence?.page;
+    activeEvidence = null;
+    if (page !== undefined) drawHighlights(page);
+    document.getElementById("evidence_location").hidden = true;
+  });
   function flash(i, r) {
     const layer = pageEls[i].querySelector(".flash-layer"), s = ps(i);
     const d = document.createElement("div"); d.className = "flash";
@@ -133,19 +240,27 @@
     let cur = 0;
     for (let i = 0; i < pageEls.length; i++) { if (pageEls[i].offsetTop <= mid) cur = i; else break; }
     if (document.activeElement !== pageNo) pageNo.value = cur + 1;
+    syncOcrButton();
     hideToolbar();
   });
   pageNo.addEventListener("change", () => goto(Math.max(0, Math.min(pageEls.length - 1, pageNo.value - 1))));
+  function relayout(update) {
+    if (!info || !pageEls.length) return;
+    const position = progress.position();
+    update(); layout(); progress.place(position);
+  }
   function setZoom(z) {
-    const anchor = pagesEl.scrollTop / Math.max(1, pagesEl.scrollHeight);
-    zoom = Math.max(0.5, Math.min(3, z)); layout();
-    pagesEl.scrollTop = anchor * pagesEl.scrollHeight;
+    relayout(() => { zoom = Math.max(0.5, Math.min(3, z)); });
   }
   document.getElementById("zoom_in").onclick = () => setZoom(zoom + 0.15);
   document.getElementById("zoom_out").onclick = () => setZoom(zoom - 0.15);
-  document.getElementById("zoom_fit").onclick = () => { computeFit(); setZoom(1); };
-  document.getElementById("toggle_side").onclick = () => { root.classList.toggle("side-hidden"); setTimeout(() => { computeFit(); layout(); }, 50); };
-  let resizeT; window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { computeFit(); layout(); }, 150); });
+  document.getElementById("zoom_fit").onclick = () => relayout(() => { computeFit(); zoom = 1; });
+  document.getElementById("toggle_side").onclick = () => {
+    root.classList.toggle("side-hidden"); requestAnimationFrame(() => relayout(computeFit));
+  };
+  let resizeT; window.addEventListener("resize", () => {
+    clearTimeout(resizeT); resizeT = setTimeout(() => relayout(computeFit), 150);
+  });
   document.addEventListener("keydown", e => {
     if (!(e.metaKey || e.ctrlKey)) return;
     if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(zoom + 0.15); }
@@ -213,15 +328,20 @@
       if (r.width < 1 || r.height < 1) continue;
       if (r.bottom < box.top || r.top > box.bottom) continue;  // only the first page of a cross-page selection
       const x0 = (r.left - box.left) / s, y0 = (r.top - box.top) / s, x1 = (r.right - box.left) / s, y1 = (r.bottom - box.top) / s;
-      // browsers report element and glyph boxes for each word: merge everything on one line
+      // Merge adjacent glyph and element boxes without bridging separate PDF columns.
       const cy = (y0 + y1) / 2, h = y1 - y0;
-      const line = rects.find(l => Math.abs((l[1] + l[3]) / 2 - cy) < Math.min(h, l[3] - l[1]) * 0.5);
+      const line = rects.find(l => Math.abs((l[1] + l[3]) / 2 - cy) < Math.min(h, l[3] - l[1]) * 0.5
+        && x0 <= l[2] + h * 0.6 && x1 >= l[0] - h * 0.6);
       if (line) { line[0] = Math.min(line[0], x0); line[1] = Math.min(line[1], y0); line[2] = Math.max(line[2], x1); line[3] = Math.max(line[3], y1); }
       else rects.push([x0, y0, x1, y1]);
     }
-    rects.sort((a, b) => a[1] - b[1]);
-    const text = sel.toString().replace(/\s+/g, " ").trim();
-    return rects.length && text ? { page: i, rects, text, end: range.getBoundingClientRect() } : null;
+    const endNode = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
+    const crossPage = !pageEl.contains(endNode);
+    // Selection.toString() can drop separators between absolutely positioned PDF lines.
+    // The DOM range retains the text layer's explicit line breaks, including between columns.
+    const quote = range.toString().trim();
+    const text = quote.replace(/\s+/g, " ");
+    return rects.length && quote ? {page: i, rects, text, quote, crossPage, end: range.getBoundingClientRect()} : null;
   }
   pagesEl.addEventListener("mouseup", () => setTimeout(() => {
     selInfo = currentSelection();
@@ -244,6 +364,16 @@
   bar.addEventListener("mousedown", e => e.preventDefault());  // keep the selection
   bar.addEventListener("click", async e => {
     const b = e.target.closest("button"); if (!b || !selInfo) return;
+    if (b.dataset.act === "evidence") {
+      if (selInfo.crossPage) { toast("请按页摘录，以便准确定位每段原文。"); return; }
+      const selection = selInfo;
+      hideToolbar();
+      window.pmEvidence.capture({
+        paper: pid, revision: info.revision, page: selection.page, rects: selection.rects,
+        quote: selection.quote, source: pageEls[selection.page].dataset.source || "native",
+      });
+      return;
+    }
     if (b.dataset.color) return addAnnotation(b.dataset.color);
     if (b.dataset.act === "copy") { navigator.clipboard && navigator.clipboard.writeText(selInfo.text); toast("已复制"); hideToolbar(); }
     if (b.dataset.act === "note") {

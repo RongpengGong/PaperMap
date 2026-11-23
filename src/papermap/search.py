@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import library
+from . import library, ocr
 from .registry import Registry
 
 KINDS = {"page": "正文", "card": "卡片", "notes": "笔记", "annotation": "批注", "translation": "译文", "skill": "技能解读"}
@@ -43,9 +43,11 @@ def _docs(knowledge_dir: Path, registry: Registry, row, pdf: Path | None) -> lis
     docs: list[tuple[str, int | None, str, str]] = []
     if pdf is not None and pdf.exists():
         try:
+            cache = ocr.cache_for(pdf, registry.db_path.parent)
             with pymupdf.open(pdf) as doc:
+                auto = ocr.scanned_document(doc)
                 for i, page in enumerate(doc):
-                    t = " ".join(page.get_text().split())
+                    t = " ".join(ocr.page_text(page, cache, auto).split())
                     if t:
                         docs.append(("page", i, f"p.{i + 1}", t))
         except Exception:  # noqa: BLE001 - a broken PDF must not stop indexing
@@ -78,7 +80,10 @@ def _signature(knowledge_dir: Path, registry: Registry, row, pdf: Path | None) -
     parts = [str(row["updated_at"]), str(len(registry.annotations(row["id"])))]
     for p in ([pdf] if pdf else []):
         if p.exists():
-            parts.append(f"{p.stat().st_size}:{p.stat().st_mtime}")
+            cache = ocr.cache_for(p, registry.db_path.parent)
+            parts.append(f"{ocr.CACHE_VERSION}:{cache.name}")
+            if cache.exists():
+                parts.append(str(cache.stat().st_mtime_ns))
     if row["kb_path"]:
         folder = (knowledge_dir / row["kb_path"]).parent
         if folder.exists():
@@ -97,15 +102,43 @@ def index_paper(knowledge_dir: Path, registry: Registry, paper_id: int, pdf: Pat
     old = registry.one("SELECT signature FROM search_state WHERE paper_id=?", (paper_id,))
     if old is not None and old["signature"] == sig and not force:
         return False
+    cache = ocr.cache_for(pdf, registry.db_path.parent) if pdf and pdf.is_file() else None
+    before = cache.stat().st_mtime_ns if cache and cache.exists() else None
     docs = _docs(knowledge_dir, registry, row, pdf)
-    with registry._lock:  # noqa: SLF001
+    with registry._lock, registry.conn:  # noqa: SLF001
+        # A reader may have recognized a page after _docs had already read it.
+        # Reconcile inside the same transaction used by index_ocr_page.
+        if cache and cache.exists() and cache.stat().st_mtime_ns != before:
+            changed_pages = {}
+            for path in cache.glob("*.json"):
+                if path.stem.isdecimal() and (before is None or path.stat().st_mtime_ns >= before):
+                    found = ocr.cached_words(path)
+                    if found:
+                        page = int(path.stem)
+                        changed_pages[page] = ("page", page, f"p.{page+1}", " ".join(ocr.lines(found)))
+            docs = [d for d in docs if d[0] != "page" or d[1] not in changed_pages]
+            docs.extend(changed_pages.values())
         registry.conn.execute("DELETE FROM search_index WHERE paper_id=?", (paper_id,))
         registry.conn.executemany(
             "INSERT INTO search_index(paper_id, kind, page, label, body) VALUES (?,?,?,?,?)",
             [(paper_id, k, p, lbl, body) for k, p, lbl, body in docs])
         registry.conn.execute("INSERT OR REPLACE INTO search_state(paper_id, signature) VALUES (?,?)", (paper_id, sig))
-        registry.conn.commit()
     return True
+
+
+def index_ocr_page(registry: Registry, paper_id: int, page: int, words: list) -> None:
+    """Make a scan searchable immediately, including papers without a model card."""
+    ensure_schema(registry)
+    body = " ".join(ocr.lines(words))
+    with registry._lock, registry.conn:
+        key = (paper_id, page)
+        previous = registry.conn.execute(
+            "SELECT body FROM search_index WHERE paper_id=? AND page=? AND kind='page'", key).fetchone()
+        if previous is not None and previous["body"] == body:
+            return
+        registry.conn.execute("DELETE FROM search_index WHERE paper_id=? AND page=? AND kind='page'", key)
+        registry.conn.execute("INSERT INTO search_index(paper_id,kind,page,label,body) VALUES (?,'page',?,?,?)",
+                              (paper_id, page, f"p.{page+1}", body))
 
 
 def drop_paper(registry: Registry, paper_id: int) -> None:

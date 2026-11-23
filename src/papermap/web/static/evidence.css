@@ -1,0 +1,30 @@
+.evidence-notebook { width:min(100%, 870px); margin:0 auto; }
+.ev-heading,.ev-entry-head,.ev-entry-actions,.ev-actions,.ev-filters { display:flex; align-items:center; gap:10px; }
+.ev-heading { justify-content:space-between; gap:14px; margin:0 0 22px; }
+.ev-heading h1 { margin:0; }
+.ev-heading button,.ev-actions button,.ev-entry-actions button { margin:0; }
+.ev-filters { flex-wrap:wrap; padding:12px 0 18px; border-bottom:1px solid var(--line); }
+.ev-filters label { margin:0; }
+.ev-filters select { flex:1; width:auto; min-width:130px; }
+.ev-create,.ev-entry form { padding:16px; margin:10px 0; background:var(--side); border-radius:8px; }
+.ev-question-title { margin:24px 0 8px; font-size:17px; overflow-wrap:anywhere; }
+.ev-entry { margin:13px 0; padding:16px 19px; background:var(--card); border:1px solid var(--line); border-radius:9px; scroll-margin-top:16px; }
+.ev-entry:target { border-color:var(--accent); }
+.ev-entry-head { gap:8px; }
+.ev-stance { font-size:11px; font-weight:600; color:var(--muted); }
+.ev-stance[data-stance=supports] { color:var(--ok); }
+.ev-stance[data-stance=opposes] { color:var(--warn); }
+.ev-entry blockquote,.evidence-dialog blockquote { margin:13px 0; padding:1px 0 1px 13px; border-left:3px solid var(--accent); white-space:pre-wrap; overflow-wrap:anywhere; }
+.ev-entry blockquote { font-size:15px; line-height:1.65; }
+.ev-note { white-space:pre-wrap; overflow-wrap:anywhere; }
+.ev-entry-actions { gap:8px; flex-wrap:wrap; margin-top:14px; }
+.ev-source { margin:4px 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.ev-empty { margin-top:20px; color:var(--muted); }
+.ev-actions { justify-content:flex-end; margin-top:16px; }
+.evidence-dialog { width:min(430px, calc(100% - 20px)); max-height:calc(100% - 20px); box-sizing:border-box; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 19px; overflow:auto; }
+.evidence-dialog::backdrop { background:rgba(12,26,45,.28); }
+.evidence-dialog h2 { margin:0; font-size:17px; }
+.evidence-dialog blockquote { max-height:5.5em; overflow:auto; line-height:1.45; }
+.evidence-dialog label { margin-top:9px; }
+.ev-entry-actions[hidden],.ev-new-label[hidden],.evidence-dialog input[hidden] { display:none; }
+.sel-toolbar { max-width:calc(100vw - 16px); flex-wrap:wrap; }

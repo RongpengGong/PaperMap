@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pymupdf
 
+from . import ocr
+
 MAX_PAGES_FOR_LLM = 80
 
 _SUPPLEMENT_FILENAME_RE = re.compile(
@@ -78,7 +80,7 @@ def sha256_file(path: str | Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def read_info(path: str | Path) -> PdfInfo:
+def read_info(path: str | Path, cache: Path | None = None) -> PdfInfo:
     """Cheap pass: metadata, text of the first 2 pages, title, supplement check."""
     p = Path(path)
     res = PdfInfo(path=p)
@@ -90,10 +92,13 @@ def read_info(path: str | Path) -> PdfInfo:
                 res.xmp = doc.get_xml_metadata() or ""
             except Exception:  # noqa: BLE001 - broken XMP is common
                 res.xmp = ""
-            pages = [doc[i].get_text() for i in range(min(2, doc.page_count))]
+            auto = cache is not None and ocr.scanned_document(doc)
+            pages = [ocr.page_text(doc[i], cache, auto) for i in range(min(2, doc.page_count))]
             res.first_pages = pages
             res.first_pages_text = "\n".join(pages)
             res.title_guess = _guess_title(doc, res.info)
+            if not res.title_guess and auto and pages:
+                res.title_guess = next((s.strip() for s in pages[0].splitlines() if _plausible_title(s)), "")
     except Exception as exc:  # noqa: BLE001 - corrupt PDFs must not crash us
         res.error = f"{type(exc).__name__}: {exc}"
         return res
@@ -110,7 +115,7 @@ def _guess_title(doc: pymupdf.Document, info: dict) -> str:
     # Largest-font text on page 1 is usually the title.
     spans: list[tuple[float, float, str]] = []
     page = doc[0]
-    for block in page.get_text("dict").get("blocks", []):
+    for block in page.get_text("dict", flags=pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES).get("blocks", []):
         for line in block.get("lines", []):
             for span in line.get("spans", []):
                 txt = span.get("text", "").strip()
@@ -147,15 +152,16 @@ def _detect_supplement(path: Path, first_text: str) -> tuple[bool, str]:
     return False, ""
 
 
-def extract_for_llm(path: str | Path, max_chars: int) -> str:
+def extract_for_llm(path: str | Path, max_chars: int, cache: Path | None = None) -> str:
     """Return the most informative text (title/abstract/results/methods/legends).
 
-    Image-heavy PDFs are fine: only the text layer is read. Reference lists are
+    Native text or cached scan text is used per page. Reference lists are
     dropped, then each section gets a share of the character budget.
     """
     with pymupdf.open(path) as doc:
         n = min(doc.page_count, MAX_PAGES_FOR_LLM)
-        page_lines = [doc[i].get_text().splitlines() for i in range(n)]
+        auto = cache is not None and ocr.scanned_document(doc)
+        page_lines = [ocr.page_text(doc[i], cache, auto).splitlines() for i in range(n)]
     lines = _drop_running_headers(page_lines)
 
     sections: dict[str, list[str]] = {"head": []}
@@ -223,11 +229,12 @@ def _drop_running_headers(page_lines: list[list[str]]) -> list[str]:
     return [ln for page in page_lines for ln in page if key(ln) not in repeated]
 
 
-def extract_full_text(path: str | Path, max_chars: int = 200000) -> str:
+def extract_full_text(path: str | Path, max_chars: int = 200000, cache: Path | None = None) -> str:
     """Whole main text (running headers and reference lists removed) for skills."""
     with pymupdf.open(path) as doc:
         n = min(doc.page_count, MAX_PAGES_FOR_LLM)
-        page_lines = [doc[i].get_text().splitlines() for i in range(n)]
+        auto = cache is not None and ocr.scanned_document(doc)
+        page_lines = [ocr.page_text(doc[i], cache, auto).splitlines() for i in range(n)]
     lines = [ln for ln in _drop_running_headers(page_lines) if not _REFERENCE_LINE_RE.search(ln)]
     return _join_lines(lines)[:max_chars]
 

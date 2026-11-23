@@ -5,7 +5,7 @@
   const settingsPage = location.pathname === "/settings" || location.pathname === "/zotero" || location.pathname === "/extensions/guide";
   const sidebar = document.querySelector(".sidebar, .settings-sidebar");
   const sidebarScrollKey = settingsPage ? "papermap.settingsSidebarScroll" : "papermap.sidebarScroll";
-  const libraryPages = new Set(["/", "/search", "/qa", "/map", "/fields", "/handbooks", "/concepts",
+  const libraryPages = new Set(["/", "/search", "/qa", "/evidence", "/map", "/fields", "/handbooks", "/concepts",
     "/figures", "/resources", "/citations", "/review", "/skills", "/taxonomy", "/costs", "/events", "/compare"]);
   function libraryLocation(value) {
     if (!value) return null;
@@ -442,7 +442,10 @@
     if (!star && !seg) return;
     const pid = e.target.closest(".panel").dataset.paper;
     const body = star ? { starred: star.dataset.star !== "1" } : { read_status: seg.dataset.rsVal };
-    if ((await api(`/paper/${pid}/meta`, body)).ok) { openPaper(pid, false); refreshList(); }
+    if ((await api(`/paper/${pid}/meta`, body)).ok) {
+      openPaper(pid, false); refreshList();
+      if (seg) document.dispatchEvent(new Event("papermap:read-status"));
+    }
   });
 
   // export references

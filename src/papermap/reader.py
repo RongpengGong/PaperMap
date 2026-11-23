@@ -1,18 +1,21 @@
-"""PDF reader backend (CLAUDE.md §14.7, stage 5c) built on PyMuPDF only:
-page images, a word layer for selection, search, outline and annotations."""
+"""PDF page images, native and local OCR text, search, outline and annotations."""
 
 from __future__ import annotations
 
-import hashlib
 import json
+import re
 import threading
+from bisect import bisect_right
 from collections import OrderedDict
 from datetime import date
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import pymupdf
 import yaml
 
+from . import ocr
+from .evidence import document_revision
 from .kb_writer import atomic_write
 from .registry import Registry
 
@@ -30,7 +33,7 @@ class DocCache:
         self.lock = threading.Lock()
 
     def get(self, path: Path) -> tuple[pymupdf.Document, threading.Lock]:
-        key = f"{path}:{path.stat().st_mtime}"
+        key = document_revision(path)
         with self.lock:
             if key in self.docs:
                 self.docs.move_to_end(key)
@@ -38,8 +41,8 @@ class DocCache:
             entry = (pymupdf.open(path), threading.Lock())
             self.docs[key] = entry
             while len(self.docs) > self.size:
-                _, (old, _) = self.docs.popitem(last=False)
-                old.close()
+                # An in-flight request may still own the document and its lock.
+                self.docs.popitem(last=False)
             return entry
 
 
@@ -57,7 +60,7 @@ def info(path: Path) -> dict:
 def render(path: Path, page: int, scale: float, cache_dir: Path) -> Path:
     """PNG of one page, cached on disk by file content + page + scale."""
     scale = min(ALLOWED_SCALES, key=lambda s: abs(s - scale))
-    digest = hashlib.sha1(f"{path}:{path.stat().st_size}:{path.stat().st_mtime}".encode()).hexdigest()[:16]
+    digest = document_revision(path)
     out = cache_dir / digest / f"{page}-{scale}.png"
     if out.exists():
         return out
@@ -67,37 +70,89 @@ def render(path: Path, page: int, scale: float, cache_dir: Path) -> Path:
             raise IndexError(page)
         pix = doc[page].get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
         data = pix.tobytes("png")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_suffix(".part")
-    tmp.write_bytes(data)
-    tmp.replace(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = NamedTemporaryFile(dir=out.parent, delete=False)
+        try:
+            with tmp:
+                tmp.write(data)
+            Path(tmp.name).replace(out)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
     return out
 
 
-def words(path: Path, page: int) -> list[list]:
-    """[x0, y0, x1, y1, text, line_key] in PDF points, reading order."""
-    doc, lock = DOCS.get(path)
-    with lock:
+def page_layer(path: Path, page: int, cache: Path | None = None, *, force: bool = False) -> dict:
+    """Display-coordinate words from the native text layer or the local scan cache."""
+    # Use a separate document so that slow OCR does not block PNG rendering.
+    with pymupdf.open(path) as doc:
         if not 0 <= page < doc.page_count:
             raise IndexError(page)
-        ws = doc[page].get_text("words", sort=False)
-    return [[round(w[0], 2), round(w[1], 2), round(w[2], 2), round(w[3], 2), w[4], f"{w[5]}-{w[6]}"] for w in ws]
+        pg = doc[page]
+        found = ocr.page_words(pg, cache, force=force) if cache else None
+        if found:
+            return {"words": found, "source": "ocr"}
+        words = []
+        for x0, y0, x1, y1, text, block, line, _ in pg.get_text("words", sort=False):
+            rect = pymupdf.Rect(x0, y0, x1, y1) * pg.rotation_matrix
+            words.append([*[round(v, 2) for v in rect], text, f"{block}-{line}"])
+        layer = {"words": words, "source": "pdf"}
+        if found == []:
+            layer["message"] = "本页没有识别到文字。"
+        return layer
 
 
-def search(path: Path, query: str, limit: int = 300) -> list[dict]:
+def words(path: Path, page: int) -> list[list]:
+    return page_layer(path, page)["words"]
+
+
+def _ocr_hits(words: list, query: str, number: int, limit: int) -> list[dict]:
+    parts, starts, offset = [], [], 0
+    previous = None
+    for word in words:
+        if previous is not None:
+            sep = ocr.word_separator(previous[4], word[4]) if previous[5] == word[5] else " "
+            parts.append(sep)
+            offset += len(sep)
+        starts.append(offset)
+        parts.append(word[4])
+        offset += len(word[4])
+        previous = word
+    text = "".join(parts)
+    hits = []
+    for match in re.finditer(re.escape(query), text, re.I):
+        first = max(0, bisect_right(starts, match.start())-1)
+        idx = first
+        rect = pymupdf.Rect(words[first][:4])
+        while idx + 1 < len(words) and starts[idx+1] < match.end() and words[idx+1][5] == words[first][5]:
+            idx += 1
+            rect |= pymupdf.Rect(words[idx][:4])
+        hits.append({"page": number, "rect": list(rect),
+                     "context": text[max(0, match.start()-65):match.end()+65]})
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def search(path: Path, query: str, limit: int = 300, cache: Path | None = None) -> list[dict]:
     query = query.strip()
     if len(query) < 2:
         return []
-    doc, lock = DOCS.get(path)
     hits = []
-    with lock:
+    with pymupdf.open(path) as doc:
+        auto = cache is not None and ocr.scanned_document(doc)
         for i, page in enumerate(doc):
-            for r in page.search_for(query, quads=False):
-                text = page.get_textbox(pymupdf.Rect(r.x0 - 120, r.y0 - 2, r.x1 + 120, r.y1 + 2))
-                hits.append({"page": i, "rect": [round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)],
-                             "context": " ".join(text.split())[:160]})
-                if len(hits) >= limit:
-                    return hits
+            found = ocr.page_words(page, cache, automatic=auto) if cache else None
+            if found:
+                hits.extend(_ocr_hits(found, query, i, limit-len(hits)))
+            else:
+                for rect in page.search_for(query, quads=False):
+                    text = page.get_textbox(pymupdf.Rect(rect.x0-120, rect.y0-2, rect.x1+120, rect.y1+2))
+                    hits.append({"page": i, "rect": [round(v, 2) for v in rect * page.rotation_matrix],
+                                 "context": " ".join(text.split())[:160]})
+                    if len(hits) >= limit:
+                        break
+            if len(hits) >= limit:
+                break
     return hits
 
 

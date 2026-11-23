@@ -21,6 +21,7 @@ from .config import Config
 from .kb_writer import atomic_write
 from .llm import LLMClient
 from .pdf_extract import extract_full_text
+from . import ocr
 from .registry import Registry
 
 SCRIPT_SUFFIXES = {".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".rb", ".pl", ".bat", ".ps1", ".exe", ".command"}
@@ -170,7 +171,7 @@ def run(skill: Skill, config: Config, registry: Registry, llm: LLMClient, paper_
     ]
     for name, text in _references(skill):
         system += ["", f"===== reference: {name} =====", text]
-    text = extract_full_text(pdf, MAX_PAPER_CHARS)
+    text = extract_full_text(pdf, MAX_PAPER_CHARS, cache=ocr.cache_for(pdf, config.data_dir))
     user = (f"Title: {row['title']}\nJournal: {row['journal'] or ''} ({row['year'] or ''})\nDOI: {row['doi'] or 'none'}\n"
             f"Scope: main text of the PDF as extracted ({len(text):,} characters; figures are not visible, "
             "only their legends).\n\n===== PAPER TEXT =====\n" + text)

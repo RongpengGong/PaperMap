@@ -1,6 +1,7 @@
 /* PaperMap — native surfaces, clear content, restrained glass. */
 :root {
   color-scheme:light;
+  --window-edge:#e3edf9; --edge-line:#c9d9ed;
   --canvas:#f6f8fb; --canvas-end:#f6f8fb; --ambient-cyan:transparent; --ambient-lilac:transparent;
   --bg:#f7f8fa; --fg:#242d3b; --muted:#626f81;
   --line:#dce3ed; --line-strong:#c6d1df; --accent:#2564d9; --accent-hover:#1955c6;
@@ -20,6 +21,7 @@
 @media (prefers-color-scheme:dark) {
   :root {
     color-scheme:dark;
+    --window-edge:#253448; --edge-line:#3c516a;
     --canvas:#1d222a; --canvas-end:#1d222a; --ambient-cyan:transparent; --ambient-lilac:transparent;
     --bg:#20252d; --fg:#e8edf5; --muted:#a5b2c6;
     --line:#344254; --line-strong:#50627b; --accent:#88b2ff; --accent-hover:#a9c8ff;
@@ -60,6 +62,8 @@ h2 { font-size:22px; font-weight:650; } h3 { font-size:15px; font-weight:650; }
 
 /* The whole sidebar scrolls: neither many groups nor a short window can hide Settings. */
 body.app { display:flex; height:100vh; height:100dvh; min-height:0; overflow:hidden; background:var(--bg); }
+/* A single cool edge separates the reading surface from the native window. */
+body.app::after { content:""; flex:0 0 clamp(7px,.7vw,12px); align-self:stretch; background:var(--window-edge); border-inline-start:1px solid var(--edge-line); pointer-events:none; }
 .sidebar { width:216px; flex:none; min-height:0; height:100%; margin:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:0; padding:18px 10px 12px; background:var(--side); border:0; border-right:1px solid var(--line); border-radius:0; box-shadow:none; }
 .sidebar > * { flex-shrink:0; }
 .brand { display:flex; align-items:center; gap:9px; padding:1px 10px 17px; font-size:16px; font-weight:700; letter-spacing:-.035em; }
@@ -333,6 +337,11 @@ body.bare .content { height:100%; padding:0; }
 .page { position:relative; margin:0 auto 22px; background:#fff; box-shadow:0 1px 4px rgba(20,38,62,.14),0 6px 18px rgba(20,38,62,.07); }
 .page img { position:absolute; inset:0; width:100%; height:100%; user-select:none; -webkit-user-select:none; }
 .page .hl-layer,.page .flash-layer { position:absolute; inset:0; pointer-events:none; }
+.reader-evidence-notice { display:flex; flex:none; align-items:center; gap:12px; padding:5px 12px; background:var(--accent-soft); color:var(--fg); border-bottom:1px solid var(--edge-line); font-size:12px; }
+.reader-evidence-notice a { margin-left:auto; }
+.reader-evidence-notice button { margin:0; }
+.reader-evidence-notice button,.reader-evidence-notice a { flex-shrink:0; }
+.evidence-source-mark { position:absolute; background:rgba(63,144,255,.25); outline:1px solid rgba(45,115,211,.55); border-radius:2px; pointer-events:none; }
 .page .text-layer { position:absolute; inset:0; overflow:hidden; line-height:1; }
 .text-layer span { position:absolute; color:transparent; white-space:pre; transform-origin:0 0; cursor:text; font-family:sans-serif; }
 .text-layer ::selection { background:rgba(56,120,234,.28); color:transparent; }
