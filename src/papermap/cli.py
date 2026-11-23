@@ -260,7 +260,7 @@ def cmd_app(args: argparse.Namespace) -> int:
 
     cfg, reg, pipe = _load(args)
     watcher = Watcher(cfg, pipe)
-    watcher.start()
+    threading.Thread(target=watcher.start, name="watcher-start", daemon=True).start()  # may wait on OS permissions
     server = uvicorn.Server(uvicorn.Config(create_app(cfg, reg, pipe), host=cfg.web["host"],
                                            port=int(cfg.web["port"]), log_level="warning"))
     threading.Thread(target=server.run, name="web", daemon=True).start()

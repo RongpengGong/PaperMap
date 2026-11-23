@@ -123,7 +123,9 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
 
     base = f"http://{cfg.web['host']}:{int(cfg.web['port'])}"
     watcher = Watcher(cfg, pipe)
-    watcher.start()
+    # The folder scan can block on macOS privacy prompts (e.g. an inbox inside
+    # Documents): never let that hold up the window and the web server.
+    threading.Thread(target=watcher.start, name="watcher-start", daemon=True).start()
     app = create_app(cfg, reg, pipe)
     app.state.show_window = show_window
     server = uvicorn.Server(uvicorn.Config(app, host=cfg.web["host"], port=int(cfg.web["port"]), log_level="warning"))
