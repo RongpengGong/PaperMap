@@ -16,7 +16,7 @@ import yaml
 from .config import Config
 from .extract import LANGUAGE_RULES
 from .extract import load_prompt as _load_prompt
-from .kb_writer import USER_BEGIN, USER_END, read_user_section
+from .kb_writer import USER_BEGIN, USER_END, atomic_write, read_user_section
 from .llm import LLMClient
 from .registry import Registry
 
@@ -186,7 +186,5 @@ def generate(llm: LLMClient, config: Config, registry: Registry, slug: str) -> s
     path: Path = config.knowledge_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     text = render(field, res.data, refs, config.output_language, res.model, read_user_section(path))
-    tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(text, "utf-8")
-    tmp.replace(path)
+    atomic_write(path, text)
     return rel

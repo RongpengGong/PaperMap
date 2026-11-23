@@ -72,6 +72,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
             review_count=_review_count(registry, pipeline.new_field_threshold),
+            budget_ratio=(registry.month_cost() / float(config.llm.get("monthly_budget_usd") or 0))
+            if float(config.llm.get("monthly_budget_usd") or 0) else 0,
             busy=bool(busy),
         )
         return templates.TemplateResponse(request, name, ctx)
@@ -79,7 +81,39 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, status: str | None = None):
         papers = registry.list_papers(status=status or None, limit=1000)
-        return render(request, "index.html", papers=papers, counts=registry.status_counts(), status=status)
+        bulk = pipeline.estimate() if pipeline.hold and pipeline.pending_count() else None
+        return render(request, "index.html", papers=papers, counts=registry.status_counts(), status=status,
+                      bulk=bulk, pending_n=pipeline.pending_count())
+
+    @app.post("/bulk/start")
+    def bulk_start(csrf: str = Form(...)):
+        _check_csrf(csrf, csrf_token)
+        pipeline.hold = False
+        background("bulk", pipeline.process_pending)
+        return RedirectResponse("/", status_code=303)
+
+    # ------------------------------------------------------------------- costs
+    @app.get("/costs", response_class=HTMLResponse)
+    def costs(request: Request):
+        month = registry.one("SELECT strftime('%Y-%m','now') AS m")["m"]
+        by_purpose = registry.query(
+            "SELECT purpose, count(*) AS n, sum(prompt_tokens) AS pin, sum(completion_tokens) AS pout, "
+            "sum(cost_usd) AS cost, sum(1-ok) AS failed FROM llm_calls WHERE substr(created_at,1,7)=? "
+            "GROUP BY purpose ORDER BY cost DESC", (month,))
+        by_day = registry.query(
+            "SELECT substr(created_at,1,10) AS day, count(*) AS n, sum(cost_usd) AS cost FROM llm_calls "
+            "WHERE created_at >= date('now','-30 day') GROUP BY day ORDER BY day")
+        by_month = registry.query(
+            "SELECT substr(created_at,1,7) AS month, count(*) AS n, sum(cost_usd) AS cost, "
+            "sum(prompt_tokens) AS pin, sum(completion_tokens) AS pout FROM llm_calls GROUP BY month ORDER BY month DESC LIMIT 12")
+        recent = registry.query(
+            "SELECT c.*, p.title FROM llm_calls c LEFT JOIN papers p ON p.id=c.paper_id ORDER BY c.id DESC LIMIT 50")
+        papers_done = registry.one("SELECT count(*) AS n FROM papers WHERE status='done'")["n"]
+        total = registry.one("SELECT sum(cost_usd) AS c FROM llm_calls")["c"] or 0
+        max_day = max([d["cost"] or 0 for d in by_day] + [1e-9])
+        return render(request, "costs.html", by_purpose=by_purpose, by_day=by_day, by_month=by_month,
+                      recent=recent, max_day=max_day, per_paper=(total / papers_done) if papers_done else 0,
+                      eff=config.effective_llm(), est10=pipeline.estimate(10))
 
     @app.get("/paper/{paper_id}", response_class=HTMLResponse)
     def paper(request: Request, paper_id: int):
@@ -162,7 +196,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "fields.html", rows=rows)
 
     @app.get("/field/{slug}", response_class=HTMLResponse)
-    def field_page(request: Request, slug: str, created: int = 0, hb_started: int = 0):
+    def field_page(request: Request, slug: str, created: int = 0, hb_started: int = 0, cons_started: int = 0):
         pipeline.taxonomy()
         f = registry.field_by_slug(slug)
         if f is None:
@@ -174,7 +208,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md",
                       has_handbook=(config.knowledge_dir / "handbooks" / f"{slug}.md").exists(),
                       created=created, hb_started=hb_started or ("handbook" in busy),
-                      n_papers=len(registry.field_paper_rows(f["id"])))
+                      n_papers=len(registry.field_paper_rows(f["id"])),
+                      cons_started=cons_started or ("consolidate" in busy))
 
     # ------------------------------------------------------------------ review
     @app.get("/review", response_class=HTMLResponse)
@@ -275,6 +310,32 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "handbook.html", slug=slug, body_html=md_html(_split_front(path.read_text("utf-8"))[1]),
                       rel=f"handbooks/{slug}.md", f=registry.field_by_slug(slug))
 
+    @app.post("/field/{slug}/consolidate")
+    def field_consolidate(slug: str, csrf: str = Form(...)):
+        _check_csrf(csrf, csrf_token)
+        if registry.field_by_slug(slug) is None:
+            raise HTTPException(404)
+        background("consolidate", _safe(pipeline.consolidate_field), slug)
+        return RedirectResponse(f"/field/{slug}?cons_started=1", status_code=303)
+
+    @app.get("/concepts", response_class=HTMLResponse)
+    def concepts_index(request: Request):
+        d = config.knowledge_dir / "concepts"
+        rows = []
+        for f in sorted(d.glob("*.md")) if d.exists() else []:
+            front = _split_front(f.read_text("utf-8"))[0]
+            rows.append({"slug": f.stem, "name": front.get("name", f.stem), "papers": front.get("papers", 0)})
+        rows.sort(key=lambda r: -int(r["papers"] or 0))
+        return render(request, "concepts.html", rows=rows)
+
+    @app.get("/concept/{slug}", response_class=HTMLResponse)
+    def concept_page(request: Request, slug: str):
+        path = config.knowledge_dir / "concepts" / f"{slug}.md"
+        if not path.exists() or not re.fullmatch(r"[a-z0-9-]+", slug):
+            raise HTTPException(404)
+        return render(request, "concept.html", body_html=md_html(_split_front(path.read_text("utf-8"))[1]),
+                      rel=f"concepts/{slug}.md")
+
     @app.post("/handbook/{slug}/generate")
     def handbook_generate(slug: str, csrf: str = Form(...)):
         _check_csrf(csrf, csrf_token)
@@ -337,12 +398,20 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         background("classify", pipeline.classify_papers, mode)
         return RedirectResponse("/taxonomy?started=1", status_code=303)
 
+    @app.post("/shutdown")
+    def shutdown(csrf: str = Form(...)):
+        """Quit button for the packaged app (no terminal to press Ctrl+C in).
+        Work in progress is resumed on the next start."""
+        _check_csrf(csrf, csrf_token)
+        threading.Timer(0.5, lambda: os._exit(0)).start()
+        return HTMLResponse("<p style='font-family:sans-serif;padding:40px'>PaperMap 已退出。可以关闭这个页面。</p>")
+
     @app.get("/events", response_class=HTMLResponse)
     def events(request: Request):
         return render(request, "events.html", events=registry.recent_events(500))
 
     @app.get("/settings", response_class=HTMLResponse)
-    def settings(request: Request, saved: int = 0):
+    def settings(request: Request, saved: int = 0, welcome: int = 0):
         llm = config.llm
         eff = config.effective_llm()
         custom = llm.get("custom") or {}
@@ -356,7 +425,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             inbox_text="\n".join(str(p) for p in config.raw.get("inbox_dirs") or []),
             exclude_dirs=", ".join(config.exclude_dir_names),
             exclude_patterns=", ".join(config.exclude_patterns),
-            git_available=kb_git.available(),
+            git_available=kb_git.available(), welcome=welcome,
         )
 
     @app.post("/settings")
@@ -503,6 +572,8 @@ def _wikilinks(text: str, registry: Registry) -> str:
         target, label = m.group(1).strip(), (m.group(2) or m.group(1)).strip()
         if target.startswith("fields/"):
             return f"[{label}](/field/{target.split('/', 1)[1]})"
+        if target.startswith("concepts/"):
+            return f"[{label}](/concept/{target.split('/', 1)[1]})"
         if target.startswith("handbooks/"):
             return f"[{label}](/handbook/{target.split('/', 1)[1]})"
         if target.startswith("papers/"):

@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <p class="muted">隐私提示：每篇新论文的文本（标题、摘要、关键章节）会发送到你配置的 LLM 服务商；被排除规则命中的 PDF 不会发送。</p>
+{% if bulk %}
+<div class="notice">
+  <strong>有 {{ bulk.papers }} 篇新论文等待处理。</strong>
+  预计用量约 {{ "%.2f"|format(bulk.tokens_in / 1e6) }}M 输入 + {{ "%.2f"|format(bulk.tokens_out / 1e6) }}M 输出 token
+  {% if bulk.priced %}，费用约 ${{ "%.3f"|format(bulk.cost_offpeak) }}（闲时）– ${{ "%.3f"|format(bulk.cost_peak) }}（高峰）{% else %}（未填价格，无法估算费用）{% endif %}。
+  本月已花 ${{ "%.3f"|format(bulk.spent) }}{% if bulk.budget %} / 预算 ${{ "%.2f"|format(bulk.budget) }}{% endif %}。
+  中途关掉程序也没关系，下次会从断点继续。
+  <form method="post" action="/bulk/start" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button>开始处理</button></form>
+</div>
+{% elif busy and pending_n %}<div class="notice ok">正在后台处理，还剩 {{ pending_n }} 篇。刷新页面查看进度。</div>{% endif %}
 <div class="filters">
   <a href="/">全部</a>
   {% for s, n in counts.items() %}<a href="/?status={{ s }}">{{ s }} ({{ n }})</a>{% endfor %}

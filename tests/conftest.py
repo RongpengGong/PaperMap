@@ -125,7 +125,10 @@ class FakeCompletions:
     def create(self, **kwargs):
         system = kwargs["messages"][0]["content"]
         self.last_system = system
-        if "study handbook" in system:
+        if "You consolidate" in system:
+            self.consolidate_calls = getattr(self, "consolidate_calls", 0) + 1
+            content = json.dumps(CONSOLIDATE)
+        elif "study handbook" in system:
             self.handbook_calls += 1
             content = self.handbook_outputs.pop(0) if self.handbook_outputs else json.dumps(HANDBOOK)
         elif "You classify" in system:
@@ -138,6 +141,14 @@ class FakeCompletions:
         msg = SimpleNamespace(content=content)
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=usage, model=kwargs["model"])
 
+
+CONSOLIDATE = {
+    "overview": [{"text": "Fields combine Visium with scRNA-seq", "refs": ["P1", "P2"]},
+                 {"text": "Made-up overview", "refs": ["P77"]}],
+    "progress": [{"text": "Newer papers use imaging platforms", "refs": ["P1"]}],
+    "disputes": [{"text": "P1 finds A at margins while P2 finds B", "refs": ["P1", "P2"]},
+                 {"text": "Single-paper 'dispute'", "refs": ["P1"]}],
+}
 
 HANDBOOK = {
     "overview": "Overview text.",

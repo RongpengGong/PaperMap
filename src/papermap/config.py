@@ -148,6 +148,9 @@ DEFAULTS: dict[str, Any] = {
     # endpoint) used to merge similar proposed fields; empty = names only.
     "embedding": {"model": ""},
     "knowledge_git": False,  # auto-commit knowledge/ to a local git repo
+    "consolidate_every": 10,  # re-consolidate a field hub after this many new papers
+    "concept_min_papers": 2,  # tool pages for tools used by at least this many papers
+    "bulk_confirm_threshold": 5,  # ask before processing this many new papers at once
     "web": {"host": "127.0.0.1", "port": 8765},
     "debounce_seconds": 3,
 }

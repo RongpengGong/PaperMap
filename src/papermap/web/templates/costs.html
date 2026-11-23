@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}费用 - PaperMap{% endblock %}
+{% block content %}
+<h2>费用</h2>
+<p class="muted">本地估算，按你在设置里填的价格计算{% if eff.peak_schedule == 'deepseek' %}（高峰时段 ×2）{% endif %}{% if eff.price_multiplier != 1 %}，倍率 {{ eff.price_multiplier }}{% endif %}；以服务商账单为准。</p>
+<div class="stats">
+  <div class="stat"><span class="muted">本月</span><strong>${{ "%.4f"|format(month_cost) }}</strong>{% if budget %}<span class="muted">预算 ${{ "%.2f"|format(budget) }}</span>
+    <div class="meter"><i style="width: {{ [100, 100 * budget_ratio]|min }}%"></i></div>{% endif %}</div>
+  <div class="stat"><span class="muted">平均每篇论文</span><strong>${{ "%.4f"|format(per_paper) }}</strong><span class="muted">卡片 + 分类 + 整合/手册分摊</span></div>
+  <div class="stat"><span class="muted">再处理 10 篇约</span><strong>${{ "%.3f"|format(est10.cost_offpeak) }}</strong><span class="muted">高峰 ${{ "%.3f"|format(est10.cost_peak) }}</span></div>
+</div>
+
+<h3>本月按用途</h3>
+<table><tr><th>用途</th><th>次数</th><th>输入 token</th><th>输出 token</th><th>费用</th></tr>
+{% set names = {'extract':'论文卡片','classify':'分类','handbook':'学习手册','consolidate':'学科整合'} %}
+{% for r in by_purpose %}<tr><td>{{ names.get(r.purpose, r.purpose) }}{% if r.failed %} <span class="muted">（{{ r.failed }} 次输出无效后重试）</span>{% endif %}</td><td>{{ r.n }}</td><td>{{ "{:,}".format(r.pin or 0) }}</td><td>{{ "{:,}".format(r.pout or 0) }}</td><td>${{ "%.4f"|format(r.cost or 0) }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">本月还没有调用。</td></tr>{% endfor %}
+</table>
+
+<h3>最近 30 天</h3>
+<div class="bars">
+{% for d in by_day %}<div class="bar" title="{{ d.day }}：{{ d.n }} 次，${{ '%.4f'|format(d.cost or 0) }}"><i style="height: {{ 100 * (d.cost or 0) / max_day }}%"></i><span>{{ d.day[5:] }}</span></div>
+{% else %}<p class="muted">暂无。</p>{% endfor %}
+</div>
+
+<h3>按月</h3>
+<table><tr><th>月份</th><th>次数</th><th>输入 token</th><th>输出 token</th><th>费用</th></tr>
+{% for r in by_month %}<tr><td>{{ r.month }}</td><td>{{ r.n }}</td><td>{{ "{:,}".format(r.pin or 0) }}</td><td>{{ "{:,}".format(r.pout or 0) }}</td><td>${{ "%.4f"|format(r.cost or 0) }}</td></tr>{% endfor %}
+</table>
+
+<h3>最近调用</h3>
+<table><tr><th>时间</th><th>用途</th><th>模型</th><th>token</th><th>费用</th><th>论文</th></tr>
+{% for r in recent %}<tr><td class="muted">{{ r.created_at[:16].replace('T',' ') }}</td><td>{{ names.get(r.purpose, r.purpose) }}{% if not r.ok %} ✗{% endif %}</td><td>{{ r.model }}</td><td>{{ "{:,}".format(r.prompt_tokens) }} + {{ "{:,}".format(r.completion_tokens) }}</td><td>${{ "%.5f"|format(r.cost_usd or 0) }}</td><td>{% if r.paper_id %}<a href="/paper/{{ r.paper_id }}">{{ (r.title or '')[:50] }}</a>{% endif %}</td></tr>{% endfor %}
+</table>
+{% endblock %}

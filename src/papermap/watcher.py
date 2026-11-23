@@ -146,17 +146,29 @@ class Watcher:
         self.observer.start()
         self.debouncer.start()
         self._worker.start()
-        # Startup catch-up scan (files added while we were not running), then
-        # retry papers that were waiting for the LLM.
+        # Startup catch-up scan (files added while we were not running). Papers
+        # are only registered first; if many are new, the LLM step waits for
+        # the user to confirm the cost estimate on the web page.
+        self.pipeline.hold = True
         for p in iter_inbox_pdfs(self.config):
             self._enqueue(p)
         threading.Thread(target=self._pending_after_scan, daemon=True).start()
 
     def _pending_after_scan(self) -> None:
-        # Wait until the startup scan is drained; the pipeline lock serializes
-        # this with the worker, so overlap is harmless.
         while not self.queue.empty():
             time.sleep(1)
+        with self.pipeline._lock:  # wait for the file being processed
+            pass
+        threshold = int(self.config.raw.get("bulk_confirm_threshold", 5))
+        n = self.pipeline.pending_count()
+        if n >= threshold:
+            est = self.pipeline.estimate(n)
+            self.pipeline.registry.log(
+                "warning",
+                f"{n} new papers are waiting. Estimated LLM cost ${est['cost_offpeak']:.3f}-${est['cost_peak']:.3f}; "
+                "confirm on the home page to start.")
+            return  # stays on hold until confirmed
+        self.pipeline.hold = False
         self.pipeline.process_pending()
 
     def stop(self) -> None:

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from .kb_writer import USER_BEGIN, USER_END, read_user_section
+from .kb_writer import USER_BEGIN, USER_END, atomic_write, read_user_section
 from .registry import Registry
 from .taxonomy import Taxonomy
 
@@ -65,8 +65,20 @@ def field_link(slug: str, name: str) -> str:
     return f"[[fields/{slug}|{name}]]"
 
 
+def _cites(registry: Registry, paper_ids: list[int]) -> str:
+    parts = []
+    for pid in paper_ids:
+        r = registry.one("SELECT id AS paper_id, first_author, year, journal, kb_path FROM papers WHERE id=?", (pid,))
+        if r is not None:
+            target = (r["kb_path"] or "").removesuffix(".md")
+            label = f"{r['first_author'] or '?'} {r['year'] or ''}".strip()
+            parts.append(f"[[{target}|{label}]]" if target else label)
+    return f"（{'；'.join(parts)}）" if parts else ""
+
+
 def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language: str,
-                 user_section: str | None, has_handbook: bool = False) -> str:
+                 user_section: str | None, has_handbook: bool = False,
+                 concept_slugs: set[str] | None = None, consolidate_every: int = 10) -> str:
     h = H["en" if language == "en" else "zh"]
     name_col = "name_en" if language == "en" else "name_zh"
     rows = registry.field_paper_rows(field["id"])
@@ -89,7 +101,12 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
     desc = (cat.description if cat else field["description"]) or ""
     syn = ", ".join(cat.synonyms) if cat and cat.synonyms else ""
     hb = ([""] + [f"📘 [[handbooks/{field['slug']}|{'Handbook' if language == 'en' else '学习手册'}]]"]) if has_handbook else []
-    section(h["overview"], [desc] + (["", f"*{syn}*"] if syn else []) + hb)
+    syn_row = registry.one("SELECT * FROM field_syntheses WHERE field_id=? ORDER BY id DESC LIMIT 1", (field["id"],))
+    synth = json.loads(syn_row["data_json"]) if syn_row else {}
+    stamp = (f"*整合于 {syn_row['created_at'][:10]}，基于 {syn_row['n_papers']} 篇论文*" if language != "en"
+             else f"*Consolidated {syn_row['created_at'][:10]} from {syn_row['n_papers']} papers*") if syn_row else ""
+    ov = [f"- {it['text']} {_cites(registry, it['paper_ids'])}" for it in synth.get("overview", [])]
+    section(h["overview"], [desc] + (["", f"*{syn}*"] if syn else []) + hb + (["", stamp, *ov] if ov else []))
     out += [f"## {h['notes']}", "", USER_BEGIN, user_section if user_section is not None else h["notes_hint"], USER_END, ""]
 
     # Key papers, newest first
@@ -112,12 +129,30 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
                 keys.add(name.lower())
                 display.setdefault(name.lower(), name)
         tools.update(keys)
-    section(h["tools"], [", ".join(f"`{display[t]}` ×{n}" if n > 1 else f"`{display[t]}`"
+    from .concepts import concept_slug
+
+    def tool_ref(key: str) -> str:
+        cs = concept_slug(display[key])
+        return f"[[concepts/{cs}|{display[key]}]]" if concept_slugs and cs in concept_slugs else f"`{display[key]}`"
+
+    section(h["tools"], [", ".join(f"{tool_ref(t)} ×{n}" if n > 1 else tool_ref(t)
                                    for t, n in tools.most_common(40))] if tools else [])
 
-    if field["axis"] == "method":
-        section(h["progress"], [f"- {r['year'] or ''} {paper_link(r)}: {r['note']}" for r in rows if r["note"]])
-    section(h["disputes"], [h["disputes_todo"]])
+    prog = [f"- {it['text']} {_cites(registry, it['paper_ids'])}" for it in synth.get("progress", [])]
+    if field["axis"] == "method" or prog:
+        per_paper = [f"- {r['year'] or ''} {paper_link(r)}: {r['note']}" for r in rows if r["note"]]
+        summary_title = "**进展小结（整合）**" if language != "en" else "**Summary (consolidated)**"
+        detail_title = "**逐篇记录**" if language != "en" else "**Per paper**"
+        lines = ([summary_title, "", *prog, "", detail_title, ""] if prog else []) + per_paper
+        section(h["progress"], lines)
+    if syn_row:
+        disp = [f"- {it['text']} {_cites(registry, it['paper_ids'])}" for it in synth.get("disputes", [])]
+        none_msg = "（最近一次整合没有发现论文之间相互矛盾的结论。）" if language != "en" else "(No conflicting results found at the last consolidation.)"
+        section(h["disputes"], disp or [none_msg])
+    else:
+        todo = (f"（同一学科累计 {consolidate_every} 篇论文后自动整合，对比不同论文的结论；也可以在网页学科页点「立即整合」。）"
+                if language != "en" else h["disputes_todo"])
+        section(h["disputes"], [todo])
 
     # Cross-links: co-assigned fields of the other axis (or same axis for topics)
     co: Counter[tuple[str, str]] = Counter()
@@ -133,20 +168,20 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
 
 
 def write_field(knowledge_dir: Path, registry: Registry, field, taxonomy: Taxonomy | None,
-                language: str) -> str:
+                language: str, consolidate_every: int = 10) -> str:
     rel = field_rel_path(field["slug"])
     path = knowledge_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     has_hb = (knowledge_dir / "handbooks" / f"{field['slug']}.md").exists()
-    text = render_field(registry, field, taxonomy, language, read_user_section(path), has_hb)
-    tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(text, "utf-8")
-    tmp.replace(path)
+    concepts = {f.stem for f in (knowledge_dir / "concepts").glob("*.md")} if (knowledge_dir / "concepts").exists() else set()
+    text = render_field(registry, field, taxonomy, language, read_user_section(path), has_hb,
+                        concepts, consolidate_every)
+    atomic_write(path, text)
     return rel
 
 
 def write_fields(knowledge_dir: Path, registry: Registry, taxonomy: Taxonomy | None, language: str,
-                 slugs: set[str] | None = None) -> list[str]:
+                 slugs: set[str] | None = None, consolidate_every: int = 10) -> list[str]:
     """(Re)write hub pages for the given slugs, or all active/used fields."""
     rows = registry.query(
         "SELECT * FROM fields WHERE status IN ('active','retired') ORDER BY axis, sort_order"
@@ -158,5 +193,5 @@ def write_fields(knowledge_dir: Path, registry: Registry, taxonomy: Taxonomy | N
         used = registry.one("SELECT 1 FROM paper_fields WHERE field_id=? LIMIT 1", (f["id"],))
         if f["status"] == "retired" and not used:
             continue
-        written.append(write_field(knowledge_dir, registry, f, taxonomy, language))
+        written.append(write_field(knowledge_dir, registry, f, taxonomy, language, consolidate_every))
     return written

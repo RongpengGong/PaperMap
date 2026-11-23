@@ -126,29 +126,110 @@ def cmd_scan(args: argparse.Namespace) -> int:
     cfg, reg, pipe = _load(args)
     print(PRIVACY_NOTICE.splitlines()[0])
     _key_hint(cfg)
+    # Phase 1: register files (DOI + metadata, no LLM)
+    pipe.hold = True
     counts: dict[str, int] = {}
     for path in iter_inbox_pdfs(cfg):
-        print(f"… {path.name}", end="", flush=True)
         outcome = pipe.handle_path(path)
-        print(f"\r{outcome:>20}  {path}")
+        print(f"{outcome:>20}  {path}")
         counts[outcome] = counts.get(outcome, 0) + 1
-    pending = pipe.process_pending()
-    for k, v in pending.items():
-        counts[f"pending:{k}"] = v
-    print("\nSummary:", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no PDFs found")
+    print("\nFiles:", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no PDFs found")
+
+    # Phase 2: LLM step, with a cost check for large batches
+    pending = reg.query("SELECT id, title FROM papers WHERE status IN ('new','extracting') ORDER BY id")
+    if pending and cfg.api_key():
+        est = pipe.estimate(len(pending))
+        if len(pending) >= int(cfg.raw.get("bulk_confirm_threshold", 5)) and not args.yes:
+            print(f"\n{len(pending)} papers need the LLM: ~{est['tokens_in'] / 1e6:.2f}M input + "
+                  f"{est['tokens_out'] / 1e6:.2f}M output tokens.")
+            if est["priced"]:
+                print(f"Estimated cost: ${est['cost_offpeak']:.3f} (off-peak) - ${est['cost_peak']:.3f} (peak); "
+                      f"spent this month ${est['spent']:.3f}" + (f" of ${est['budget']:.2f}" if est["budget"] else ""))
+            else:
+                print("No prices configured, so no cost estimate (Settings -> prices).")
+            if not sys.stdin.isatty():
+                print("Not an interactive terminal: re-run with --yes to process them.")
+                return 0
+            if _ask("Process them now? (y/N)", "n").lower() != "y":
+                print("Not processed. They stay queued; run `papermap scan` again (or confirm on the web page).")
+                return 0
+        pipe.hold = False
+        for i, row in enumerate(pending, 1):
+            try:
+                outcome = pipe.process_paper(row["id"])
+            except KeyboardInterrupt:
+                print("\nInterrupted - progress is saved; run `papermap scan` again to continue.")
+                return 130
+            print(f"[{i}/{len(pending)}] {outcome:<12} {(row['title'] or '')[:80]}")
+            if outcome in ("waiting_llm", "retry_later"):
+                print("Stopping: the LLM is not available right now (see `papermap status` / activity log).")
+                break
+    pipe.hold = False
+    extra = pipe.classify_papers(mode="unclassified")
+    if extra:
+        print("Classification:", ", ".join(f"{k}={v}" for k, v in extra.items()))
     _print_status(reg)
     return 0
+
+
+def _web_url(cfg, path: str = "/") -> str:
+    return f"http://{cfg.web['host']}:{int(cfg.web['port'])}{path}"
+
+
+def _already_running(cfg) -> bool:
+    import httpx
+
+    try:
+        return httpx.get(_web_url(cfg, "/static/style.css"), timeout=1.5).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def _open_browser_later(url: str, delay: float = 1.5) -> None:
+    import webbrowser
+
+    threading.Timer(delay, lambda: webbrowser.open(url)).start()
+
+
+def cmd_app(args: argparse.Namespace) -> int:
+    """Double-click mode: create a default config on first use, then run
+    the watcher + web UI and open the browser."""
+    path = Path(args.config).expanduser() if args.config else cfgmod.default_config_path()
+    first_run = not path.exists()
+    if first_run:
+        home = path.parent
+        cfg = cfgmod.from_dict({"inbox_dirs": [str(home / "inbox")], "data_dir": str(home),
+                                "taxonomy_file": "default"}, path=path)
+        cfg.save()
+        (home / "inbox").mkdir(parents=True, exist_ok=True)
+        print(f"Created {path}")
+    cfg = cfgmod.load(path)
+    if _already_running(cfg):
+        print("PaperMap is already running; opening the browser.")
+        import webbrowser
+
+        webbrowser.open(_web_url(cfg))
+        return 0
+    args.config = str(path)
+    args.no_web = False
+    args.open = "/settings?welcome=1" if first_run else "/"
+    return cmd_run(args)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
     from .watcher import Watcher
 
     cfg, reg, pipe = _load(args)
+    if not getattr(args, "no_web", False) and _already_running(cfg):
+        print(f"Port {cfg.web['port']} is already in use - is PaperMap already running? ({_web_url(cfg)})")
+        return 1
     print(PRIVACY_NOTICE)
     _key_hint(cfg)
     watcher = Watcher(cfg, pipe)
     watcher.start()
     print("Watching:", ", ".join(str(p) for p in cfg.inbox_dirs))
+    if getattr(args, "open", None):
+        _open_browser_later(_web_url(cfg, args.open))
     if args.no_web:
         stop = threading.Event()
         signal.signal(signal.SIGINT, lambda *_: stop.set())
@@ -212,6 +293,34 @@ def cmd_classify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_autostart(args: argparse.Namespace) -> int:
+    from . import autostart
+
+    cfg = cfgmod.load(args.config)
+    if args.action == "status":
+        print("Autostart:", autostart.status())
+        print(autostart.describe(cfg.path, cfg.logs_dir))
+    elif args.action == "install":
+        print(autostart.install(cfg.path, cfg.logs_dir))
+        print(f"PaperMap now starts at login; web UI at {_web_url(cfg)}")
+    else:
+        print(autostart.uninstall())
+    return 0
+
+
+def cmd_consolidate(args: argparse.Namespace) -> int:
+    cfg, reg, pipe = _load(args)
+    pipe.taxonomy()
+    if args.slug:
+        for slug in args.slug:
+            pipe.consolidate_field(slug)
+            print(f"{slug}: consolidated")
+    else:
+        done = pipe.consolidate_due()
+        print("Consolidated:", ", ".join(done) or "nothing due")
+    return 0
+
+
 def cmd_handbook(args: argparse.Namespace) -> int:
     cfg, reg, pipe = _load(args)
     pipe.taxonomy()
@@ -266,11 +375,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--config", help=f"config.yaml path (default: ${cfgmod.CONFIG_ENV} or ~/PaperMap/config.yaml)")
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--version", action="version", version=__version__)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("init", help="interactively create a config file").set_defaults(func=cmd_init)
-    sub.add_parser("scan", help="scan inbox folders once and process new PDFs").set_defaults(func=cmd_scan)
+    p = sub.add_parser("scan", help="scan inbox folders once and process new PDFs")
+    p.add_argument("-y", "--yes", action="store_true", help="do not ask before processing many papers")
+    p.set_defaults(func=cmd_scan)
     p = sub.add_parser("run", help="watch inbox folders continuously (+ web UI)")
     p.add_argument("--no-web", action="store_true", help="do not start the web UI")
+    p.add_argument("--open", nargs="?", const="/", default=None, help="open the web UI in the browser")
     p.set_defaults(func=cmd_run)
     sub.add_parser("serve", help="start the local web UI only").set_defaults(func=cmd_serve)
     p = sub.add_parser("reprocess", help="re-run LLM extraction for selected papers")
@@ -292,6 +404,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reject", type=int, metavar="ID")
     p.add_argument("--merge", nargs=2, metavar=("ID", "TARGET_SLUG"))
     p.set_defaults(func=cmd_pending)
+    p = sub.add_parser("consolidate", help="consolidate field hub pages (default: those that are due)")
+    p.add_argument("slug", nargs="*")
+    p.set_defaults(func=cmd_consolidate)
+    p = sub.add_parser("autostart", help="start PaperMap automatically at login")
+    p.add_argument("action", choices=["install", "uninstall", "status"])
+    p.set_defaults(func=cmd_autostart)
+    p = sub.add_parser("app", help="first-run setup if needed, run, and open the browser (double-click mode)")
+    p.set_defaults(func=cmd_app)
     p = sub.add_parser("status", help="show library summary")
     p.add_argument("--limit", type=int, default=30)
     p.set_defaults(func=cmd_status)
@@ -299,7 +419,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles may not be UTF-8
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     args = build_parser().parse_args(argv)
+    if args.cmd is None:  # plain `papermap` / double-clicked executable
+        args.func = cmd_app
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

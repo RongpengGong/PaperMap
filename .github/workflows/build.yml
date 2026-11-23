@@ -1,0 +1,35 @@
+name: test-and-build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev,build]"
+      - name: Tests
+        run: python -m pytest -q
+      - name: Build app
+        run: python packaging/build.py
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: dist\PaperMap\PaperMap.exe --version
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: dist/PaperMap/PaperMap --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PaperMap-${{ runner.os }}
+          path: dist/PaperMap

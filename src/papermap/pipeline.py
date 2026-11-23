@@ -15,12 +15,14 @@ from rapidfuzz import fuzz
 from . import doi as doimod
 from .config import Config
 from .extract import PROMPT_VERSION, extract_paper
-from .kb_writer import write_card
+from .kb_writer import atomic_write, write_card
 from .llm import BudgetExceeded, LLMClient, LLMError, LLMNotConfigured
 from .metadata import MetadataClient, MetadataUnavailable
 from .pdf_extract import extract_for_llm, read_info, sha256_file
 from . import classify as clf
 from . import handbook as hbmod
+from . import concepts as conceptmod
+from . import consolidate as consmod
 from . import kb_git, newfields
 from . import taxonomy as taxmod
 from .kb_fields import write_fields
@@ -33,6 +35,9 @@ TEMP_SUFFIXES = (".crdownload", ".part", ".download", ".tmp", ".partial")
 PREPRINT_RELATIONS = {"is-preprint-of": "preprint", "has-preprint": "published"}
 VERSION_RELATIONS = ("is-version-of", "has-version", "is-identical-to")
 MIN_TEXT_CHARS = 500
+HOLD_DETAIL = "Waiting for bulk-import confirmation"
+# Fallback per-paper token use when there is no history yet (measured on Nature papers)
+DEFAULT_TOKENS = {"extract": (16000, 3000), "classify": (4000, 1200)}
 
 
 def is_candidate_file(path: Path, config: Config) -> bool:
@@ -92,6 +97,9 @@ class Pipeline:
         self._lock = threading.Lock()  # one file at a time
         self._llm_block_reported = False
         self.embedder = newfields.Embedder(config)
+        # While True, new papers are registered (DOI, metadata) but not sent to
+        # the LLM: used for bulk imports until the user confirms the estimate.
+        self.hold = False
         self._taxonomy: Taxonomy | None = None
         self._taxonomy_sig: tuple | None = None
 
@@ -271,7 +279,8 @@ class Pipeline:
     def _resume_if_pending(self, paper_id: int) -> str | None:
         row = self.registry.get_paper(paper_id)
         if row is not None and row["status"] in ("new", "extracting"):
-            return self.process_paper(paper_id)
+            outcome = self.process_paper(paper_id)
+            return None if outcome == "held" else outcome
         return None
 
     def process_paper(self, paper_id: int, force: bool = False) -> str:
@@ -280,6 +289,10 @@ class Pipeline:
             return "missing"
         if row["status"] == "done" and not force:
             return "known"
+        if self.hold and not force:
+            if row["status_detail"] != HOLD_DETAIL:
+                self.registry.update_paper(paper_id, status="new", status_detail=HOLD_DETAIL)
+            return "held"
         meta = json.loads(row["meta_json"] or "{}")
         meta.setdefault("title", row["title"])
         meta["doi"] = row["doi"]
@@ -335,9 +348,12 @@ class Pipeline:
 
         self.registry.update_paper(
             paper_id, card_json=result.data, prompt_version=PROMPT_VERSION, model=result.model,
+            status="done", status_detail=None,
         )
-        self._refresh_card(paper_id)
-        self.registry.update_paper(paper_id, status="done", status_detail=None)
+        try:
+            self._refresh_card(paper_id)
+        except OSError as exc:  # e.g. file locked on Windows; rewritten on the next refresh
+            self.registry.log("warning", f"Card for paper #{paper_id} could not be written yet: {exc}", paper_id)
         self.registry.log(
             "info",
             f"Card written for paper #{paper_id} ({result.prompt_tokens}+{result.completion_tokens} tokens, ${result.cost_usd:.4f})",
@@ -383,6 +399,34 @@ class Pipeline:
         for k, v in self.classify_papers(mode="unclassified").items():
             counts[f"classify:{k}"] = v
         return counts
+
+    def pending_count(self) -> int:
+        row = self.registry.one("SELECT count(*) AS n FROM papers WHERE status IN ('new','extracting')")
+        return int(row["n"]) if row else 0
+
+    def estimate(self, n_papers: int | None = None) -> dict:
+        """Rough LLM cost for processing ``n_papers`` new papers (off-peak and peak)."""
+        from .config import PEAK_SCHEDULES
+        from .llm import compute_cost
+
+        n = self.pending_count() if n_papers is None else n_papers
+        tin = tout = 0
+        for purpose, (din, dout) in DEFAULT_TOKENS.items():
+            row = self.registry.one(
+                "SELECT count(*) AS c, avg(prompt_tokens) AS i, avg(completion_tokens) AS o "
+                "FROM llm_calls WHERE purpose=? AND ok=1", (purpose,))
+            if row and row["c"] >= 3:
+                din, dout = int(row["i"]), int(row["o"])
+            tin += din
+            tout += dout
+        eff = self.config.effective_llm()
+        off = compute_cost(dict(eff, peak_schedule="none"), tin, tout) * n
+        peak = off * (2 if PEAK_SCHEDULES.get(eff.get("peak_schedule", "none")) else 1)
+        priced = any(float(eff.get(k) or 0) > 0 for k in ("price_input_per_1m", "price_output_per_1m"))
+        return {"papers": n, "tokens_in": tin * n, "tokens_out": tout * n,
+                "cost_offpeak": off, "cost_peak": peak, "priced": priced,
+                "budget": float(self.config.llm.get("monthly_budget_usd") or 0),
+                "spent": self.registry.month_cost()}
 
     # ------------------------------------------------------- classification
     def taxonomy(self) -> Taxonomy:
@@ -446,7 +490,9 @@ class Pipeline:
         self.refresh_pending()
         after = {r["slug"] for r in self.registry.paper_field_rows(paper_id, include_rejected=True)}
         self._refresh_card(paper_id)
+        self.refresh_concepts()
         self.refresh_fields(before | after)
+        self.consolidate_due({r["slug"] for r in self.registry.paper_field_rows(paper_id) if r["status"] == "accepted"})
         msg = f"Classified paper #{paper_id}: {', '.join(summary['accepted']) or '-'}"
         if summary["suggested"]:
             msg += f"; needs review: {', '.join(summary['suggested'])}"
@@ -510,7 +556,8 @@ class Pipeline:
             tax = self.taxonomy()
         except TaxonomyError:
             tax = None
-        write_fields(self.config.knowledge_dir, self.registry, tax, self.config.output_language, slugs)
+        write_fields(self.config.knowledge_dir, self.registry, tax, self.config.output_language, slugs,
+                     int(self.config.raw.get("consolidate_every", 10)))
 
     # ------------------------------------------------------ new fields (stage 3)
     def _edit_taxonomy(self, edit) -> None:
@@ -519,9 +566,7 @@ class Pipeline:
         spec = str(self.config.raw.get("taxonomy_file") or "default")
         path, switched = taxmod.editable_path(spec, self.config.data_dir)
         new = edit(path.read_text("utf-8").replace("\r\n", "\n"))
-        tmp = path.with_suffix(".yaml.tmp")
-        tmp.write_text(new, "utf-8")
-        tmp.replace(path)
+        atomic_write(path, new)
         if switched:
             self.config.raw["taxonomy_file"] = "taxonomy.yaml"
             if self.config.path:
@@ -603,6 +648,35 @@ class Pipeline:
         self.registry.log("info", f"Proposed field '{row['name_zh'] or row['name_en']}' rejected; "
                                   "similar proposals will be ignored")
         self.kb_commit(f"Reject proposed field {row['slug']}")
+
+    def refresh_concepts(self) -> None:
+        conceptmod.write_all(self.config.knowledge_dir, self.registry, self.config.output_language,
+                             int(self.config.raw.get("concept_min_papers", 2)))
+
+    def consolidate_field(self, slug: str) -> None:
+        """LLM rewrite of a hub's overview/progress/disputes (cited, versioned)."""
+        self.taxonomy()
+        consmod.run(self.llm, self.config, self.registry, slug)
+        self.refresh_fields({slug})
+        self.registry.log("info", f"Field '{slug}' consolidated")
+        self.kb_commit(f"Consolidate field {slug}")
+
+    def consolidate_due(self, slugs: set[str] | None = None) -> list[str]:
+        every = max(1, int(self.config.raw.get("consolidate_every", 10)))
+        done = []
+        for f in self.registry.active_fields():
+            if slugs is not None and f["slug"] not in slugs:
+                continue
+            if consmod.due(self.registry, f["id"], every):
+                try:
+                    self.consolidate_field(f["slug"])
+                    done.append(f["slug"])
+                except (LLMNotConfigured, BudgetExceeded) as exc:
+                    self.registry.log("warning", f"Consolidation of '{f['slug']}' postponed: {exc}")
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    self.registry.log("error", f"Consolidation of '{f['slug']}' failed: {type(exc).__name__}: {exc}")
+        return done
 
     def generate_handbook(self, slug: str) -> str:
         self.taxonomy()

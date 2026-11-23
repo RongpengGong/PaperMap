@@ -87,6 +87,14 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS field_syntheses (
+    id INTEGER PRIMARY KEY,
+    field_id INTEGER NOT NULL REFERENCES fields(id),
+    n_papers INTEGER NOT NULL,
+    data_json TEXT NOT NULL,
+    model TEXT, prompt_version TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS field_proposals (
     id INTEGER PRIMARY KEY,
     paper_id INTEGER REFERENCES papers(id),

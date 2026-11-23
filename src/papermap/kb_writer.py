@@ -10,6 +10,24 @@ import yaml
 
 from .doi import slug as doi_slug
 
+def atomic_write(path: Path, text: str, attempts: int = 5) -> None:
+    """Write via temp file + rename. On Windows the rename fails while another
+    program (e.g. an editor) holds the file, so retry briefly."""
+    import time
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, "utf-8")
+    for i in range(attempts):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.3 * (i + 1))
+
+
 USER_BEGIN = "<!-- user:begin -->"
 USER_END = "<!-- user:end -->"
 
@@ -209,7 +227,5 @@ def write_card(
         meta, card, file_paths, all_dois, language,
         user_section=read_user_section(path), added=read_added(path), fields=fields,
     )
-    tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(text, "utf-8")
-    tmp.replace(path)  # atomic on the same filesystem
+    atomic_write(path, text)
     return rel
