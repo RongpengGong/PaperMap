@@ -700,8 +700,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.get("/reader/{paper_id}", response_class=HTMLResponse)
     def reader_page(request: Request, paper_id: int, embed: int = 0, page: int = 1, q: str = ""):
         reader_pdf(paper_id)
-        return render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page, find=q,
-                      colors=reader_mod.COLORS)
+        if embed and request.headers.get("sec-fetch-dest") == "document":
+            return RedirectResponse(request.url.remove_query_params("embed"), status_code=307,
+                                    headers={"Vary": "Sec-Fetch-Dest"})
+        response = render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page,
+                          find=q, colors=reader_mod.COLORS)
+        if embed:
+            response.headers.add_vary_header("Sec-Fetch-Dest")
+        return response
 
     @app.get("/api/reader/{paper_id}/info")
     def reader_info(paper_id: int):

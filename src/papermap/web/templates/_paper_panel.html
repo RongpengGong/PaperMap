@@ -2,7 +2,7 @@
 <article class="panel {{ 'has-pdf' if has_pdf }}" data-paper="{{ p.id }}">
   <header class="panel-head">
     <div class="title-row">
-      <button type="button" class="icon-btn list-toggle" data-action="toggle-list" title="收起 / 展开论文列表">⟨</button>
+      <button type="button" class="icon-btn list-toggle" data-action="toggle-list" aria-controls="paper-list-pane" aria-expanded="true" aria-label="收起论文列表" title="收起论文列表"><span class="list-chevron" aria-hidden="true">‹</span><span class="list-caption">展开论文列表</span></button>
       <h1 title="{{ p.title }}">{{ p.title or "(无标题)" }}</h1>
       <button type="button" class="star-btn {{ 'on' if p.starred }}" data-star="{{ 1 if p.starred else 0 }}" title="星标">{{ '★' if p.starred else '☆' }}</button>
     </div>

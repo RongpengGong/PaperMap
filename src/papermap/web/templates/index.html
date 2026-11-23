@@ -4,7 +4,7 @@
 {% block content %}
 <script type="application/json" id="plugin_exports">{{ plugin_exports|tojson }}</script>
 <div class="split">
-  <section class="list-pane">
+  <section class="list-pane" id="paper-list-pane">
     <div class="list-head">
       <input type="search" id="q" value="{{ q }}" placeholder="搜索标题、作者、期刊、DOI" autocomplete="off">
       <select id="status_filter" title="按状态筛选">

@@ -1,5 +1,16 @@
 {% extends ("bare.html" if embed else "base.html") %}
 {% block title %}{{ p.title }} - 阅读{% endblock %}
+{% block head %}{% if embed %}
+<script>
+  // A standalone window always needs library navigation, even on WebViews
+  // that omit the request destination header.
+  if (window.top === window.self) {
+    const standalone = new URL(window.location.href);
+    standalone.searchParams.delete("embed");
+    window.location.replace(standalone.href);
+  }
+</script>
+{% endif %}{% endblock %}
 {% block content_class %}reader-content{% endblock %}
 {% block content %}
 <div class="reader" id="reader" data-paper="{{ p.id }}" data-start="{{ start_page }}" data-find="{{ find }}">
@@ -19,7 +30,7 @@
   <section class="reader-main">
     <div class="reader-bar">
       <button type="button" class="icon-btn" id="toggle_side" title="显示/隐藏侧栏">☰</button>
-      {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}">← 返回论文</a>{% endif %}
+      {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}" data-show-library-list>← 返回论文列表</a>{% endif %}
       <span class="reader-title" title="{{ p.title }}">{{ p.title }}</span>
       <span class="grow"></span>
       <span class="page-ind"><input type="number" id="page_no" min="1" value="1"> / <span id="page_total">–</span></span>

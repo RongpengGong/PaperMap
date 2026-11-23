@@ -162,7 +162,11 @@ dl.kv dt { font-weight:550; } dl.kv dd { margin:0; overflow-wrap:anywhere; }
 .panel-head h1 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0 0 5px; font-size:17px; font-weight:650; line-height:1.4; }
 .panel-head .meta { margin:0 0 8px; color:var(--muted); font-size:11.5px; overflow-wrap:anywhere; }
 .list-toggle { margin-top:1px; padding:1px 7px; font-size:13px; }
-body.list-collapsed .list-pane { display:none; } body.list-collapsed .list-toggle { transform:scaleX(-1); }
+.list-toggle .list-chevron { display:inline-block; }
+.list-toggle .list-caption,body.list-collapsed .list-pane { display:none; }
+body.list-collapsed .list-toggle { width:auto; white-space:nowrap; }
+body.list-collapsed .list-chevron { transform:scaleX(-1); }
+body.list-collapsed .list-caption { display:inline; margin-left:4px; }
 .chips-row { display:flex; flex-wrap:wrap; align-items:center; gap:5px 6px; }
 .chips-row .label { padding:1px 7px; font-size:11px; }
 .chips-row .groups { display:inline-flex; flex-wrap:wrap; align-items:center; gap:5px; margin:0 0 0 5px; }

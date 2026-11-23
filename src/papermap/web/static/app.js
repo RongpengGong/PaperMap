@@ -12,13 +12,16 @@
     try {
       const url = new URL(value, location.origin);
       if (url.origin !== location.origin || url.username || url.password) return null;
+      // Older versions saved the embedded preview as the library return URL.
+      const reader = url.pathname.match(/^\/reader\/(\d+)$/);
+      if (reader && Number(url.searchParams.get("embed"))) return "/?id=" + reader[1];
       if (!libraryPages.has(url.pathname) && !/^\/(?:field|handbook|concept)\/[a-z0-9-]+$/.test(url.pathname)
           && !/^\/(?:paper|reader)\/\d+$/.test(url.pathname)) return null;
       return url.pathname + url.search + url.hash;
     } catch (_) { return null; }
   }
   function rememberLibraryLocation() {
-    if (settingsPage) return;
+    if (window.self !== window.top || settingsPage || document.body.classList.contains("bare")) return;
     const url = libraryLocation(location.href);
     try { if (url) sessionStorage.setItem("papermap.libraryReturn", url); }
     catch (_) { /* The default return link remains available. */ }
@@ -157,7 +160,10 @@
 
   // ----------------------------------------------------------------- panel
   const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
-  if (pref("pm_list_collapsed") === "1") document.body.classList.add("list-collapsed");
+  if (document.querySelector(".panel") && pref("pm_list_collapsed") === "1") {
+    document.body.classList.add("list-collapsed");
+  }
+  document.querySelector("[data-show-library-list]")?.addEventListener("click", () => pref("pm_list_collapsed", "0"));
 
   function initPanel() {
     const panel = document.querySelector(".panel"); if (!panel) return;
@@ -187,9 +193,20 @@
     applyPdf();
     pdfBtn && pdfBtn.addEventListener("click", () => { pref("pm_pdf_hidden", pref("pm_pdf_hidden") === "1" ? "0" : "1"); applyPdf(); });
     const listBtn = panel.querySelector('[data-action="toggle-list"]');
-    listBtn && listBtn.addEventListener("click", () => {
-      const c = document.body.classList.toggle("list-collapsed"); pref("pm_list_collapsed", c ? "1" : "0");
-    });
+    if (listBtn) {
+      const updateListButton = () => {
+        const expanded = !document.body.classList.contains("list-collapsed");
+        listBtn.setAttribute("aria-expanded", String(expanded));
+        listBtn.title = expanded ? "收起论文列表" : "展开论文列表";
+        listBtn.setAttribute("aria-label", listBtn.title);
+      };
+      updateListButton();
+      listBtn.addEventListener("click", () => {
+        const collapsed = document.body.classList.toggle("list-collapsed");
+        pref("pm_list_collapsed", collapsed ? "1" : "0");
+        updateListButton();
+      });
+    }
     const handle = panel.querySelector(".split-handle");
     if (handle && !handle.dataset.bound) {
       handle.dataset.bound = "1";
