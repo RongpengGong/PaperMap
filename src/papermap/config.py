@@ -259,6 +259,14 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None,
     }
 
 
+OFFICIAL_TRANSLATION_SERVICES = {
+    "niutrans": {"id": "niutrans", "kind": "niutrans", "name": "小牛翻译", "model": "通用文本 Flash",
+                 "app_id": "", "api_key": ""},
+    "zhipu": {"id": "zhipu", "kind": "zhipu", "name": "智谱翻译", "model": "glm-4.7-flash", "api_key": ""},
+    "tencent": {"id": "tencent", "kind": "tencent", "name": "腾讯混元翻译", "model": "hy-mt2-lite", "api_key": ""},
+}
+
+
 DEFAULTS: dict[str, Any] = {
     "inbox_dirs": [],
     "data_dir": DEFAULT_DATA_DIR,
@@ -312,11 +320,11 @@ DEFAULTS: dict[str, Any] = {
     "knowledge_git": False,  # auto-commit knowledge/ to a local git repo
     "translation": {
         "default": "bilibili",
-        # kind: bilibili (free Index-Translate API) | main (configured LLM) | custom
         "services": [
             {"id": "bilibili", "name": "bilibili Index-Translate（免费）", "kind": "bilibili",
              "model": "Index-Translate-35B-A3B", "mode": "translate", "prompt": ""},
             {"id": "main", "name": "用主模型翻译", "kind": "main", "mode": "translate", "prompt": ""},
+            *OFFICIAL_TRANSLATION_SERVICES.values(),
         ],
         "target_language": "zh",
         "fallback_to_main": True,  # use the main LLM when the translation service fails
@@ -511,6 +519,11 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
 def from_dict(data: dict[str, Any], path: Path | None = None) -> Config:
     data = _migrate(data or {})
     cfg = Config(raw=_deep_merge(DEFAULTS, data or {}), path=path)
+    # Lists in older YAML files replace defaults. Keep their services and default selection.
+    services = list(cfg.raw["translation"]["services"])
+    existing = {svc.get("id") for svc in services}
+    services.extend(copy.deepcopy(preset) for sid, preset in OFFICIAL_TRANSLATION_SERVICES.items() if sid not in existing)
+    cfg.raw["translation"]["services"] = services
     cfg.validate()
     return cfg
 

@@ -1,9 +1,9 @@
 """Full-text paragraph-aligned translation (CLAUDE.md §14.4).
 
-Services: the free bilibili Index-Translate API (default, no key), the main
-LLM, or custom OpenAI/Anthropic/Gemini-compatible endpoints. Paragraphs are
-sent in numbered chunks so the output can be aligned back to the source;
-a glossary keeps gene names, tools and taxonomy terms untranslated.
+Services include bilibili Index-Translate, NiuTrans, Zhipu, Tencent, the main
+LLM, and custom OpenAI/Anthropic/Gemini-compatible endpoints. Dedicated MT
+APIs receive individual paragraphs, while chat models receive numbered chunks.
+A glossary keeps gene names, tools and taxonomy terms untranslated.
 Output: <stem>.translation.md (Obsidian) + <stem>.translation.json (app view).
 """
 
@@ -24,7 +24,7 @@ import pymupdf
 import yaml
 
 from . import __version__, ocr
-from .config import Config, effective_llm
+from .config import Config, OFFICIAL_TRANSLATION_SERVICES, effective_llm
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
 from .pdf_extract import MAX_PAGES_FOR_LLM, _REFERENCE_LINE_RE
@@ -49,6 +49,18 @@ MAX_SERVICE_FAILURES = 3  # then use the fallback for the rest of the paper
 
 class TranslationError(Exception):
     pass
+
+
+def require_credentials(service: dict) -> None:
+    kind = service["kind"]
+    if kind not in OFFICIAL_TRANSLATION_SERVICES:
+        return
+    required = {"api_key": "API Key"}
+    if kind == "niutrans":
+        required["app_id"] = "App ID"
+    missing = [label for key, label in required.items() if not (service.get(key) or "").strip()]
+    if missing:
+        raise TranslationError(f"请在「设置 → AI 服务 → 翻译」填写{service['name']}的{'、'.join(missing)}。")
 
 
 # ------------------------------------------------------------- paragraphs
@@ -320,6 +332,8 @@ class Translator:
     @property
     def model(self) -> str:
         kind = self.service["kind"]
+        if kind in OFFICIAL_TRANSLATION_SERVICES:
+            return OFFICIAL_TRANSLATION_SERVICES[kind]["model"]
         if kind == "bilibili":
             return self.service.get("model") or "Index-Translate-35B-A3B"
         if kind == "main":
@@ -376,13 +390,36 @@ class Translator:
         return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192,
                                   eff=eff, client=make_client(eff)).raw
 
-    def call(self, prompt: str, paper_id: int | None) -> tuple[str, str]:
+    def _official(self, prompt: str, source: str, target: str, terms: list[str], paper_id: int | None) -> str:
+        from . import niutrans, translation_models
+
+        kind = self.service["kind"]
+        key = self.service["api_key"]
+        if kind == "niutrans":
+            out = niutrans.translate(source, target, self.service["app_id"], key, client=self.http, terms=terms)
+            pt, ct = 0, 0  # This service meters characters rather than tokens.
+        elif kind == "tencent":
+            out, pt, ct = translation_models.tencent_translate(self.http, source, target, key, terms)
+        else:
+            out, pt, ct = translation_models.zhipu_translate(self.http, prompt, key)
+        billing = "token" if kind == "zhipu" else "external"
+        self.registry.record_llm_call(paper_id, "translate", self.model, pt, ct, 0.0, True, billing=billing)
+        return out
+
+    def call(self, prompt: str, paper_id: int | None, *, source: str = "", target: str = "zh",
+             terms: list[str] | None = None) -> tuple[str, str]:
         """Returns (text, via). Falls back to the main LLM if the service fails."""
         kind = self.service["kind"]
+        require_credentials(self.service)
         try:
             if self.failures >= MAX_SERVICE_FAILURES:
                 raise LLMHTTPError(0, "service skipped after repeated failures")
-            text = self._bilibili(prompt, paper_id) if kind == "bilibili" else self._llm(prompt, paper_id, kind)
+            if kind in OFFICIAL_TRANSLATION_SERVICES:
+                text = self._official(prompt, source, target, terms or [], paper_id)
+            elif kind == "bilibili":
+                text = self._bilibili(prompt, paper_id)
+            else:
+                text = self._llm(prompt, paper_id, kind)
             self.failures = 0
             return text, self.model
         except Exception as exc:  # noqa: BLE001
@@ -396,19 +433,24 @@ class Translator:
                 return self._llm(prompt, paper_id, "main"), self.config.effective_llm()["model"] + " (fallback)"
             raise
 
+    def translate_text(self, text: str, target: str, terms: list[str], paper_id: int | None,
+                       *, numbered: bool = False) -> tuple[str, str]:
+        local_terms = [term for term in terms if term in text]
+        prompt = build_prompt(text, target, self.service.get("mode", "translate"),
+                              self.service.get("prompt", ""), local_terms, numbered)
+        return self.call(prompt, paper_id, source=text, target=target, terms=local_terms)
+
     def translate_chunk(self, paras: list[dict], ids: list[int], target: str, terms: list[str],
                         paper_id: int | None) -> dict[int, tuple[str, str]]:
-        mode, custom = self.service.get("mode", "translate"), self.service.get("prompt", "")
-        local_terms = [t for t in terms if any(t in paras[i]["src"] for i in ids)]
-        if len(ids) > 1:
+        if len(ids) > 1 and self.service["kind"] not in ("niutrans", "tencent"):
             text = "\n\n".join(f"[{n + 1}] {paras[i]['src']}" for n, i in enumerate(ids))
-            answer, via = self.call(build_prompt(text, target, mode, custom, local_terms, True), paper_id)
+            answer, via = self.translate_text(text, target, terms, paper_id, numbered=True)
             parsed = parse_numbered(answer, list(range(1, len(ids) + 1)))
             if parsed is not None:
                 return {i: (parsed[n + 1], via) for n, i in enumerate(ids)}
         out = {}
         for i in ids:  # alignment failed (or single paragraph): one by one
-            answer, via = self.call(build_prompt(paras[i]["src"], target, mode, custom, local_terms, False), paper_id)
+            answer, via = self.translate_text(paras[i]["src"], target, terms, paper_id)
             out[i] = (answer.strip(), via)
         return out
 
@@ -441,6 +483,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
                     transport: httpx.BaseTransport | None = None) -> Path:
     row = registry.get_paper(paper_id)
     service = service_by_id(config, service_id)
+    require_credentials(service)
     target = config.raw["translation"].get("target_language") or "zh"
     paras = paragraphs(pdf, cache=ocr.cache_for(pdf, config.data_dir))
     if not paras:
@@ -455,7 +498,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     def work(ids: list[int]) -> dict[int, tuple[str, str]]:
         return tr.translate_chunk(paras, ids, target, terms, paper_id)
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+    with tr.http, ThreadPoolExecutor(max_workers=WORKERS) as pool:
         for part in pool.map(work, groups):
             results.update(part)
             done += 1
@@ -463,7 +506,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
                 progress(done, len(groups))
     vias = Counter(v for _, v in results.values())
     result = {
-        "paper_id": paper_id, "service": service.get("name"), "model": vias.most_common(1)[0][0],
+        "paper_id": paper_id, "service": service.get("name"), "model": vias.most_common(1)[0][0] if vias else tr.model,
         "target": target, "generated": date.today().isoformat(), "glossary": terms, "notes": tr.notes,
         "paragraphs": [dict(p, tr=results[i][0], via=results[i][1]) if i in results else dict(p, tr=p["src"], via="")
                        for i, p in enumerate(paras)],

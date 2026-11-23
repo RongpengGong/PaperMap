@@ -30,6 +30,7 @@ from . import taxonomy as taxmod
 from .kb_fields import write_fields
 from .registry import Registry
 from .taxonomy import Taxonomy, TaxonomyError
+from .translate import TranslationError, require_credentials, service_by_id
 
 log = logging.getLogger(__name__)
 
@@ -743,8 +744,10 @@ class Pipeline:
         return json.dumps(r)
 
     def submit_translation(self, paper_id: int, service_id: str = "") -> int:
+        service = service_by_id(self.config, service_id)
+        require_credentials(service)
         self._paper_files(paper_id)
-        return self.jobs.submit("translate", paper_id, service_id)
+        return self.jobs.submit("translate", paper_id, service["id"])
 
     def submit_skill(self, paper_id: int, skill_id: str) -> int:
         self._paper_files(paper_id)
@@ -753,7 +756,10 @@ class Pipeline:
     def _auto_jobs(self, paper_id: int) -> None:
         tr = self.config.raw.get("translation") or {}
         if tr.get("auto_new_papers") and (tr.get("privacy_ack") or tr.get("default") != "bilibili"):
-            self.submit_translation(paper_id)
+            try:
+                self.submit_translation(paper_id)
+            except TranslationError as exc:
+                self.registry.log("warning", f"Automatic translation skipped: {exc}", paper_id)
         sk = self.config.raw.get("skills") or {}
         if sk.get("auto_new_papers"):
             from . import skills_runtime as sr

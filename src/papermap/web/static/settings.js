@@ -365,7 +365,18 @@
   const kbReset = document.getElementById("kb_reset");
   kbReset && kbReset.addEventListener("click", () => moveKb({ reset: true }));
 
-  // translation services: add / delete custom endpoints
+  const translationPicker = document.getElementById("tr_default");
+  if (translationPicker) {
+    function showTranslationService() {
+      form.querySelectorAll("[data-tr-pane]").forEach(pane => {
+        pane.hidden = pane.dataset.trPane !== translationPicker.value;
+      });
+    }
+    translationPicker.addEventListener("change", showTranslationService);
+    showTranslationService();
+  }
+
+  // Add or delete a custom translation endpoint.
   const csrf = document.getElementById("csrf").value;
   const addBtn = document.getElementById("add_service_btn");
   addBtn && addBtn.addEventListener("click", async () => {

@@ -415,7 +415,7 @@ class Registry:
             "INSERT INTO llm_calls(paper_id, purpose, model, prompt_tokens, completion_tokens, "
             "cost_usd, ok, created_at, billing) VALUES (?,?,?,?,?,?,?,?,?)",
             (paper_id, purpose, model, prompt_tokens, completion_tokens, cost_usd, int(ok), now_iso(),
-             "subscription" if billing == "subscription" else "token"),
+             billing if billing in ("subscription", "external") else "token"),
         )
 
     def month_cost(self) -> float:

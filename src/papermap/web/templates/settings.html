@@ -176,12 +176,33 @@
 </section>
 
 <section class="settings-panel" data-settings-panel="translation" aria-label="翻译" {% if settings_section != 'translation' %}hidden{% endif %}>
-  <p class="muted small">在论文详情里点「翻译全文…」，生成段落对照的译文，保存在这篇论文的文件夹里。基因名、软件名和分类表里的术语会作为术语表保持原文。</p>
-  <label for="tr_default">默认翻译服务</label>
-  <select id="tr_default" name="tr_default">{% if tr.default.startswith('ext.') and tr.default not in tr.services|map(attribute='id')|list %}<option value="{{ tr.default }}" selected>之前选择的翻译插件不可用</option>{% endif %}{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
-  <label for="tr_bm">bilibili 模型</label>
-  <select id="tr_bm" name="tr_bilibili_model">{% set cur = (tr.services|selectattr('kind', 'equalto', 'bilibili')|first or {}).get('model') %}{% for k, v in bilibili_models.items() %}<option value="{{ k }}" {{ 'selected' if k == cur }}>{{ v }}</option>{% endfor %}</select>
-  <p class="muted small">bilibili Index-Translate 由 B 站官方免费提供、无需 Key（将来是否收费未知）。使用时论文正文会发送到 B 站服务器。</p>
+  <div class="settings-model-picker">
+    <label for="tr_default">默认翻译服务</label>
+    <select id="tr_default" name="tr_default">{% if tr.default.startswith('ext.') and tr.default not in tr.services|map(attribute='id')|list %}<option value="{{ tr.default }}" selected>之前选择的翻译插件不可用</option>{% endif %}{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
+  </div>
+  <p class="muted small">阅读器划词翻译使用默认服务。论文详情中的「翻译全文」可单独选择服务，所选文字或全文段落会发送给对应服务商。</p>
+  <div class="settings-account" data-tr-pane="bilibili" {% if tr.default != 'bilibili' %}hidden{% endif %}>
+    <label for="tr_bm">bilibili 模型</label>
+    <select id="tr_bm" name="tr_bilibili_model">{% set cur = (tr.services|selectattr('kind', 'equalto', 'bilibili')|first or {}).get('model') %}{% for k, v in bilibili_models.items() %}<option value="{{ k }}" {{ 'selected' if k == cur }}>{{ v }}</option>{% endfor %}</select>
+    <p class="muted small">Index-Translate 使用 B 站服务，免填 API Key。</p>
+  </div>
+  {% for svc in tr.services if svc.official %}
+  <div class="settings-account" data-tr-pane="{{ svc.id }}" {% if tr.default != svc.id %}hidden{% endif %}>
+    {% if svc.id == 'niutrans' %}
+    <p class="muted small">在小牛控制台的「API 应用」开通「文本 API」，填写同一应用的两项凭据。可用免费积分在控制台查看。<a href="https://niutrans.com/documents/contents/transapi_text_v2" target="_blank" rel="noopener noreferrer">小牛接入指南</a></p>
+    <label for="tr_niutrans_app_id">App ID</label>
+    <input id="tr_niutrans_app_id" name="tr_niutrans_app_id" type="text" autocomplete="off" spellcheck="false" placeholder="{{ '已保存，留空保留' if svc.has_app_id else '填写小牛 App ID' }}">
+    {% elif svc.id == 'zhipu' %}
+    <p class="muted small">使用智谱的免费模型 GLM-4.7-Flash 翻译。请在智谱开放平台创建「模型标准 API」密钥。<a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noopener noreferrer">智谱密钥管理</a></p>
+    {% elif svc.id == 'tencent' %}
+    <p class="muted small">使用腾讯云 TokenHub 的混元翻译模型。请在中国大陆站选择广州地域，创建有权调用该模型的密钥，体验额度与用量可在控制台查看。<a href="https://console.cloud.tencent.com/tokenhub/apikey?regionId=1" target="_blank" rel="noopener noreferrer">腾讯云密钥管理</a></p>
+    {% endif %}
+    <label for="tr_{{ svc.id }}_api_key">API Key</label>
+    <input id="tr_{{ svc.id }}_api_key" name="tr_{{ svc.id }}_api_key" type="password" autocomplete="off" spellcheck="false" placeholder="{{ '已保存，留空保留' if svc.has_api_key else '粘贴 API Key' }}">
+    <p class="muted small">凭据保存在本机。填写新值并保存即可替换。</p>
+    {% if svc.has_api_key or svc.has_app_id %}<label class="inline"><input type="checkbox" name="tr_{{ svc.id }}_clear" value="1"> 保存时清除本机的{{ svc.name }}凭据</label>{% endif %}
+  </div>
+  {% endfor %}
   <label for="tr_target">翻译成</label>
   <select id="tr_target" name="tr_target"><option value="zh" {{ 'selected' if tr.target_language == 'zh' }}>中文</option><option value="en" {{ 'selected' if tr.target_language == 'en' }}>英文</option></select>
   <p><label class="inline"><input type="checkbox" name="tr_fallback" value="1" {{ 'checked' if tr.fallback_to_main }}> 翻译服务出错时，自动改用主模型翻译</label><br>
@@ -189,7 +210,7 @@
   <details>
     <summary>其他翻译接口（{{ tr.services|selectattr('kind', 'equalto', 'custom')|list|length }} 个自定义）</summary>
     <table class="svc-table"><tr><th>名称</th><th>类型</th><th>模型</th><th></th></tr>
-    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ svc.plugin or {'bilibili':'内置','main':'主模型','custom':'自定义','plugin':'插件'}[svc.kind] }}</td><td><code>{{ svc.model or '（主模型）' }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
+    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ '官方接口' if svc.official else svc.plugin or {'bilibili':'内置','main':'主模型','custom':'自定义','plugin':'插件'}.get(svc.kind, svc.kind) }}</td><td><code>{{ svc.model or ('文本翻译' if svc.official else '（主模型）') }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
     </table>
     <div class="add-service" id="add_service">
       <div class="row"><label class="grow">名称<input type="text" data-f="name" placeholder="例如：DeepL 中转"></label><label class="grow">Base URL<input type="text" data-f="base_url" placeholder="https://…/v1"></label></div>

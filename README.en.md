@@ -36,6 +36,8 @@ Use **继续阅读** in the library to return to your last reading position. To 
 
 On macOS, scanned pages gain a selectable text layer through Apple Vision on your Mac. Use **识别本页** to recognize a mixed-content page manually. Excerpts from recognized text carry an OCR label so you can check the transcription against the scan.
 
+Under **设置 → AI 服务 → 翻译**, choose the default service for selected text. NiuTrans requires an App ID and API key. Zhipu's free GLM-4.7-Flash model requires a standard model API key. Tencent HY-MT2-Lite uses a Tencent Cloud TokenHub API key for Guangzhou. The settings page links to each provider. You can also choose a service for an individual paper under **翻译全文**.
+
 ## Plugins and local API
 
 Open Settings → Application → Plugins and API to install the reading-club export template or Python event inspector. Issue a token there to let local tools query papers, import PDFs and subscribe to events. [Plugin guide and examples (Chinese)](src/papermap/extension_examples/GUIDE.md)

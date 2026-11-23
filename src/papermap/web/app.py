@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from ..config import PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
+from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
 from .. import kb_git, library, reading_progress
@@ -832,9 +832,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import translate as tr
 
         body = await json_body(request)
-        text = " ".join(str(body.get("text", "")).split())[:4000]
+        text = " ".join(str(body.get("text", "")).split())
         if not text:
             return {"ok": False, "message": "没有选中文字"}
+        if len(text) > 4000:
+            return {"ok": False, "message": "选中文字超过 4000 个字符，请缩短选区，或在论文详情中选择「翻译全文」。"}
         trc = config.raw["translation"]
         try:
             svc = tr.service_by_id(config, None)
@@ -846,16 +848,20 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             trc["privacy_ack"] = True
             config.save()
         target = trc.get("target_language") or "zh"
-        prompt = tr.build_prompt(text, target, svc.get("mode", "translate"), svc.get("prompt", ""), [], False)
         translator = tr.Translator(config, registry, pipeline.llm, svc)
         try:
-            out, via = await run_in_threadpool(translator.call, prompt, body.get("paper_id"))
+            with translator.http:
+                out, via = await run_in_threadpool(translator.translate_text, text, target, [], body.get("paper_id"))
+        except tr.TranslationError as exc:
+            return {"ok": False, "message": str(exc)}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"翻译失败：{type(exc).__name__}: {str(exc)[:200]}"}
         return {"ok": True, "translation": out, "model": via}
 
     @app.post("/paper/{paper_id}/translate")
     async def paper_translate(paper_id: int, request: Request):
+        from ..translate import TranslationError
+
         body = await json_body(request)
         sid = str(body.get("service") or "")
         tr = config.raw["translation"]
@@ -869,7 +875,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             config.save()
         try:
             pipeline.submit_translation(paper_id, sid)
-        except ValueError as exc:
+        except (ValueError, TranslationError) as exc:
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
 
@@ -1263,7 +1269,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         tr = config.raw["translation"]
         if sid.startswith("ext."):
             return {"ok": False, "message": "请在扩展设置里停用所属插件"}
-        if sid in ("bilibili", "main"):
+        if sid in ("bilibili", "main") or sid in OFFICIAL_TRANSLATION_SERVICES:
             return {"ok": False, "message": "内置服务不能删除"}
         tr["services"] = [x for x in tr.get("services", []) if x.get("id") != sid]
         if tr.get("default") == sid:
@@ -1323,6 +1329,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         eff = config.effective_llm()
         custom = llm.get("custom") or {}
         official_env = PROVIDERS["deepseek"]["api_key_env"]
+        tr_services = []
+        for svc in translation_services(config):
+            public = {field: svc[field] for field in ("id", "name", "kind", "model", "plugin") if field in svc}
+            if svc.get("id") in OFFICIAL_TRANSLATION_SERVICES and svc.get("kind") == svc["id"]:
+                public.update(official=True, has_api_key=bool(svc.get("api_key")), has_app_id=bool(svc.get("app_id")))
+            tr_services.append(public)
         return render(
             request, "settings.html", cfg=config, saved=saved, langs=LANGS,
             providers=PROVIDERS, protocols=PROTOCOLS, provider=llm.get("provider", "deepseek"),
@@ -1335,7 +1347,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             git_available=kb_git.available(), welcome=welcome,
             kb_dir=str(config.knowledge_dir), kb_default=(config.knowledge_dir == config.data_dir / "knowledge"),
             data_dir=str(config.data_dir),
-            tr={**config.raw["translation"], "services": translation_services(config)}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
+            tr={**config.raw["translation"], "services": tr_services}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
             claude_model_options=claude_model_options(),
             settings_section=section, settings_groups=SETTINGS_GROUPS,
@@ -1398,6 +1410,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         for svc in tr.get("services", []):
             if svc.get("kind") == "bilibili" and tr_bilibili_model in BILIBILI_MODELS:
                 svc["model"] = tr_bilibili_model
+            sid = svc.get("id")
+            if sid in OFFICIAL_TRANSLATION_SERVICES and svc.get("kind") == sid:
+                fields = ("app_id", "api_key") if sid == "niutrans" else ("api_key",)
+                for field in fields:
+                    value = str(form.get(f"tr_{sid}_{field}", "")).strip()
+                    if form.get(f"tr_{sid}_clear"):
+                        svc.pop(field, None)
+                    elif value:
+                        svc[field] = value
         tr["target_language"] = tr_target if tr_target in ("zh", "en") else "zh"
         tr["fallback_to_main"] = bool(tr_fallback)
         tr["auto_new_papers"] = bool(tr_auto)
