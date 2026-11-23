@@ -23,7 +23,7 @@ from .. import kb_git, library
 from .. import reader as reader_mod
 from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
-from ..registry import Registry
+from ..registry import Registry, now_iso
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
 
 HERE = Path(__file__).parent
@@ -426,6 +426,46 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rel = cmp.save(config.knowledge_dir, items, title, text)
         return {"ok": True, "html": md_html(text), "saved": rel, "cost": cost}
 
+    # -------------------------------------------------------------- citations
+    @app.get("/citations", response_class=HTMLResponse)
+    def citations_page(request: Request, min_citing: int = 2, paper: int | None = None):
+        from .. import citations as ci
+
+        ci.ensure_schema(registry)
+        missing = ci.missing_key_papers(registry, max(1, min_citing))
+        titles = {r["id"]: f"{r['first_author'] or '?'} {r['year'] or ''}" for r in registry.query("SELECT id, first_author, year FROM papers")}
+        edges = [(a, b) for a, b in ci.library_edges(registry)]
+        fetched = registry.one("SELECT count(*) AS n FROM refs_state")["n"]
+        done = [r for r in registry.list_papers(status="done", limit=5000) if r["doi"]]
+        return render(request, "citations.html", missing=missing, titles=titles, edges=edges, min_citing=min_citing,
+                      fetched=fetched, papers=done, selected=paper)
+
+    @app.get("/api/citations/{paper_id}/citing")
+    async def citations_citing(paper_id: int):
+        from .. import citations as ci
+
+        try:
+            return {"ok": True, "works": await run_in_threadpool(ci.citing_works, registry, pipeline.metadata, paper_id)}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+    @app.post("/api/citations/dismiss")
+    async def citations_dismiss(request: Request):
+        from .. import citations as ci
+
+        body = await json_body(request)
+        ci.ensure_schema(registry)
+        registry.execute("INSERT OR IGNORE INTO dismissed_works VALUES (?,?)", (str(body.get("openalex_id", "")), now_iso()))
+        return {"ok": True}
+
+    @app.post("/api/citations/refresh")
+    async def citations_refresh(request: Request):
+        from .. import citations as ci
+
+        await json_body(request)
+        background("citations", ci.fetch_missing, registry, pipeline.metadata, 0)
+        return {"ok": True}
+
     # --------------------------------------------------------- data resources
     @app.get("/resources", response_class=HTMLResponse)
     def resources_page(request: Request, kind: str = "", role: str = "", scope: str = ""):
@@ -760,7 +800,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 for b in sorted(fids)[i + 1:]:
                     co[(a, b)] = co.get((a, b), 0) + 1
         field_edges = [{"source": f"f{a}", "target": f"f{b}", "weight": w} for (a, b), w in co.items()]
-        return {"nodes": nodes + list(papers.values()), "paper_edges": edges, "field_edges": field_edges}
+        from .. import citations as ci
+
+        cite_edges = [{"source": f"p{a}", "target": f"p{b}"} for a, b in ci.library_edges(registry)
+                      if a in papers and b in papers]
+        return {"nodes": nodes + list(papers.values()), "paper_edges": edges, "field_edges": field_edges,
+                "cite_edges": cite_edges}
 
     @app.get("/fields", response_class=HTMLResponse)
     def fields_index(request: Request):

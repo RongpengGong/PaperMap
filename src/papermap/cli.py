@@ -119,7 +119,7 @@ def _load(args: argparse.Namespace):
     except Exception:  # noqa: BLE001 - never block startup on the migration
         logging.getLogger(__name__).exception("library migration failed")
     if getattr(args, "func", None) in (cmd_run, cmd_serve, cmd_app):
-        threading.Thread(target=pipe.reindex_all, name="reindex", daemon=True).start()
+        threading.Thread(target=pipe.background_maintenance, name="maintenance", daemon=True).start()
     return cfg, reg, pipe
 
 

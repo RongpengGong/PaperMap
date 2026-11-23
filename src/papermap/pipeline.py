@@ -370,6 +370,7 @@ class Pipeline:
         self.classify_paper(paper_id)
         self.place_pdfs(paper_id)
         self.reindex(paper_id)
+        threading.Thread(target=self._fetch_citations, args=(paper_id,), daemon=True).start()
         try:
             self._auto_jobs(paper_id)
         except Exception as exc:  # noqa: BLE001
@@ -766,6 +767,24 @@ class Pipeline:
             except Exception:  # noqa: BLE001
                 log.exception("resource extraction failed for paper %s", paper_id)
         return changed
+
+    def _fetch_citations(self, paper_id: int) -> None:
+        from . import citations
+
+        try:
+            citations.fetch_paper(self.registry, self.metadata, paper_id)
+        except Exception as exc:  # noqa: BLE001 - optional enrichment
+            log.info("citations for paper %s not fetched: %s", paper_id, exc)
+
+    def background_maintenance(self) -> None:
+        """Startup: search index, then citation data older than 30 days."""
+        from . import citations
+
+        self.reindex_all()
+        try:
+            citations.fetch_missing(self.registry, self.metadata)
+        except Exception as exc:  # noqa: BLE001
+            log.info("citation refresh skipped: %s", exc)
 
     def reindex_all(self, force: bool = False) -> int:
         n = 0

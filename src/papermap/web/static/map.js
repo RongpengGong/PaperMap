@@ -6,6 +6,7 @@
   const ctx = canvas.getContext("2d");
   const fieldsOnly = document.getElementById("fields_only");
   const showTopics = document.getElementById("show_topics");
+  const showCites = document.getElementById("show_cites");
   const css = getComputedStyle(document.documentElement);
   const color = name => css.getPropertyValue(name).trim();
   const COLORS = { method: color("--map-method"), topic: color("--map-topic"), paper: color("--map-paper") };
@@ -34,6 +35,9 @@
     byId = {}; nodes.forEach(n => byId[n.id] = n);
     const src = fieldsOnly.checked ? data.field_edges : data.paper_edges;
     edges = src.filter(e => byId[e.source] && byId[e.target]).map(e => ({ s: byId[e.source], t: byId[e.target], w: e.weight || 1, primary: e.primary }));
+    if (!fieldsOnly.checked && showCites.checked) (data.cite_edges || []).forEach(e => {
+      if (byId[e.source] && byId[e.target]) edges.push({ s: byId[e.source], t: byId[e.target], w: 0.6, cite: true });
+    });
     alpha = 1; needFit = true;
   }
 
@@ -97,7 +101,17 @@
       ctx.strokeStyle = hot ? color("--accent") : color("--map-edge");
       ctx.globalAlpha = hover && !hot ? 0.25 : 1;
       ctx.lineWidth = (fieldsOnly.checked ? Math.min(8, e.w * 1.5) : (e.primary ? 1.6 : 0.8)) * Math.sqrt(view.k);
+      if (e.cite) { ctx.setLineDash([4, 4]); ctx.strokeStyle = hot ? color("--accent") : color("--map-topic"); }
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      if (e.cite) {  // arrow head: citing -> cited
+        ctx.setLineDash([]);
+        const ang = Math.atan2(y2 - y1, x2 - x1), r = radius(e.t) * Math.sqrt(view.k) + 2;
+        const ax = x2 - Math.cos(ang) * r, ay = y2 - Math.sin(ang) * r;
+        ctx.beginPath(); ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - 7 * Math.cos(ang - 0.4), ay - 7 * Math.sin(ang - 0.4));
+        ctx.lineTo(ax - 7 * Math.cos(ang + 0.4), ay - 7 * Math.sin(ang + 0.4));
+        ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+      }
     });
     ctx.globalAlpha = 1;
     nodes.forEach(n => {
@@ -163,7 +177,7 @@
     const [nx, ny] = toWorld(ev.clientX - r.left, ev.clientY - r.top);
     view.x += nx - wx; view.y += ny - wy;
   }, { passive: false });
-  [fieldsOnly, showTopics].forEach(el => el.addEventListener("change", build));
+  [fieldsOnly, showTopics, showCites].forEach(el => el.addEventListener("change", build));
   canvas.addEventListener("dblclick", fit);
   window.addEventListener("resize", size);
 

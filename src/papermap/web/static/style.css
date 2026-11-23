@@ -323,3 +323,5 @@ a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .cmp-table { min-width:1600px; } .cmp-table th { position:sticky; top:0; background:var(--card); z-index:1; }
 .cmp-table td { font-size:12.5px; min-width:150px; max-width:260px; } .cmp-table ul { margin:0; padding-left:16px; }
 .cmp-table .sticky { position:sticky; left:0; background:var(--card); z-index:2; min-width:200px; border-right:1px solid var(--line); }
+.cit-table td { font-size:13px; } .cit-table .ghost-btn { margin:0; }
+.cit-list li { margin:8px 0; font-size:13px; }
