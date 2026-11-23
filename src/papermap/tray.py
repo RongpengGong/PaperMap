@@ -9,10 +9,49 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import logging
 import webbrowser
 from importlib import resources
 from pathlib import Path
 from typing import Callable
+
+
+log = logging.getLogger(__name__)
+
+
+def open_url(url: str) -> None:
+    """Open a URL in the default browser. Uses the OS opener directly: Python's
+    webbrowser module is unreliable inside packaged (windowed) apps."""
+    log.info("Opening browser: %s", url)
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["/usr/bin/open", url])
+        elif os.name == "nt":
+            os.startfile(url)  # type: ignore[attr-defined]
+        else:
+            webbrowser.open(url)
+    except Exception:  # noqa: BLE001
+        log.exception("could not open %s", url)
+
+
+def _install_reopen_handler(on_reopen: Callable[[], None]) -> object | None:
+    """macOS: double-clicking an app that is already running does not start a
+    second copy - LaunchServices sends a 'reopen' Apple event instead."""
+    try:
+        import objc
+        from Foundation import NSAppleEventManager, NSObject
+    except Exception:  # noqa: BLE001
+        return None
+
+    class _Reopen(NSObject):
+        def handleReopen_withReplyEvent_(self, event, reply):  # noqa: N802 - ObjC selector
+            on_reopen()
+
+    handler = _Reopen.alloc().init()
+    k_core, k_reopen = 0x61657674, 0x72617070  # 'aevt', 'rapp'
+    NSAppleEventManager.sharedAppleEventManager().setEventHandler_andSelector_forEventClass_andEventID_(
+        handler, objc.selector(handler.handleReopen_withReplyEvent_, signature=b"v@:@@"), k_core, k_reopen)
+    return handler  # keep a reference alive
 
 
 def available() -> bool:
@@ -60,7 +99,7 @@ def run(url: str, knowledge_dir: Path, inbox_dirs: list[Path], config_path: Path
         on_quit()
 
     items = [
-        pystray.MenuItem("打开 PaperMap", lambda: webbrowser.open(url), default=True),
+        pystray.MenuItem("打开 PaperMap", lambda: open_url(url), default=True),
         pystray.MenuItem("打开知识库文件夹", lambda: open_folder(knowledge_dir)),
     ]
     if inbox_dirs:
@@ -87,4 +126,9 @@ def run(url: str, knowledge_dir: Path, inbox_dirs: list[Path], config_path: Path
 
         cls = _TemplateIcon
     icon = cls("PaperMap", image, "PaperMap", menu=pystray.Menu(*items))
-    icon.run()
+    def setup(ic) -> None:
+        ic.visible = True
+        if sys.platform == "darwin":
+            ic._reopen_handler = _install_reopen_handler(lambda: open_url(url))  # noqa: SLF001
+
+    icon.run(setup=setup)

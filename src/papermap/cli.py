@@ -200,9 +200,9 @@ def _already_running(cfg) -> bool:
 
 
 def _open_browser_later(url: str, delay: float = 1.5) -> None:
-    import webbrowser
+    from .tray import open_url
 
-    threading.Timer(delay, lambda: webbrowser.open(url)).start()
+    threading.Timer(delay, lambda: open_url(url)).start()
 
 
 def cmd_app(args: argparse.Namespace) -> int:
@@ -221,9 +221,9 @@ def cmd_app(args: argparse.Namespace) -> int:
     cfg = cfgmod.load(path)
     if _already_running(cfg):
         if not getattr(args, "background", False):
-            import webbrowser
+            from .tray import open_url
 
-            webbrowser.open(_web_url(cfg))
+            open_url(_web_url(cfg))
         print("PaperMap is already running.")
         return 0
     args.config = str(path)
