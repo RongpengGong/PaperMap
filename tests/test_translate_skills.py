@@ -72,7 +72,7 @@ def test_misaligned_answer_falls_back_to_single_paragraphs(config, registry, pdf
     pdf, card = pipe._paper_files(registry.paper_by_doi(OWN_DOI)["id"])
     handler = lambda req: httpx.Response(200, text="data: " + json.dumps({"choices": [{"delta": {"content": "全部混在一起的译文"}}]}) + "\n\ndata: [DONE]\n\n")
     out = tr.translate_paper(config, registry, pipe.llm, 1, pdf, card, transport=_bilibili(handler))
-    assert all(p["tr"] == "全部混在一起的译文" for p in json.loads(out.read_text())["paragraphs"])
+    assert all(p["tr"] == "全部混在一起的译文" for p in json.loads(out.read_text())["paragraphs"] if p["kind"] != "meta")
 
 
 def test_service_failure_falls_back_to_main_model(config, registry, pdfs, monkeypatch):
@@ -84,7 +84,7 @@ def test_service_failure_falls_back_to_main_model(config, registry, pdfs, monkey
     out = tr.translate_paper(config, registry, pipe.llm, 1, pdf, card,
                              transport=_bilibili(lambda req: httpx.Response(503)))
     data = json.loads(out.read_text())
-    assert all(p["tr"].startswith("主模型译文") for p in data["paragraphs"])
+    assert all(p["tr"].startswith("主模型译文") for p in data["paragraphs"] if p["kind"] != "meta")
     assert data["notes"] and "(fallback)" in data["model"]
     config.raw["translation"]["fallback_to_main"] = False
     with pytest.raises(Exception):
@@ -157,3 +157,14 @@ def test_web_translate_ack_and_skills_page(config, registry, pdfs):
     assert c.post(f"/api/translation/services/{j['id']}/delete", json={"csrf": tok}).json()["ok"]
     assert not c.post("/api/translation/services/bilibili/delete", json={"csrf": tok}).json()["ok"]
     assert "bilibili Index-Translate" in c.get("/settings").text
+
+
+def test_author_lists_and_metadata_are_not_translated():
+    assert tr.is_meta("Xing Cai1,5, Yuhang Xiang2,5, Guang Yang3,5, Hongbin Wang3,5 & Meisi Yan2")
+    assert tr.is_meta("Grant de Jong1,22, Fani Memi1,22, Tannia Gracia1,22, Olga Lazareva1,2,3,22,")
+    assert tr.is_meta("Richard Mair4,13 ✉, Sam Behjati1,5,7 ✉, Oliver Stegle1,2,3 ✉ & Omer Ali Bayraktar1,21 ✉")
+    assert tr.is_meta("https://doi.org/10.1038/s41698-026-01718-1") and tr.is_meta("Received: 10 February 2025")
+    assert not tr.is_meta("Public data were obtained from GEO: GSE139495, GSE148673, GSE161529, GSE176078 and GSE180286.")
+    assert not tr.is_meta("Stromal cells are key components of the breast cancer tumor microenvironment, yet unclear.")
+    paras = [{"kind": "meta", "src": "A B1, C D2 & E F3"}, {"kind": "para", "src": "x" * 50}]
+    assert tr.chunks(paras) == [[1]]

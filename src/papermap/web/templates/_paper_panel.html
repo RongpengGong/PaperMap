@@ -63,7 +63,8 @@
     <p class="muted small">由 {{ translation.service }}（{{ translation.model }}）翻译，{{ translation.generated }}。仅供阅读参考，引用以原文为准。{% for n in translation.notes %}<br>⚠️ {{ n }}{% endfor %}</p>
     <div class="bilingual">
       {% for para in translation.paragraphs %}
-      {% if para.kind == 'heading' %}<h3 class="bi-src">{{ para.src }}</h3><h3 class="bi-tr">{{ para.tr }}</h3>
+      {% if para.kind == 'meta' %}<p class="bi-src bi-meta">{{ para.src }}</p>
+      {% elif para.kind == 'heading' %}<h3 class="bi-src">{{ para.src }}</h3><h3 class="bi-tr">{{ para.tr }}</h3>
       {% else %}<p class="bi-src">{{ para.src }}</p><p class="bi-tr">{{ para.tr }}</p>{% endif %}
       {% endfor %}
     </div>

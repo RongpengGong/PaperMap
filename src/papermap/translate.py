@@ -124,7 +124,10 @@ def paragraphs(pdf: str | Path) -> list[dict]:
     repeated = {k for k, n in counts.items() if n >= limit} if len(pages) >= 4 else set()
     out: list[dict] = []
     in_refs = False
+    stop = False
     for page in pages:
+        if stop:
+            break
         for b in page:
             b = dict(b, lines=[(t, bd) for t, bd in b["lines"] if key(t) not in repeated])
             if not b["lines"]:
@@ -132,7 +135,8 @@ def paragraphs(pdf: str | Path) -> list[dict]:
             raw = "\n".join(t for t, _ in b["lines"])
             first = b["lines"][0][0].strip()
             if _END_RE.match(first):
-                return _merge(out)  # journal reporting-summary forms are not article text
+                stop = True  # journal reporting-summary forms are not article text
+                break
             legend = bool(_LEGEND_RE.match(first))
             if not legend and b["size"] < body - 1.4:
                 continue  # text inside figures, footnotes, small print
@@ -175,7 +179,7 @@ def paragraphs(pdf: str | Path) -> list[dict]:
                 t = _clean(piece)
                 if len(t) >= 25:
                     out.append({"kind": "para", "src": t})
-    return _merge(out)
+    return [dict(p, kind="meta") if p["kind"] in ("para", "heading") and is_meta(p["src"]) else p for p in _merge(out)]
 
 
 _END_RE = re.compile(r"(nature portfolio )?reporting summary\b|(nature research )?reporting summary\b", re.I)
@@ -193,9 +197,31 @@ def _merge(out: list[dict]) -> list[dict]:
     return merged
 
 
+_NAME = r"[A-Z][a-zA-Z\u00C0-\u024F'\-]+(?:\s+[A-Z][a-zA-Z\u00C0-\u024F'.\-]*)*"
+_AUTHORS_RE = re.compile(rf"^(?:{_NAME}\s*[\d,*†‡§#]*\s*(?:,|&|\band\b)\s*){{2,}}{_NAME}\s*[\d,*†‡§#]*\.?$")
+_META_RE = re.compile(r"^(https?://|doi[:\s]|received:|accepted:|published( online)?:|e-?mail:|correspondence|"
+                      r"check for updates|open access|©|\(c\)|copyright)", re.I)
+
+
+def _is_author_list(t: str) -> bool:
+    """'Xing Cai1,5, Yuhang Xiang2,5 & Meisi Yan2' / 'Grant de Jong1,22, Fani Memi1,22,'"""
+    parts = [x for x in re.split(r",\s*(?=[A-Z])|\s*&\s*|\s+and\s+", t.strip().rstrip(",;")) if x.strip()]
+    named = [x for x in parts if re.fullmatch(r"(?=[^\d]*[a-z])[A-Z][^\d,;:()✉]{1,45}?\s*\d[\d,*†‡§#✉\s]*", x.strip())]
+    return len(named) >= 3 and len(named) >= 0.6 * len(parts)
+
+
+def is_meta(text: str) -> bool:
+    """Author lists, DOIs, dates, e-mails: kept verbatim (names must never be 'translated')."""
+    t = text.strip()
+    return bool(_META_RE.match(t) or _AUTHORS_RE.match(t) or _is_author_list(t)
+                or re.fullmatch(r"[\w.+-]+@[\w.-]+", t))
+
+
 def chunks(paras: list[dict], limit: int = CHUNK_CHARS) -> list[list[int]]:
     groups, cur, size = [], [], 0
     for i, p in enumerate(paras):
+        if p.get("kind") == "meta":
+            continue
         n = len(p["src"])
         if cur and size + n > limit:
             groups.append(cur)
@@ -346,7 +372,7 @@ class Translator:
             fb = self.config.raw["translation"].get("fallback_to_main", True)
             if kind != "main" and fb and self.config.api_key():
                 log.warning("translation service failed (%s); falling back to main model", exc)
-                note = f"{self.service.get('name')} failed ({type(exc).__name__}); used the main model"
+                note = f"部分段落 {self.service.get('name')} 没有响应，改用主模型翻译"
                 if note not in self.notes:
                     self.notes.append(note)
                 return self._llm(prompt, paper_id, "main"), self.config.effective_llm()["model"] + " (fallback)"
@@ -382,7 +408,9 @@ def render_md(meta: dict, result: dict, language: str) -> str:
     for note in result.get("notes", []):
         out += [f"> ⚠️ {note}", ""]
     for p in result["paragraphs"]:
-        if p["kind"] == "heading":
+        if p["kind"] == "meta":
+            out += [p["src"], ""]
+        elif p["kind"] == "heading":
             out += [f"## {p['src']}", f"*{p['tr']}*", ""]
         else:
             out += [p["src"], "", *[f"> {ln}" for ln in p["tr"].splitlines() if ln.strip()], ""]
@@ -419,7 +447,8 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     result = {
         "paper_id": paper_id, "service": service.get("name"), "model": vias.most_common(1)[0][0],
         "target": target, "generated": date.today().isoformat(), "glossary": terms, "notes": tr.notes,
-        "paragraphs": [dict(p, tr=results[i][0], via=results[i][1]) for i, p in enumerate(paras)],
+        "paragraphs": [dict(p, tr=results[i][0], via=results[i][1]) if i in results else dict(p, tr=p["src"], via="")
+                       for i, p in enumerate(paras)],
     }
     stem = card_path.stem
     json_path = card_path.with_name(f"{stem}.translation.json")
