@@ -83,6 +83,18 @@
 </section>
 
 <section class="card">
+  <h3>新学科与知识库</h3>
+  <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
+  <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">
+  <label for="emb">Embedding 模型（可选）</label>
+  <input type="text" id="emb" name="embedding_model" value="{{ cfg.raw.embedding.model }}" placeholder="留空 = 只按名称合并相似提议">
+  <p class="muted">填写后，会用当前模型服务的 <code>/embeddings</code> 接口判断两个提议是不是同一个方向（仅 OpenAI 协议的服务）。DeepSeek 官方目前没有 embedding 接口。</p>
+  <p><label class="inline"><input type="checkbox" name="knowledge_git" value="1" {{ 'checked' if cfg.raw.knowledge_git }} {{ '' if git_available else 'disabled' }}>
+    用 git 自动记录知识库的每次改动（可随时回滚）</label>
+  {% if not git_available %}<span class="muted">— 这台电脑没有安装 git，暂不可用。</span>{% endif %}</p>
+</section>
+
+<section class="card">
   <h3>文件夹</h3>
   <label for="inbox_dirs">入口文件夹（每行一个）</label><textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
   <label for="exclude_dirs">永不处理的子文件夹名（逗号分隔）</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">

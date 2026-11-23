@@ -20,6 +20,9 @@ from .llm import BudgetExceeded, LLMClient, LLMError, LLMNotConfigured
 from .metadata import MetadataClient, MetadataUnavailable
 from .pdf_extract import extract_for_llm, read_info, sha256_file
 from . import classify as clf
+from . import handbook as hbmod
+from . import kb_git, newfields
+from . import taxonomy as taxmod
 from .kb_fields import write_fields
 from .registry import Registry
 from .taxonomy import Taxonomy, TaxonomyError
@@ -88,6 +91,7 @@ class Pipeline:
         self.threshold = float(config.metadata.get("title_match_threshold", 85))
         self._lock = threading.Lock()  # one file at a time
         self._llm_block_reported = False
+        self.embedder = newfields.Embedder(config)
         self._taxonomy: Taxonomy | None = None
         self._taxonomy_sig: tuple | None = None
 
@@ -340,6 +344,7 @@ class Pipeline:
             paper_id,
         )
         self.classify_paper(paper_id)
+        self.kb_commit(f"Add paper {row['doi'] or (row['title'] or '')[:60]}")
         return "processed"
 
     def _refresh_card(self, paper_id: int) -> None:
@@ -417,7 +422,8 @@ class Pipeline:
         before = {r["slug"] for r in self.registry.paper_field_rows(paper_id, include_rejected=True)}
         paper, meta, card = clf.paper_inputs(row)
         try:
-            result = clf.classify(self.llm, self.config, tax, paper, meta, card, paper_id)
+            pending = self.registry.pending_fields("open")
+            result = clf.classify(self.llm, self.config, tax, paper, meta, card, paper_id, pending)
         except (LLMNotConfigured, BudgetExceeded) as exc:
             if not self._llm_block_reported:
                 self.registry.log("warning", str(exc))
@@ -432,14 +438,20 @@ class Pipeline:
                               f"Classification call failed for paper #{paper_id}: {type(exc).__name__}: {exc}", paper_id)
             return "retry_later" if transient else "error"
         summary = clf.apply(self.registry, self.config, tax, paper_id, result.data)
+        prop_notes = newfields.record_proposals(self.registry, self.config, tax, paper_id,
+                                                result.data.get("proposed_new", []), self.embedder)
+        if prop_notes:
+            clf.recompute_review_flag(self.registry, paper_id)
+            summary["needs_review"] = bool(self.registry.get_paper(paper_id)["needs_review"])
+        self.refresh_pending()
         after = {r["slug"] for r in self.registry.paper_field_rows(paper_id, include_rejected=True)}
         self._refresh_card(paper_id)
         self.refresh_fields(before | after)
         msg = f"Classified paper #{paper_id}: {', '.join(summary['accepted']) or '-'}"
         if summary["suggested"]:
             msg += f"; needs review: {', '.join(summary['suggested'])}"
-        if result.data.get("proposed_new"):
-            msg += f"; proposed new: {', '.join(p['name_en'] or p['name_zh'] for p in result.data['proposed_new'])}"
+        if prop_notes:
+            msg += "; proposals: " + "; ".join(prop_notes)
         self.registry.log("warning" if summary["needs_review"] else "info", msg, paper_id)
         return "classified"
 
@@ -468,12 +480,148 @@ class Pipeline:
                 break
         return counts
 
+    @property
+    def new_field_threshold(self) -> int:
+        return max(1, int(self.config.raw.get("new_field_threshold", 3)))
+
+    def migrate_legacy_proposals(self) -> int:
+        """Route proposals stored before pending clusters existed (no LLM call)."""
+        rows = self.registry.query(
+            "SELECT * FROM field_proposals WHERE status='open' AND pending_id IS NULL AND outcome IS NULL")
+        if not rows:
+            return 0
+        tax = self.taxonomy()
+        by_paper: dict[int, list[dict]] = {}
+        for r in rows:
+            by_paper.setdefault(r["paper_id"], []).append(
+                {k: r[k] or "" for k in ("axis", "name_zh", "name_en", "description", "reason")})
+        for pid, props in by_paper.items():
+            newfields.record_proposals(self.registry, self.config, tax, pid, props, self.embedder)
+            clf.recompute_review_flag(self.registry, pid)
+        self.refresh_pending()
+        return len(rows)
+
+    def refresh_pending(self) -> None:
+        newfields.write_pending_pages(self.config.knowledge_dir, self.registry, self.new_field_threshold)
+        newfields.notify_ready(self.registry, self.new_field_threshold)
+
     def refresh_fields(self, slugs: set[str] | None = None) -> None:
         try:
             tax = self.taxonomy()
         except TaxonomyError:
             tax = None
         write_fields(self.config.knowledge_dir, self.registry, tax, self.config.output_language, slugs)
+
+    # ------------------------------------------------------ new fields (stage 3)
+    def _edit_taxonomy(self, edit) -> None:
+        """Apply ``edit(text) -> new_text`` to the user's taxonomy file
+        (a built-in preset is copied to data_dir/taxonomy.yaml first)."""
+        spec = str(self.config.raw.get("taxonomy_file") or "default")
+        path, switched = taxmod.editable_path(spec, self.config.data_dir)
+        new = edit(path.read_text("utf-8").replace("\r\n", "\n"))
+        tmp = path.with_suffix(".yaml.tmp")
+        tmp.write_text(new, "utf-8")
+        tmp.replace(path)
+        if switched:
+            self.config.raw["taxonomy_file"] = "taxonomy.yaml"
+            if self.config.path:
+                self.config.save()
+        self._taxonomy = None  # force reload + field sync
+        self.taxonomy()
+
+    def _assign_pending_papers(self, pending_id: int, slug: str) -> list[int]:
+        field = self.registry.field_by_slug(slug)
+        ids = []
+        for p in self.registry.pending_papers(pending_id):
+            self.registry.set_paper_field(p["id"], field["id"], confidence=1.0, is_primary=0, status="accepted",
+                                          source="user", note="", reason=p["reason"] or "")
+            clf.recompute_review_flag(self.registry, p["id"])
+            ids.append(p["id"])
+        self.registry.execute("UPDATE field_proposals SET status='closed', outcome=? WHERE pending_id=?",
+                              (f"field:{slug}", pending_id))
+        return ids
+
+    def establish_pending(self, pending_id: int, slug: str | None = None, name_zh: str | None = None,
+                          name_en: str | None = None, description: str | None = None,
+                          axis: str | None = None) -> str:
+        """User confirmed a proposed field: add it to the taxonomy, attach its papers."""
+        row = self.registry.pending_by_id(pending_id)
+        if row is None or row["status"] != "open":
+            raise ValueError("this proposal is no longer open")
+        slug = (slug or row["slug"]).strip()
+        if not taxmod.SLUG_RE.match(slug):
+            raise ValueError("slug must be lowercase letters/digits joined by '-'")
+        if slug in self.taxonomy().by_slug:
+            raise ValueError(f"'{slug}' already exists in the taxonomy - use merge instead")
+        cat = {
+            "slug": slug, "axis": axis if axis in ("method", "topic") else row["axis"],
+            "name_zh": (name_zh or row["name_zh"] or row["name_en"]).strip(),
+            "name_en": (name_en or row["name_en"] or row["name_zh"]).strip(),
+            "description": (description or row["description"] or row["name_en"]).strip(),
+            "synonyms": json.loads(row["synonyms_json"] or "[]"),
+        }
+        with self._lock:
+            self._edit_taxonomy(lambda text: taxmod.add_category_text(text, cat))
+            ids = self._assign_pending_papers(pending_id, slug)
+            self.registry.update_pending(pending_id, status="established", merged_into=slug)
+            for pid in ids:
+                self._refresh_card(pid)
+            self.refresh_fields({slug})
+            self.refresh_pending()
+        self.registry.log("info", f"New field established: {cat['name_zh']} ({slug}) with {len(ids)} papers")
+        self.kb_commit(f"Establish field {slug}")
+        return slug
+
+    def merge_pending(self, pending_id: int, target_slug: str) -> None:
+        row = self.registry.pending_by_id(pending_id)
+        if row is None or row["status"] != "open":
+            raise ValueError("this proposal is no longer open")
+        if target_slug not in self.taxonomy().by_slug:
+            raise ValueError(f"unknown field {target_slug}")
+        names = [n for n in [row["name_en"], row["name_zh"], *json.loads(row["synonyms_json"] or "[]")] if n]
+        with self._lock:
+            self._edit_taxonomy(lambda text: taxmod.add_synonyms_text(text, target_slug, names))
+            ids = self._assign_pending_papers(pending_id, target_slug)
+            self.registry.update_pending(pending_id, status="merged", merged_into=target_slug)
+            for pid in ids:
+                self._refresh_card(pid)
+            self.refresh_fields({target_slug})
+            self.refresh_pending()
+        self.registry.log("info", f"Proposed field '{row['name_zh'] or row['name_en']}' merged into {target_slug} "
+                                  f"({len(ids)} papers; names added as synonyms)")
+        self.kb_commit(f"Merge proposed field {row['slug']} into {target_slug}")
+
+    def reject_pending(self, pending_id: int) -> None:
+        row = self.registry.pending_by_id(pending_id)
+        if row is None or row["status"] != "open":
+            raise ValueError("this proposal is no longer open")
+        with self._lock:
+            self.registry.update_pending(pending_id, status="rejected")
+            self.registry.execute("UPDATE field_proposals SET status='closed', outcome='rejected' WHERE pending_id=?",
+                                  (pending_id,))
+            self.refresh_pending()
+        self.registry.log("info", f"Proposed field '{row['name_zh'] or row['name_en']}' rejected; "
+                                  "similar proposals will be ignored")
+        self.kb_commit(f"Reject proposed field {row['slug']}")
+
+    def generate_handbook(self, slug: str) -> str:
+        self.taxonomy()
+        try:
+            rel = hbmod.generate(self.llm, self.config, self.registry, slug)
+        except (LLMNotConfigured, BudgetExceeded, LLMError, ValueError) as exc:
+            self.registry.log("error", f"Handbook for '{slug}' not generated: {exc}")
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self.registry.log("error", f"Handbook for '{slug}' failed: {type(exc).__name__}: {exc}")
+            raise
+        self.refresh_fields({slug})
+        self.registry.log("info", f"Handbook written: knowledge/{rel}")
+        self.kb_commit(f"Handbook for {slug}")
+        return rel
+
+    def kb_commit(self, message: str) -> None:
+        if self.config.raw.get("knowledge_git"):
+            kb_git.commit(self.config.knowledge_dir, message)
 
     def set_label(self, paper_id: int, slug: str, action: str) -> None:
         """User decision on a label: accept / reject / add (source='user' sticks)."""

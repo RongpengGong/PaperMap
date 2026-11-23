@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
+from .. import kb_git
 from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry
@@ -33,6 +34,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
+    templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
     csrf_token = secrets.token_urlsafe(24)
 
     @app.middleware("http")
@@ -69,7 +71,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             month_cost=registry.month_cost(),
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
-            review_count=_review_count(registry),
+            review_count=_review_count(registry, pipeline.new_field_threshold),
             busy=bool(busy),
         )
         return templates.TemplateResponse(request, name, ctx)
@@ -160,7 +162,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "fields.html", rows=rows)
 
     @app.get("/field/{slug}", response_class=HTMLResponse)
-    def field_page(request: Request, slug: str):
+    def field_page(request: Request, slug: str, created: int = 0, hb_started: int = 0):
         pipeline.taxonomy()
         f = registry.field_by_slug(slug)
         if f is None:
@@ -169,19 +171,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if not path.exists():
             pipeline.refresh_fields({slug})
         body_html = md_html(_split_front(path.read_text("utf-8"))[1]) if path.exists() else ""
-        return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md")
+        return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md",
+                      has_handbook=(config.knowledge_dir / "handbooks" / f"{slug}.md").exists(),
+                      created=created, hb_started=hb_started or ("handbook" in busy),
+                      n_papers=len(registry.field_paper_rows(f["id"])))
 
     # ------------------------------------------------------------------ review
     @app.get("/review", response_class=HTMLResponse)
     def review(request: Request, error: str = ""):
         pipeline.taxonomy()
+        pipeline.migrate_legacy_proposals()
         unverified = registry.list_papers(status="doi_unverified", limit=1000)
         flagged = registry.query("SELECT * FROM papers WHERE status='done' AND needs_review=1 ORDER BY id DESC")
         items = [(p, registry.paper_field_rows(p["id"])) for p in flagged]
-        proposals = registry.query(
-            "SELECT fp.*, p.title FROM field_proposals fp JOIN papers p ON p.id=fp.paper_id "
-            "WHERE fp.status='open' ORDER BY fp.id DESC")
-        return render(request, "review.html", unverified=unverified, items=items, proposals=proposals,
+        pending = [(r, registry.pending_papers(r["id"])) for r in registry.pending_fields("open")]
+        return render(request, "review.html", unverified=unverified, items=items, pending=pending,
+                      threshold=pipeline.new_field_threshold,
                       all_fields=registry.active_fields(), error=error,
                       accept=float(config.classification.get("accept_confidence", 0.6)))
 
@@ -225,6 +230,59 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return RedirectResponse(f"/review?error={_q(str(exc))}", status_code=303)
         return RedirectResponse("/review", status_code=303)
 
+    @app.post("/review/pending")
+    def review_pending(csrf: str = Form(...), pending_id: int = Form(...), action: str = Form(...),
+                       slug: str = Form(""), name_zh: str = Form(""), name_en: str = Form(""),
+                       description: str = Form(""), axis: str = Form(""), target: str = Form(""),
+                       make_handbook: str = Form("")):
+        _check_csrf(csrf, csrf_token)
+        try:
+            if action == "establish":
+                new_slug = pipeline.establish_pending(pending_id, slug or None, name_zh or None, name_en or None,
+                                                      description or None, axis or None)
+                if make_handbook:
+                    background("handbook", _safe(pipeline.generate_handbook), new_slug)
+                return RedirectResponse(f"/field/{new_slug}?created=1", status_code=303)
+            if action == "merge":
+                pipeline.merge_pending(pending_id, target)
+                return RedirectResponse(f"/field/{target}", status_code=303)
+            if action == "reject":
+                pipeline.reject_pending(pending_id)
+                return RedirectResponse("/review", status_code=303)
+        except (ValueError, TaxonomyError) as exc:
+            return RedirectResponse(f"/review?error={_q(str(exc))}", status_code=303)
+        raise HTTPException(400)
+
+    # --------------------------------------------------------------- handbooks
+    @app.get("/handbooks", response_class=HTMLResponse)
+    def handbooks_index(request: Request):
+        pipeline.taxonomy()
+        d = config.knowledge_dir / "handbooks"
+        rows = []
+        for f in sorted(d.glob("*.md")) if d.exists() else []:
+            field = registry.field_by_slug(f.stem)
+            front = _split_front(f.read_text("utf-8"))[0]
+            rows.append({"slug": f.stem, "name": field["name_zh"] if field else f.stem,
+                         "name_en": field["name_en"] if field else "", "papers": front.get("papers"),
+                         "generated": front.get("generated")})
+        return render(request, "handbooks.html", rows=rows)
+
+    @app.get("/handbook/{slug}", response_class=HTMLResponse)
+    def handbook_page(request: Request, slug: str):
+        path = config.knowledge_dir / "handbooks" / f"{slug}.md"
+        if not path.exists():
+            raise HTTPException(404)
+        return render(request, "handbook.html", slug=slug, body_html=md_html(_split_front(path.read_text("utf-8"))[1]),
+                      rel=f"handbooks/{slug}.md", f=registry.field_by_slug(slug))
+
+    @app.post("/handbook/{slug}/generate")
+    def handbook_generate(slug: str, csrf: str = Form(...)):
+        _check_csrf(csrf, csrf_token)
+        if registry.field_by_slug(slug) is None:
+            raise HTTPException(404)
+        background("handbook", _safe(pipeline.generate_handbook), slug)
+        return RedirectResponse(f"/field/{slug}?hb_started=1", status_code=303)
+
     # ---------------------------------------------------------------- taxonomy
     @app.get("/taxonomy", response_class=HTMLResponse)
     def taxonomy_page(request: Request, saved: int = 0, error: str = "", started: int = 0):
@@ -256,6 +314,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/taxonomy/save")
     def taxonomy_save(csrf: str = Form(...), yaml_text: str = Form(...)):
         _check_csrf(csrf, csrf_token)
+        yaml_text = yaml_text.replace("\r\n", "\n").replace("\r", "\n")  # browsers submit CRLF
         try:
             parse_text(yaml_text)
         except TaxonomyError as exc:
@@ -297,6 +356,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             inbox_text="\n".join(str(p) for p in config.raw.get("inbox_dirs") or []),
             exclude_dirs=", ".join(config.exclude_dir_names),
             exclude_patterns=", ".join(config.exclude_patterns),
+            git_available=kb_git.available(),
         )
 
     @app.post("/settings")
@@ -319,9 +379,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         exclude_dirs: str = Form(""),
         exclude_patterns: str = Form(""),
         contact_email: str = Form(""),
+        new_field_threshold: int = Form(3),
+        embedding_model: str = Form(""),
+        knowledge_git: str = Form(""),
     ):
         _check_csrf(csrf, csrf_token)
         raw = config.raw
+        raw["new_field_threshold"] = max(1, new_field_threshold)
+        raw.setdefault("embedding", {})["model"] = embedding_model.strip()
+        raw["knowledge_git"] = bool(knowledge_git)
         llm = raw["llm"]
         llm["provider"] = provider if provider in (*PROVIDERS, "custom") else "deepseek"
         if official_model in PROVIDERS["deepseek"]["models"]:
@@ -394,11 +460,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     return app
 
 
-def _review_count(registry: Registry) -> int:
+def _review_count(registry: Registry, threshold: int = 3) -> int:
     row = registry.one(
         "SELECT (SELECT count(*) FROM papers WHERE status='doi_unverified') + "
         "(SELECT count(*) FROM papers WHERE status='done' AND needs_review=1) AS n")
-    return int(row["n"]) if row else 0
+    ready = sum(1 for r in registry.pending_fields("open") if r["n_papers"] >= threshold)
+    return (int(row["n"]) if row else 0) + ready
+
+
+def _safe(fn):
+    """Background jobs log their own errors; swallow so the thread ends quietly."""
+    def run(*args):
+        try:
+            fn(*args)
+        except Exception:  # noqa: BLE001
+            pass
+    return run
 
 
 def _q(s: str) -> str:
@@ -417,6 +494,8 @@ def _wikilinks(text: str, registry: Registry) -> str:
         target, label = m.group(1).strip(), (m.group(2) or m.group(1)).strip()
         if target.startswith("fields/"):
             return f"[{label}](/field/{target.split('/', 1)[1]})"
+        if target.startswith("handbooks/"):
+            return f"[{label}](/handbook/{target.split('/', 1)[1]})"
         if target.startswith("papers/"):
             row = registry.one("SELECT id FROM papers WHERE kb_path=?", (target + ".md",))
             if row:

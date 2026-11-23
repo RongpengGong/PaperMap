@@ -113,7 +113,9 @@ class FakeCompletions:
     """Extraction calls consume ``outputs`` (then CARD); classification calls
     consume ``classify_outputs`` (then CLASSIFY). Counted separately."""
 
-    def __init__(self, outputs, classify_outputs=()):
+    def __init__(self, outputs, classify_outputs=(), handbook_outputs=()):
+        self.handbook_outputs = list(handbook_outputs)
+        self.handbook_calls = 0
         self.outputs = list(outputs)
         self.classify_outputs = list(classify_outputs)
         self.calls = 0
@@ -123,7 +125,10 @@ class FakeCompletions:
     def create(self, **kwargs):
         system = kwargs["messages"][0]["content"]
         self.last_system = system
-        if "You classify" in system:
+        if "study handbook" in system:
+            self.handbook_calls += 1
+            content = self.handbook_outputs.pop(0) if self.handbook_outputs else json.dumps(HANDBOOK)
+        elif "You classify" in system:
             self.classify_calls += 1
             content = self.classify_outputs.pop(0) if self.classify_outputs else json.dumps(CLASSIFY)
         else:
@@ -134,8 +139,23 @@ class FakeCompletions:
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=usage, model=kwargs["model"])
 
 
-def fake_llm_client(outputs=(), classify_outputs=()):
-    completions = FakeCompletions(outputs, classify_outputs)
+HANDBOOK = {
+    "overview": "Overview text.",
+    "A": {
+        "representative": [{"text": "Study one mapped niches", "refs": ["P1"]},
+                           {"text": "Invented claim", "refs": ["P9"]},
+                           {"text": "Uncited claim", "refs": []}],
+        "methods": [{"text": "Visium + scRNA-seq integration", "refs": ["P1", "P2"]}],
+        "findings": [{"text": "Fibroblasts sit at margins", "refs": ["P2"]}],
+    },
+    "B": {"core_concepts": [{"term": "Spot", "explanation": "55 um capture area"}],
+          "workflow": ["QC", "Deconvolution"], "tools": [{"name": "cell2location", "purpose": "deconvolution"}],
+          "pitfalls": ["Spot is not a cell"], "reading_order": ["Start with a review"]},
+}
+
+
+def fake_llm_client(outputs=(), classify_outputs=(), handbook_outputs=()):
+    completions = FakeCompletions(outputs, classify_outputs, handbook_outputs)
     return SimpleNamespace(chat=SimpleNamespace(completions=completions)), completions
 
 

@@ -34,14 +34,27 @@ def render_taxonomy(taxonomy: Taxonomy) -> str:
     return "\n".join(out).strip()
 
 
-def build_system(taxonomy: Taxonomy, language: str) -> str:
+def render_pending(pending: list) -> str:
+    if not pending:
+        return ""
+    out = ["PENDING categories (proposed earlier, not yet in the taxonomy). If the paper belongs to one, "
+           "add it to proposed_new with \"pending_slug\" set to that slug instead of inventing a new name:"]
+    for r in pending:
+        out.append(f"- {r['slug']} | {r['axis']} | {r['name_en']} / {r['name_zh']} | {r['description']}")
+    return "\n".join(out)
+
+
+def build_system(taxonomy: Taxonomy, language: str, pending: list | None = None) -> str:
     rule = LANGUAGE_RULES.get(language, LANGUAGE_RULES["zh"]).replace(
         "all string values", "the 'note', 'reason', 'description' and 'name_zh' values"
     )
+    tax_text = render_taxonomy(taxonomy)
+    if pending:
+        tax_text += "\n\n" + render_pending(pending)
     return (
         _load_prompt(PROMPT_VERSION)
         .replace("{language_rule}", rule)
-        .replace("{taxonomy}", render_taxonomy(taxonomy))
+        .replace("{taxonomy}", tax_text)
     )
 
 
@@ -120,8 +133,9 @@ def make_validator(taxonomy: Taxonomy):
                 m["primary"] = m is best
         props = data.get("proposed_new") or []
         data["proposed_new"] = [
-            {k: str(p.get(k) or "").strip() for k in ("axis", "name_en", "name_zh", "description", "reason")}
-            for p in props if isinstance(p, dict) and (p.get("name_en") or p.get("name_zh"))
+            {k: str(p.get(k) or "").strip()
+             for k in ("axis", "name_en", "name_zh", "description", "reason", "pending_slug")}
+            for p in props if isinstance(p, dict) and (p.get("name_en") or p.get("name_zh") or p.get("pending_slug"))
         ]
         for p in data["proposed_new"]:
             if p["axis"] not in ("method", "topic"):
@@ -138,9 +152,9 @@ class Classification:
 
 
 def classify(llm: LLMClient, config: Config, taxonomy: Taxonomy, paper: dict, meta: dict,
-             card: dict, paper_id: int | None) -> Classification:
+             card: dict, paper_id: int | None, pending: list | None = None) -> Classification:
     res = llm.chat_json(
-        build_system(taxonomy, config.output_language), build_user(paper, meta, card),
+        build_system(taxonomy, config.output_language, pending), build_user(paper, meta, card),
         make_validator(taxonomy), purpose="classify", paper_id=paper_id, max_tokens=4096,
     )
     return Classification(res.data, res.cost_usd)
@@ -170,9 +184,6 @@ def apply(registry: Registry, config: Config, taxonomy: Taxonomy, paper_id: int,
             status=status, source="llm", note=item.get("note", ""), reason=item.get("reason", ""),
         )
         (accepted if status == "accepted" else suggested).append(item["slug"])
-    registry.execute("DELETE FROM field_proposals WHERE paper_id=? AND status='open'", (paper_id,))
-    for p in data.get("proposed_new", []):
-        registry.add_proposal(paper_id, p["axis"], p["name_zh"], p["name_en"], p["description"], p["reason"])
     has_method = any(
         r["axis"] == "method" and r["status"] == "accepted" for r in registry.paper_field_rows(paper_id)
     )

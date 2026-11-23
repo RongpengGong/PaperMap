@@ -137,3 +137,82 @@ def load(spec: str, data_dir: Path) -> Taxonomy:
     if not path.exists():
         raise TaxonomyError(f"taxonomy file not found: {path}")
     return parse_text(path.read_text("utf-8"), source=str(path))
+
+
+# ---------------------------------------------------------------- editing
+def editable_path(spec: str, data_dir: Path) -> tuple[Path, bool]:
+    """Path of the user's editable taxonomy. If a built-in preset is in use,
+    it is copied to data_dir/taxonomy.yaml first. Returns (path, switched)."""
+    path = resolve_path(spec, data_dir)
+    if path is not None:
+        return path, False
+    target = data_dir / "taxonomy.yaml"
+    name = spec if spec in BUILTIN else Path(spec).stem
+    if not target.exists():
+        target.write_text(builtin_text(name), "utf-8")
+    return target, True
+
+
+def _yaml_list(items: list[str]) -> str:
+    return "[" + ", ".join(json.dumps(x, ensure_ascii=False) if re.search(r"[,:\[\]{}#&*!|>'\"%@`]", x) else x
+                           for x in items) + "]"
+
+
+def add_category_text(text: str, cat: dict) -> str:
+    """Insert a category into taxonomy YAML text, keeping comments/formatting."""
+    block = (
+        f"  - slug: {cat['slug']}\n"
+        f"    name_zh: {json.dumps(cat['name_zh'], ensure_ascii=False)}\n"
+        f"    name_en: {json.dumps(cat['name_en'], ensure_ascii=False)}\n"
+        f"    description: {json.dumps(cat['description'], ensure_ascii=False)}\n"
+        f"    synonyms: {_yaml_list(cat.get('synonyms', []))}\n"
+    )
+    lines = text.rstrip("\n").split("\n")
+    if cat["axis"] == "method":
+        idx = next((i for i, ln in enumerate(lines) if re.match(r"^topic\s*:", ln)), None)
+        if idx is not None:
+            new = "\n".join(lines[:idx]).rstrip("\n") + "\n" + block + "\n".join(lines[idx:]) + "\n"
+            parse_text(new)  # must stay valid
+            return new
+    elif re.search(r"^topic\s*:", text, re.M) and not re.search(r"^\S", text.split("\ntopic:", 1)[-1].split("\n", 1)[-1], re.M):
+        new = text.rstrip("\n") + "\n" + block
+        parse_text(new)
+        return new
+    # Fallback: structural rewrite (comments are lost)
+    data = yaml.safe_load(text) or {}
+    data.setdefault(cat["axis"], []).append({k: cat[k] for k in ("slug", "name_zh", "name_en", "description")} |
+                                           {"synonyms": cat.get("synonyms", [])})
+    new = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    parse_text(new)
+    return new
+
+
+def add_synonyms_text(text: str, slug: str, synonyms: list[str]) -> str:
+    """Append synonyms to one category, keeping the rest of the file intact."""
+    tax = parse_text(text)
+    cat = tax.by_slug.get(slug)
+    if cat is None:
+        raise TaxonomyError(f"unknown slug {slug}")
+    merged = list(cat.synonyms)
+    for s_ in synonyms:
+        if s_ and s_.lower() not in {m.lower() for m in merged}:
+            merged.append(s_)
+    lines = text.split("\n")
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"^\s*-\s*slug:\s*{re.escape(slug)}\s*$", ln)), None)
+    if start is not None:
+        for j in range(start + 1, len(lines)):
+            if re.match(r"^\s*-\s*slug:", lines[j]) or re.match(r"^\S", lines[j]):
+                break
+            m = re.match(r"^(\s*)synonyms:\s*\[.*\]\s*$", lines[j])
+            if m:
+                lines[j] = f"{m.group(1)}synonyms: {_yaml_list(merged)}"
+                new = "\n".join(lines)
+                parse_text(new)
+                return new
+    data = yaml.safe_load(text)
+    for item in data[cat.axis]:
+        if item.get("slug") == slug:
+            item["synonyms"] = merged
+    new = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    parse_text(new)
+    return new

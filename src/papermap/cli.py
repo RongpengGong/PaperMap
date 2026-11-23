@@ -212,6 +212,41 @@ def cmd_classify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_handbook(args: argparse.Namespace) -> int:
+    cfg, reg, pipe = _load(args)
+    pipe.taxonomy()
+    slugs = args.slug or [f["slug"] for f in reg.active_fields() if reg.field_paper_rows(f["id"])]
+    for slug in slugs:
+        try:
+            print(f"{slug}: knowledge/{pipe.generate_handbook(slug)}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"{slug}: failed - {exc}")
+    return 0
+
+
+def cmd_pending(args: argparse.Namespace) -> int:
+    cfg, reg, pipe = _load(args)
+    pipe.taxonomy()
+    t = pipe.new_field_threshold
+    pipe.migrate_legacy_proposals()
+    rows = reg.pending_fields("open")
+    if not rows:
+        print("No pending fields.")
+    for r in rows:
+        flag = "READY" if r["n_papers"] >= t else "     "
+        print(f"{flag} #{r['id']:<3} {r['axis']:<6} {r['n_papers']}/{t}  {r['slug']:<30} {r['name_zh']} / {r['name_en']}")
+    if args.establish:
+        print("established:", pipe.establish_pending(args.establish))
+    if args.reject:
+        pipe.reject_pending(args.reject)
+        print("rejected", args.reject)
+    if args.merge:
+        pid, target = args.merge
+        pipe.merge_pending(int(pid), target)
+        print(f"merged {pid} into {target}")
+    return 0
+
+
 def _print_status(reg: Registry) -> None:
     counts = reg.status_counts()
     print("Library:", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "empty",
@@ -249,6 +284,14 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--all", action="store_true", help="re-classify every paper")
     p.add_argument("--paper-id", type=int, nargs="+")
     p.set_defaults(func=cmd_classify)
+    p = sub.add_parser("handbook", help="generate study handbooks (default: every field with papers)")
+    p.add_argument("slug", nargs="*")
+    p.set_defaults(func=cmd_handbook)
+    p = sub.add_parser("pending", help="list proposed new fields; establish / merge / reject them")
+    p.add_argument("--establish", type=int, metavar="ID")
+    p.add_argument("--reject", type=int, metavar="ID")
+    p.add_argument("--merge", nargs=2, metavar=("ID", "TARGET_SLUG"))
+    p.set_defaults(func=cmd_pending)
     p = sub.add_parser("status", help="show library summary")
     p.add_argument("--limit", type=int, default=30)
     p.set_defaults(func=cmd_status)

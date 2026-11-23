@@ -114,7 +114,11 @@ DEFAULTS: dict[str, Any] = {
         "accept_confidence": 0.6,  # labels at/above this are assigned
         "review_confidence": 0.35,  # labels in [review, accept) go to the review page
     },
-    "new_field_threshold": 3,
+    "new_field_threshold": 3,  # papers needed before a proposed field is put to the user
+    # Optional embedding model (OpenAI-compatible /embeddings on the same
+    # endpoint) used to merge similar proposed fields; empty = names only.
+    "embedding": {"model": ""},
+    "knowledge_git": False,  # auto-commit knowledge/ to a local git repo
     "web": {"host": "127.0.0.1", "port": 8765},
     "debounce_seconds": 3,
 }

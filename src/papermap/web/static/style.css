@@ -63,3 +63,7 @@ button.ghost { background:transparent; color:var(--warn); border:1px solid var(-
 .inline-form { display:inline; } .inline-form button { margin:0 0 0 8px; padding:4px 12px; }
 textarea.code { font:13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
 .md h1 { font-size:24px; } .md h2 { font-size:18px; border-bottom:1px solid var(--line); padding-bottom:4px; margin-top:26px; }
+.pending.ready { border-left:4px solid #3a9d5d; }
+a.button { display:inline-block; padding:8px 18px; border-radius:6px; background:var(--accent); color:#fff; text-decoration:none; }
+.row form button { margin-top:0; }
+.handbook blockquote { margin:8px 0; padding:6px 12px; border-left:3px solid var(--line); color:var(--muted); }

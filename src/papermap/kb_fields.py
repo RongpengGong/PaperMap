@@ -66,7 +66,7 @@ def field_link(slug: str, name: str) -> str:
 
 
 def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language: str,
-                 user_section: str | None) -> str:
+                 user_section: str | None, has_handbook: bool = False) -> str:
     h = H["en" if language == "en" else "zh"]
     name_col = "name_en" if language == "en" else "name_zh"
     rows = registry.field_paper_rows(field["id"])
@@ -88,7 +88,8 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
 
     desc = (cat.description if cat else field["description"]) or ""
     syn = ", ".join(cat.synonyms) if cat and cat.synonyms else ""
-    section(h["overview"], [desc] + ([f"", f"*{syn}*"] if syn else []))
+    hb = ([""] + [f"📘 [[handbooks/{field['slug']}|{'Handbook' if language == 'en' else '学习手册'}]]"]) if has_handbook else []
+    section(h["overview"], [desc] + (["", f"*{syn}*"] if syn else []) + hb)
     out += [f"## {h['notes']}", "", USER_BEGIN, user_section if user_section is not None else h["notes_hint"], USER_END, ""]
 
     # Key papers, newest first
@@ -136,7 +137,8 @@ def write_field(knowledge_dir: Path, registry: Registry, field, taxonomy: Taxono
     rel = field_rel_path(field["slug"])
     path = knowledge_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = render_field(registry, field, taxonomy, language, read_user_section(path))
+    has_hb = (knowledge_dir / "handbooks" / f"{field['slug']}.md").exists()
+    text = render_field(registry, field, taxonomy, language, read_user_section(path), has_hb)
     tmp = path.with_suffix(".md.tmp")
     tmp.write_text(text, "utf-8")
     tmp.replace(path)

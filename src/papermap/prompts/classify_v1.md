@@ -21,5 +21,5 @@ Return ONLY one JSON object:
 {
   "methods": [{"slug": "string", "confidence": 0.0, "primary": false, "note": "string", "reason": "string"}],
   "topics": [{"slug": "string", "confidence": 0.0, "reason": "string"}],
-  "proposed_new": [{"axis": "method|topic", "name_en": "string", "name_zh": "string", "description": "string", "reason": "string"}]
+  "proposed_new": [{"axis": "method|topic", "name_en": "string", "name_zh": "string", "description": "string", "reason": "string", "pending_slug": "string or empty"}]
 }

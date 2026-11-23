@@ -45,11 +45,43 @@
 </div>
 {% else %}<p class="muted">没有。</p>{% endfor %}
 
-<h3>模型提议的新类别（{{ proposals|length }}）</h3>
-<p class="muted">现有分类表覆盖不到的方向。阶段 3 会把相似提议合并、攒够数量后让你决定是否建立新学科；现在可以先到「分类表」页手动添加。</p>
-{% if proposals %}
-<table><tr><th>名称</th><th>轴</th><th>说明</th><th>来自论文</th></tr>
-{% for pr in proposals %}<tr><td>{{ pr.name_zh }}<br><span class="muted">{{ pr.name_en }}</span></td><td>{{ '方法' if pr.axis == 'method' else '主题' }}</td><td>{{ pr.description }}<br><span class="muted">{{ pr.reason }}</span></td><td><a href="/paper/{{ pr.paper_id }}">#{{ pr.paper_id }}</a></td></tr>{% endfor %}
-</table>
-{% else %}<p class="muted">没有。</p>{% endif %}
+<h3>待定新学科（{{ pending|length }}）</h3>
+<p class="muted">模型发现现有分类表覆盖不到的方向时会提议新类别；相似的提议会自动合并。攒够 {{ threshold }} 篇论文后会提示你决定（阈值可在「设置」里改），没攒够也可以提前处理。</p>
+{% for r, papers in pending %}
+<div class="card review-item pending {{ 'ready' if r.n_papers >= threshold }}">
+  <div class="row" style="align-items:center">
+    <strong>{{ r.name_zh or r.name_en }}</strong><span class="muted">{{ r.name_en }}</span>
+    <span class="chip">{{ '方法' if r.axis == 'method' else '主题' }}</span>
+    <span class="chip {{ 'done' if r.n_papers >= threshold }}">{{ r.n_papers }} / {{ threshold }} 篇</span>
+    {% if r.n_papers >= threshold %}<span class="ok-text">已达阈值，请决定</span>{% endif %}
+  </div>
+  <p>{{ r.description }}</p>
+  {% set syn = r.synonyms_json|fromjson %}{% if syn %}<p class="muted">合并进来的叫法：{{ syn|join('、') }}</p>{% endif %}
+  <ul>{% for p in papers %}<li><a href="/paper/{{ p.id }}">{{ p.first_author or '?' }} {{ p.year or '' }} · {{ p.journal or '' }}</a> <span class="muted">— {{ p.reason or '' }}</span></li>{% endfor %}</ul>
+  <details>
+    <summary><strong>建立为新学科</strong></summary>
+    <form method="post" action="/review/pending">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
+      <div class="row">
+        <label class="grow">中文名<input type="text" name="name_zh" value="{{ r.name_zh or '' }}"></label>
+        <label class="grow">英文名<input type="text" name="name_en" value="{{ r.name_en or '' }}"></label>
+        <label class="grow">slug<input type="text" name="slug" value="{{ r.slug }}"></label>
+        <label>轴<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>主题</option><option value="method" {{ 'selected' if r.axis == 'method' }}>方法</option></select></label>
+      </div>
+      <label>判别说明（给模型看）<input type="text" name="description" value="{{ r.description or '' }}"></label>
+      <p><label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> 同时生成学习手册（约 1 次 LLM 调用）</label></p>
+      <button name="action" value="establish">建立</button>
+    </form>
+  </details>
+  <form method="post" action="/review/pending" class="row" style="margin-top:10px">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
+    <select name="target" style="flex:1">
+      {% for f in all_fields if f.axis == r.axis %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}
+      {% for f in all_fields if f.axis != r.axis %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}
+    </select>
+    <button name="action" value="merge" class="secondary">合并到这个已有类别</button>
+    <button name="action" value="reject" class="ghost" onclick="return confirm('拒绝后，类似的提议以后会被自动忽略。确定？')">拒绝</button>
+  </form>
+</div>
+{% else %}<p class="muted">没有。</p>{% endfor %}
 {% endblock %}

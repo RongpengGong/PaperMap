@@ -73,6 +73,20 @@ CREATE TABLE IF NOT EXISTS paper_fields (
     confidence REAL, is_primary INTEGER,
     PRIMARY KEY (paper_id, field_id)
 );
+CREATE TABLE IF NOT EXISTS pending_fields (
+    id INTEGER PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
+    axis TEXT NOT NULL,
+    name_zh TEXT, name_en TEXT,
+    description TEXT,
+    synonyms_json TEXT NOT NULL DEFAULT '[]',
+    embedding_json TEXT,
+    status TEXT NOT NULL DEFAULT 'open',   -- open / established / merged / rejected
+    merged_into TEXT,
+    ready_notified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS field_proposals (
     id INTEGER PRIMARY KEY,
     paper_id INTEGER REFERENCES papers(id),
@@ -120,6 +134,7 @@ MIGRATIONS = {
         "reason": "TEXT",
     },
     "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0"},
+    "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
 }
 
 PAPER_STATUSES = (
@@ -405,12 +420,52 @@ class Registry:
             self.conn.commit()
 
     def add_proposal(self, paper_id: int, axis: str, name_zh: str, name_en: str,
-                     description: str, reason: str) -> None:
-        self.execute(
-            "INSERT INTO field_proposals(paper_id, axis, name_zh, name_en, description, reason, created_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (paper_id, axis, name_zh, name_en, description, reason, now_iso()),
+                     description: str, reason: str, pending_id: int | None = None,
+                     outcome: str | None = None, status: str = "open") -> int:
+        cur = self.execute(
+            "INSERT INTO field_proposals(paper_id, axis, name_zh, name_en, description, reason, "
+            "pending_id, outcome, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (paper_id, axis, name_zh, name_en, description, reason, pending_id, outcome, status, now_iso()),
         )
+        return int(cur.lastrowid)
+
+    # -- pending (proposed) fields -------------------------------------------
+    def pending_fields(self, status: str | None = "open") -> list[sqlite3.Row]:
+        cond, params = ("WHERE pf.status=?", (status,)) if status else ("", ())
+        return self.query(
+            "SELECT pf.*, (SELECT count(DISTINCT fp.paper_id) FROM field_proposals fp "
+            " WHERE fp.pending_id=pf.id) AS n_papers FROM pending_fields pf "
+            f"{cond} ORDER BY n_papers DESC, pf.id",
+            params,
+        )
+
+    def pending_by_id(self, pid: int) -> sqlite3.Row | None:
+        return self.one("SELECT * FROM pending_fields WHERE id=?", (pid,))
+
+    def pending_papers(self, pid: int) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT DISTINCT p.id, p.title, p.year, p.journal, p.first_author, p.kb_path, p.doi, "
+            "fp.reason, fp.name_zh AS prop_zh, fp.name_en AS prop_en FROM field_proposals fp "
+            "JOIN papers p ON p.id=fp.paper_id WHERE fp.pending_id=? GROUP BY p.id ORDER BY p.year DESC",
+            (pid,),
+        )
+
+    def create_pending(self, slug: str, axis: str, name_zh: str, name_en: str, description: str,
+                       synonyms: list[str]) -> int:
+        ts = now_iso()
+        cur = self.execute(
+            "INSERT INTO pending_fields(slug, axis, name_zh, name_en, description, synonyms_json, "
+            "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (slug, axis, name_zh, name_en, description, json.dumps(synonyms, ensure_ascii=False), ts, ts),
+        )
+        return int(cur.lastrowid)
+
+    def update_pending(self, pid: int, **cols: Any) -> None:
+        if "synonyms_json" in cols and not isinstance(cols["synonyms_json"], str):
+            cols["synonyms_json"] = json.dumps(cols["synonyms_json"], ensure_ascii=False)
+        cols["updated_at"] = now_iso()
+        sets = ", ".join(f"{k}=?" for k in cols)
+        self.execute(f"UPDATE pending_fields SET {sets} WHERE id=?", (*cols.values(), pid))
 
     def iter_papers_by_status(self, statuses: tuple[str, ...]) -> Iterator[sqlite3.Row]:
         marks = ",".join("?" * len(statuses))

@@ -122,6 +122,7 @@ def test_review_and_taxonomy_actions(config, registry, pdfs):
     assert "分类表有错误" in bad.text and config.raw["taxonomy_file"] == "liver_omics"
     from papermap.taxonomy import builtin_text
     text = builtin_text("liver_omics").replace("Hepatocellular carcinoma (HCC), primary", "HCC, primary")
-    ok = c.post("/taxonomy/save", data={"csrf": tok, "yaml_text": text}, follow_redirects=True)
+    ok = c.post("/taxonomy/save", data={"csrf": tok, "yaml_text": text.replace("\n", "\r\n")}, follow_redirects=True)
+    assert "\r" not in (config.data_dir / "taxonomy.yaml").read_text()
     assert "已保存" in ok.text and config.raw["taxonomy_file"] == "taxonomy.yaml"
     assert "用旧版分类表" in ok.text

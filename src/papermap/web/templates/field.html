@@ -2,6 +2,11 @@
 {% block title %}{{ f.name_zh }} - PaperMap{% endblock %}
 {% block content %}
 <p><a href="/fields">← 全部学科</a> · <a href="/map">知识地图</a></p>
+{% if created %}<div class="notice ok">新学科已建立并写入分类表。{% if hb_started %}学习手册正在后台生成，稍后刷新本页。{% endif %}</div>{% elif hb_started %}<div class="notice ok">学习手册正在后台生成（约半分钟），稍后刷新本页。</div>{% endif %}
+<div class="row" style="margin-bottom:12px">
+  {% if has_handbook %}<a class="button" href="/handbook/{{ f.slug }}">📘 打开学习手册</a>{% endif %}
+  {% if n_papers %}<form method="post" action="/handbook/{{ f.slug }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ '重新生成学习手册' if has_handbook else '生成学习手册' }}</button></form>{% endif %}
+</div>
 <div class="card md">{{ body_html|safe }}</div>
 <p class="muted">文件：<code>knowledge/{{ rel }}</code>（可直接用 Obsidian 打开；「我的笔记」一块程序永远不会改动）</p>
 {% endblock %}

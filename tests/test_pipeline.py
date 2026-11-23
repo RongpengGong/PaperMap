@@ -8,8 +8,8 @@ from papermap.registry import Registry
 from .conftest import CARD, OWN_DOI, FakeMetadata, fake_llm_client
 
 
-def make_pipeline(config, registry, outputs=(), with_key=True, meta=None, classify_outputs=()):
-    client, completions = fake_llm_client(outputs, classify_outputs)
+def make_pipeline(config, registry, outputs=(), with_key=True, meta=None, classify_outputs=(), handbook_outputs=()):
+    client, completions = fake_llm_client(outputs, classify_outputs, handbook_outputs)
     llm = LLMClient(config, registry, client=client if with_key else None)
     return Pipeline(config, registry, metadata=meta or FakeMetadata(), llm=llm), completions
 
