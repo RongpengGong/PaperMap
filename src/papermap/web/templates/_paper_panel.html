@@ -4,6 +4,7 @@
     <div class="title-row">
       <button type="button" class="icon-btn list-toggle" data-action="toggle-list" title="收起 / 展开论文列表">⟨</button>
       <h1 title="{{ p.title }}">{{ p.title or "(无标题)" }}</h1>
+      <button type="button" class="star-btn {{ 'on' if p.starred }}" data-star="{{ 1 if p.starred else 0 }}" title="星标">{{ '★' if p.starred else '☆' }}</button>
     </div>
     <p class="meta">
       {{ p.first_author or '' }}{% if p.year %} {{ p.year }}{% endif %}{% if p.journal %} · <em>{{ p.journal }}</em>{% endif %}
@@ -28,6 +29,7 @@
       </span>
     </div>
     <div class="action-row">
+      {% if p.status == 'done' %}<span class="seg" data-read>{% for k, v in [('unread','未读'),('reading','在读'),('read','已读')] %}<button type="button" data-rs-val="{{ k }}" class="{{ 'on' if p.read_status == k }}">{{ v }}</button>{% endfor %}</span>{% endif %}
       {% if p.status == 'done' and has_pdf %}
       <select class="ghost-select" data-translate title="全文翻译（段落对照）">
         <option value="">{{ '重新翻译' if translation else '翻译全文' }}…</option>

@@ -177,7 +177,8 @@ MIGRATIONS = {
         "note": "TEXT",  # what this paper adds to the field (from the classifier)
         "reason": "TEXT",
     },
-    "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0"},
+    "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0",
+               "read_status": "TEXT NOT NULL DEFAULT 'unread'", "starred": "INTEGER NOT NULL DEFAULT 0"},
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
 }
 

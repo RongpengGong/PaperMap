@@ -392,6 +392,7 @@ class Pipeline:
             self.config.output_language, fallback, existing_rel_path=row["kb_path"],
             fields=[dict(r) for r in self.registry.paper_field_rows(paper_id)],
             collections=[self.registry.collection_path(c["id"]) for c in self.registry.paper_collections(paper_id)],
+            reading={"read_status": row["read_status"], "starred": row["starred"]},
         )
         if rel != row["kb_path"]:
             self.registry.update_paper(paper_id, kb_path=rel)

@@ -33,6 +33,20 @@ def available() -> bool:
 class JsApi:
     """Functions callable from the page as window.pywebview.api.*"""
 
+    def save_text(self, filename: str, text: str) -> str | None:
+        """Native save dialog (pywebview blocks browser downloads)."""
+        import webview
+
+        w = _state["window"]
+        if w is None:
+            return None
+        res = w.create_file_dialog(webview.FileDialog.SAVE, save_filename=filename)
+        path = res if isinstance(res, str) else (res[0] if res else None)
+        if not path:
+            return None
+        Path(path).write_text(text, "utf-8")
+        return path
+
     def pick_folder(self) -> str | None:
         import webview
 

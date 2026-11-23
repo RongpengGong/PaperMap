@@ -106,7 +106,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             ids = registry.collection_descendants(int(c))
             sql += f" AND id IN (SELECT paper_id FROM paper_collections WHERE collection_id IN ({','.join('?' * len(ids))}))"
             params += ids
-        if status:
+        if status == "starred":
+            sql += " AND starred=1"
+        elif status.startswith("r:"):
+            sql += " AND read_status=?"
+            params.append(status[2:])
+        elif status:
             sql += " AND status=?"
             params.append(status)
         if q.strip():
@@ -185,7 +190,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         papers, labels = paper_rows(q, status, c)
         bulk = pipeline.estimate() if pipeline.hold and pipeline.pending_count() else None
         selected = id if id is not None else (papers[0]["id"] if papers else None)
-        return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(),
+        rcounts = {r["read_status"]: r["n"] for r in registry.query(
+            "SELECT read_status, count(*) AS n FROM papers WHERE status='done' GROUP BY read_status")}
+        rcounts["starred"] = registry.one("SELECT count(*) AS n FROM papers WHERE starred=1")["n"]
+        return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(), rcounts=rcounts,
                       status=status, q=q, c=c, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
@@ -236,6 +244,45 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                      str(body.get("text", "")).replace("\r\n", "\n"))
         background("reindex", pipeline.reindex, paper_id)
         return {"ok": True}
+
+    @app.post("/paper/{paper_id}/meta")
+    async def paper_meta(paper_id: int, request: Request):
+        """Reading status / star."""
+        body = await json_body(request)
+        if registry.get_paper(paper_id) is None:
+            raise HTTPException(404)
+        cols = {}
+        if body.get("read_status") in ("unread", "reading", "read"):
+            cols["read_status"] = body["read_status"]
+        if "starred" in body:
+            cols["starred"] = 1 if body["starred"] else 0
+        if cols:
+            sets = ", ".join(f"{k}=?" for k in cols)
+            registry.execute(f"UPDATE papers SET {sets} WHERE id=?", (*cols.values(), paper_id))
+            background("cards", pipeline._refresh_card, paper_id)
+        return {"ok": True}
+
+    def export_ids(ids: str, c: str) -> list[int]:
+        if ids.strip():
+            return [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        papers, _ = paper_rows("", "", c)
+        return [r["id"] for r in papers if r["status"] == "done"]
+
+    @app.get("/export.{fmt}")
+    def export_refs(fmt: str, ids: str = "", c: str = ""):
+        from fastapi.responses import Response
+
+        from .. import citations_export as ce
+
+        pids = export_ids(ids, c)
+        if fmt == "bib":
+            text, media = ce.bibtex(registry, pids), "application/x-bibtex"
+        elif fmt == "ris":
+            text, media = ce.ris(registry, pids), "application/x-research-info-systems"
+        else:
+            raise HTTPException(404)
+        return Response(text, media_type=media + "; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="papermap.{fmt}"'})
 
     @app.post("/paper/{paper_id}/reveal")
     async def paper_reveal(paper_id: int, request: Request):
@@ -388,6 +435,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.get("/api/reader/{paper_id}/info")
     def reader_info(paper_id: int):
         data = reader_mod.info(reader_pdf(paper_id))
+        registry.execute("UPDATE papers SET read_status='reading' WHERE id=? AND read_status='unread'", (paper_id,))
         data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in registry.annotations(paper_id)]
         return data
 

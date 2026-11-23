@@ -276,6 +276,39 @@
 
   window.pmDialog = dialog; window.pmApi = api; window.pmMenu = showMenu;
 
+  // reading status + star (panel header)
+  document.addEventListener("click", async e => {
+    const star = e.target.closest(".star-btn"), seg = e.target.closest("[data-rs-val]");
+    if (!star && !seg) return;
+    const pid = e.target.closest(".panel").dataset.paper;
+    const body = star ? { starred: star.dataset.star !== "1" } : { read_status: seg.dataset.rsVal };
+    if ((await api(`/paper/${pid}/meta`, body)).ok) { openPaper(pid, false); refreshList(); }
+  });
+
+  // export references
+  async function exportRefs(fmt, query) {
+    const url = `/export.${fmt}?${query}`;
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_text) {
+      const text = await (await fetch(url)).text();
+      const path = await window.pywebview.api.save_text(`papermap.${fmt}`, text);
+      if (path) toast("已保存到 " + path);
+    } else { location.href = url; }
+  }
+  function exportMenu(x, y, ids) {
+    const cur = list ? list.dataset.c || "" : "";
+    const scopeQ = ids.length ? `ids=${ids.join(",")}` : (cur ? `c=${cur}` : "");
+    const what = ids.length ? `所选 ${ids.length} 篇` : (cur ? "当前分组" : "全部论文");
+    showMenu(x, y, [{ label: `导出${what}` },
+      { text: "BibTeX（.bib）", run: () => exportRefs("bib", scopeQ) },
+      { text: "RIS（EndNote / Zotero）", run: () => exportRefs("ris", scopeQ) }]);
+  }
+  window.pmExportMenu = exportMenu;
+  document.addEventListener("click", e => {
+    const b = e.target.closest("#export_btn"); if (!b) return;
+    const r = b.getBoundingClientRect();
+    exportMenu(r.left, r.bottom + 4, list ? [...list.querySelectorAll(".paper-row.multi")].map(x => x.dataset.id) : []);
+  });
+
   async function newGroup(parentId = null, paperIds = []) {
     const name = await dialog(parentId ? "新建子分组：" : "新建分组：", { input: true, okText: "创建" });
     if (!name) return;
@@ -362,6 +395,7 @@
         if (j.ok) { toast(`已加入「${gr.name}」`); refreshSidebar(); }
       } }));
       items.push({ text: "＋ 新建分组并加入…", run: () => newGroup(null, ids) });
+      items.push("-", { text: "导出参考文献…", run: () => exportMenu(e.clientX, e.clientY, ids) });
       if (/^\d+$/.test(cur || "")) {
         items.push("-", { text: "从当前分组移除", run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });
       }

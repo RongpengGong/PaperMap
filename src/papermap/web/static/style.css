@@ -307,3 +307,11 @@ a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .qa-history a { display:block; padding:6px 8px; border-radius:6px; color:var(--fg); font-size:12.5px; line-height:1.4; }
 .qa-history a:hover, .qa-history a.active { background:var(--side-hover); text-decoration:none; }
 .qa-history a i { display:block; font-style:normal; color:var(--muted); font-size:11px; }
+.unread-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent); margin-right:6px; vertical-align:middle; }
+.star-mark { font-style:normal; color:#f0b400; margin-right:4px; }
+.star-btn { margin:0; padding:0 4px; background:none; color:var(--muted); font-size:18px; line-height:1.2; }
+.star-btn.on { color:#f0b400; }
+.seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.seg button { margin:0; padding:2px 10px; background:var(--bg); color:var(--muted); border-radius:0; font-size:12.5px; }
+.seg button.on { background:var(--accent); color:#fff; }
+.list-head .icon-btn { flex:none; }
