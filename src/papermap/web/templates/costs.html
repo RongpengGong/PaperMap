@@ -2,6 +2,7 @@
 {% block title %}费用 - PaperMap{% endblock %}
 {% block content %}
 <h2>费用</h2>
+{% if eff.billing == 'subscription' %}<div class="notice ok">当前用的是包月套餐（{{ eff.preset_label or eff.model }}）：调用不按 token 计费，下面的美元金额只统计按量计费的调用。套餐剩余额度请到服务商后台查看。</div>{% endif %}
 <p class="muted">本地估算，按你在设置里填的价格计算{% if eff.peak_schedule == 'deepseek' %}（高峰时段 ×2）{% endif %}{% if eff.price_multiplier != 1 %}，倍率 {{ eff.price_multiplier }}{% endif %}；以服务商账单为准。</p>
 <div class="stats">
   <div class="stat"><span class="muted">本月</span><strong>${{ "%.4f"|format(month_cost) }}</strong>{% if budget %}<span class="muted">预算 ${{ "%.2f"|format(budget) }}</span>
@@ -17,6 +18,14 @@
 {% else %}<tr><td colspan="5" class="muted">本月还没有调用。</td></tr>{% endfor %}
 </table>
 
+{% if plan_usage %}
+<h3>本月包月套餐用量</h3>
+<p class="muted small">不计入上面的费用和每月预算；token 数便于你对照套餐额度。</p>
+<table><tr><th>模型</th><th>次数</th><th>输入 token</th><th>输出 token</th><th>最近一次</th></tr>
+{% for r in plan_usage %}<tr><td>{{ r.model }}{% if r.failed %} <span class="muted">（{{ r.failed }} 次输出无效）</span>{% endif %}</td><td>{{ r.n }}</td><td>{{ "{:,}".format(r.pin or 0) }}</td><td>{{ "{:,}".format(r.pout or 0) }}</td><td class="muted">{{ r.last[:16].replace('T',' ') }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
 <h3>最近 30 天</h3>
 <div class="bars">
 {% for d in by_day %}<div class="bar" title="{{ d.day }}：{{ d.n }} 次，${{ '%.4f'|format(d.cost or 0) }}"><i style="height: {{ 100 * (d.cost or 0) / max_day }}%"></i><span>{{ d.day[5:] }}</span></div>
@@ -30,6 +39,6 @@
 
 <h3>最近调用</h3>
 <table><tr><th>时间</th><th>用途</th><th>模型</th><th>token</th><th>费用</th><th>论文</th></tr>
-{% for r in recent %}<tr><td class="muted">{{ r.created_at[:16].replace('T',' ') }}</td><td>{{ names.get(r.purpose, r.purpose) }}{% if not r.ok %} ✗{% endif %}</td><td>{{ r.model }}</td><td>{{ "{:,}".format(r.prompt_tokens) }} + {{ "{:,}".format(r.completion_tokens) }}</td><td>${{ "%.5f"|format(r.cost_usd or 0) }}</td><td>{% if r.paper_id %}<a href="/paper/{{ r.paper_id }}">{{ (r.title or '')[:50] }}</a>{% endif %}</td></tr>{% endfor %}
+{% for r in recent %}<tr><td class="muted">{{ r.created_at[:16].replace('T',' ') }}</td><td>{{ names.get(r.purpose, r.purpose) }}{% if not r.ok %} ✗{% endif %}</td><td>{{ r.model }}</td><td>{{ "{:,}".format(r.prompt_tokens) }} + {{ "{:,}".format(r.completion_tokens) }}</td><td>{% if r.billing == 'subscription' %}<span class="muted">包月</span>{% else %}${{ "%.5f"|format(r.cost_usd or 0) }}{% endif %}</td><td>{% if r.paper_id %}<a href="/paper/{{ r.paper_id }}">{{ (r.title or '')[:50] }}</a>{% endif %}</td></tr>{% endfor %}
 </table>
 {% endblock %}

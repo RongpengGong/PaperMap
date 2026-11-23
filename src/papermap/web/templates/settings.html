@@ -22,6 +22,18 @@
       <span><strong>自定义</strong><br><span class="muted">任意 OpenAI / Anthropic / Gemini 兼容服务、中转或本地模型</span></span>
     </label>
   </div>
+  {% for grp, title, sub in [('subscription', '包月订阅', '允许第三方应用使用的订阅套餐：只填 Key，调用不按 token 计费'), ('api', '其他官方 API（按量付费）', '地址和协议已预设好，只填 Key 和模型')] %}
+  <p class="preset-head"><strong>{{ title }}</strong> <span class="muted small">{{ sub }}</span></p>
+  <div class="choices compact">
+    {% for pid, p in presets.items() if p.group == grp %}
+    <label class="choice">
+      <input type="radio" name="provider" value="{{ pid }}" {{ 'checked' if provider == pid }}>
+      <span><strong>{{ p.label }}</strong>{% if (preset_state.get(pid) or {}).get('api_key') %} <span class="ok-text small">✓ 已有 Key</span>{% endif %}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <p class="muted small">ChatGPT Plus / Pro、Claude Pro / Max、Google Antigravity 这类网页登录订阅不能在这里用：第三方程序冒充官方客户端登录违反它们的服务条款，可能导致封号。要用这几家的模型，请选上面对应的官方 API。</p>
 
   {% set ds = providers.deepseek %}
   <div class="pane" data-pane="deepseek">
@@ -40,6 +52,40 @@
       <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按闲时价估算，北京时间工作日 9–12、14–18 点按 2 倍计）</dd>
     </dl>
   </div>
+
+  {% for pid, p in presets.items() %}{% set st = preset_state.get(pid) or {} %}
+  <div class="pane" data-pane="{{ pid }}">
+    <p class="muted">{{ p.note }}</p>
+    <label for="p_{{ pid }}_key">API Key</label>
+    <input type="password" id="p_{{ pid }}_key" name="p_{{ pid }}_key" data-role="key" autocomplete="off"
+      placeholder="{{ '已保存，留空表示不修改' if st.api_key else '粘贴 API Key' }}">
+    <p class="muted">还没有 Key？到 <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} 控制台</a> 创建。
+    {% if st.api_key %}<label class="inline"><input type="checkbox" name="p_{{ pid }}_clear" value="1"> 删除已保存的 Key</label>{% endif %}</p>
+    <label for="p_{{ pid }}_model">模型</label>
+    <div class="row">
+      <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
+        value="{{ st.model or p.default_model }}" placeholder="点右边按钮获取，或直接填写">
+      <button type="button" class="secondary" data-fetch-models>获取模型列表</button>
+    </div>
+    <datalist id="p_{{ pid }}_models">{% for mid, m in p.models.items() %}<option value="{{ mid }}">{{ m.label }}</option>{% endfor %}</datalist>
+    {% if p.group == 'api' %}
+    <details {{ 'open' if not p.models and not st.price_input_per_1m }}>
+      <summary class="muted">价格（美元 / 百万 token，用于本地估算和每月预算）</summary>
+      <p class="muted small">{% if p.models %}留空 = 按所选模型的预设价格（{% for mid, m in p.models.items() %}{{ mid }} ${{ m['in'] }} / ${{ m.out }}{{ '；' if not loop.last }}{% endfor %}）。{% else %}请照 <a href="{{ p.docs_url }}" target="_blank" rel="noopener">官方价格页</a> 填写。{% endif %}</p>
+      <div class="row">
+        <label class="grow">输入<input type="number" step="any" min="0" name="p_{{ pid }}_in" value="{{ st.price_input_per_1m if st.price_input_per_1m is not none else '' }}"></label>
+        <label class="grow">缓存读取<input type="number" step="any" min="0" name="p_{{ pid }}_hit" value="{{ st.price_cache_hit_per_1m if st.price_cache_hit_per_1m is not none else '' }}" placeholder="留空 = 同输入价"></label>
+        <label class="grow">输出<input type="number" step="any" min="0" name="p_{{ pid }}_out" value="{{ st.price_output_per_1m if st.price_output_per_1m is not none else '' }}"></label>
+      </div>
+    </details>
+    {% endif %}
+    <dl class="kv muted">
+      <dt>Base URL</dt><dd><code>{{ p.base_url }}</code></dd>
+      <dt>协议</dt><dd>{{ protocols[p.protocol] }}</dd>
+      <dt>计费</dt><dd>{% if p.group == 'subscription' %}包月套餐，费用页单独统计用量，不计入预算{% else %}按量，<a href="{{ p.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>{% endif %}</dd>
+    </dl>
+  </div>
+  {% endfor %}
 
   <div class="pane" data-pane="custom">
     <label for="custom_base_url">Base URL</label>
@@ -70,6 +116,8 @@
       <p><label class="inline"><input type="checkbox" name="custom_peak" value="1" {{ 'checked' if custom.peak_schedule == 'deepseek' }}>
         高峰时段价格翻倍（按 DeepSeek 规则：北京时间工作日 9:00–12:00、14:00–18:00；上面填闲时价）</label></p>
     </details>
+    <p><label class="inline"><input type="checkbox" name="custom_billing" value="1" {{ 'checked' if custom.billing == 'subscription' }}>
+      这是包月套餐（调用不按 token 计费，只统计用量）</label></p>
   </div>
 
   <div class="row test-row">

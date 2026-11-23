@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
+from ..config import PRESETS, PROTOCOLS, PROVIDERS, Config, effective_llm
 from .. import kb_git, library
 from .. import reader as reader_mod
 from ..llm import check_connection, list_models
@@ -851,11 +851,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         recent = registry.query(
             "SELECT c.*, p.title FROM llm_calls c LEFT JOIN papers p ON p.id=c.paper_id ORDER BY c.id DESC LIMIT 50")
         papers_done = registry.one("SELECT count(*) AS n FROM papers WHERE status='done'")["n"]
+        plan_usage = registry.query(
+            "SELECT model, count(*) AS n, sum(prompt_tokens) AS pin, sum(completion_tokens) AS pout, "
+            "sum(1-ok) AS failed, max(created_at) AS last FROM llm_calls "
+            "WHERE billing='subscription' AND substr(created_at,1,7)=? GROUP BY model ORDER BY n DESC", (month,))
         total = registry.one("SELECT sum(cost_usd) AS c FROM llm_calls")["c"] or 0
         max_day = max([d["cost"] or 0 for d in by_day] + [1e-9])
         return render(request, "costs.html", by_purpose=by_purpose, by_day=by_day, by_month=by_month,
                       recent=recent, max_day=max_day, per_paper=(total / papers_done) if papers_done else 0,
-                      eff=config.effective_llm(), est10=pipeline.estimate(10))
+                      eff=config.effective_llm(), est10=pipeline.estimate(10), plan_usage=plan_usage)
 
     @app.get("/paper/{paper_id}")
     def paper(paper_id: int):
@@ -1225,7 +1229,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(
             request, "settings.html", cfg=config, saved=saved, langs=LANGS,
             providers=PROVIDERS, protocols=PROTOCOLS, provider=llm.get("provider", "deepseek"),
-            eff=eff, custom=custom,
+            eff=eff, custom=custom, presets=PRESETS, preset_state=llm.get("presets") or {},
             official_key_state=("env" if os.environ.get(official_env) else "local" if llm.get("api_key") else ""),
             custom_key_state="local" if custom.get("api_key") else "",
             inbox_text="\n".join(str(p) for p in config.raw.get("inbox_dirs") or []),
@@ -1237,7 +1241,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         )
 
     @app.post("/settings")
-    def save_settings(
+    async def save_settings(
+        request: Request,
         csrf: str = Form(...),
         provider: str = Form("deepseek"),
         official_api_key: str = Form(""),
@@ -1253,6 +1258,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         custom_price_out: float = Form(0),
         custom_multiplier: float = Form(1.0),
         custom_peak: str = Form(""),
+        custom_billing: str = Form(""),
         output_language: str = Form("zh"),
         monthly_budget_usd: float = Form(5),
         inbox_dirs: str = Form(""),
@@ -1285,7 +1291,26 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw.setdefault("embedding", {})["model"] = embedding_model.strip()
         raw["knowledge_git"] = bool(knowledge_git)
         llm = raw["llm"]
-        llm["provider"] = provider if provider in (*PROVIDERS, "custom") else "deepseek"
+        llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
+        form = await request.form()
+        store = llm.setdefault("presets", {})
+        for pid in PRESETS:
+            st = store.get(pid) or {}
+            f = {k: str(form.get(f"p_{pid}_{k}", "")).strip() for k in ("key", "model", "in", "hit", "out", "clear")}
+            if f["clear"]:
+                st.pop("api_key", None)
+            elif f["key"]:
+                st["api_key"] = f["key"]
+            if f["model"]:
+                st["model"] = f["model"]
+            for k, name in (("in", "price_input_per_1m"), ("hit", "price_cache_hit_per_1m"), ("out", "price_output_per_1m")):
+                if f"p_{pid}_{k}" in form:
+                    try:
+                        st[name] = max(0.0, float(f[k])) if f[k] else None
+                    except ValueError:
+                        st[name] = None
+            if st:
+                store[pid] = st
         if official_model in PROVIDERS["deepseek"]["models"]:
             llm["model"] = official_model
         if clear_official_key:
@@ -1304,6 +1329,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             c["price_cache_hit_per_1m"] = None
         c["price_multiplier"] = custom_multiplier if custom_multiplier > 0 else 1.0
         c["peak_schedule"] = "deepseek" if custom_peak else "none"
+        c["billing"] = "subscription" if custom_billing else "token"
         if clear_custom_key:
             c["api_key"] = ""
         elif custom_api_key.strip():
@@ -1330,8 +1356,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         _check_csrf(str(body.get("csrf", "")), csrf_token)
         llm = copy.deepcopy(config.llm)
         provider = body.get("provider", "deepseek")
-        llm["provider"] = provider if provider in (*PROVIDERS, "custom") else "deepseek"
-        if llm["provider"] == "custom":
+        llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
+        if llm["provider"] in PRESETS:
+            st = llm.setdefault("presets", {}).setdefault(llm["provider"], {})
+            if str(body.get("model", "")).strip():
+                st["model"] = str(body["model"]).strip()
+            if str(body.get("api_key", "")).strip():
+                st["api_key"] = str(body["api_key"]).strip()
+        elif llm["provider"] == "custom":
             c = llm.setdefault("custom", {})
             c["base_url"] = str(body.get("base_url", "")).strip()
             c["protocol"] = body.get("protocol") if body.get("protocol") in PROTOCOLS else "openai"

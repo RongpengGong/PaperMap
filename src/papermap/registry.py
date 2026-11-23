@@ -181,6 +181,7 @@ MIGRATIONS = {
                "read_status": "TEXT NOT NULL DEFAULT 'unread'", "starred": "INTEGER NOT NULL DEFAULT 0",
                "tags_json": "TEXT", "zotero_key": "TEXT"},
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
+    "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
 }
 
 PAPER_STATUSES = (
@@ -377,11 +378,13 @@ class Registry:
         completion_tokens: int,
         cost_usd: float,
         ok: bool,
+        billing: str = "token",
     ) -> None:
         self.execute(
             "INSERT INTO llm_calls(paper_id, purpose, model, prompt_tokens, completion_tokens, "
-            "cost_usd, ok, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (paper_id, purpose, model, prompt_tokens, completion_tokens, cost_usd, int(ok), now_iso()),
+            "cost_usd, ok, created_at, billing) VALUES (?,?,?,?,?,?,?,?,?)",
+            (paper_id, purpose, model, prompt_tokens, completion_tokens, cost_usd, int(ok), now_iso(),
+             "subscription" if billing == "subscription" else "token"),
         )
 
     def month_cost(self) -> float:

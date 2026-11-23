@@ -96,8 +96,10 @@ class LLMClient:
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(img).decode()}}
                 for img in images]
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
-        kwargs: dict[str, Any] = {"model": eff["model"], "messages": messages, "max_tokens": max_tokens,
-                                  "temperature": 0.3}
+        kwargs: dict[str, Any] = {"model": eff["model"], "messages": messages,
+                                  "max_tokens": max(max_tokens, int(eff.get("min_max_tokens") or 0))}
+        if not eff.get("no_temperature"):
+            kwargs["temperature"] = 0.3
         if eff.get("extra_body"):
             kwargs["extra_body"] = eff["extra_body"]
         resp = client.chat.completions.create(**kwargs)
@@ -108,7 +110,7 @@ class LLMClient:
         hit = int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
         cost = compute_cost(eff, pt, ct, hit)
         self.registry.record_llm_call(paper_id, purpose, getattr(resp, "model", eff["model"]) or eff["model"],
-                                      pt, ct, cost, bool(raw))
+                                      pt, ct, cost, bool(raw), billing=eff.get("billing", "token"))
         if not raw:
             raise LLMError("empty answer from the model")
         return LLMResult({}, raw, eff["model"], pt, ct, cost)
@@ -128,18 +130,21 @@ class LLMClient:
         last_raw, last_err = "", ""
         for attempt in range(2):
             self.check_budget()
+            eff = self.config.effective_llm()
             kwargs: dict[str, Any] = {
                 "model": self.model,
                 "messages": messages,
-                "response_format": {"type": "json_object"},
-                "max_tokens": max_tokens,
-                "temperature": 0.2,
+                "max_tokens": max(max_tokens, int(eff.get("min_max_tokens") or 0)),
             }
-            extra = self.config.effective_llm().get("extra_body")
+            if eff.get("json_mode", True):
+                kwargs["response_format"] = {"type": "json_object"}
+            if not eff.get("no_temperature"):
+                kwargs["temperature"] = 0.2
+            extra = eff.get("extra_body")
             if extra:
                 kwargs["extra_body"] = extra
             resp = client.chat.completions.create(**kwargs)
-            raw = (resp.choices[0].message.content or "") if resp.choices else ""
+            raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
             pt, ct, cost = self._cost(getattr(resp, "usage", None))
             data, err = _parse_json(raw)
             if data is not None:
@@ -149,7 +154,7 @@ class LLMClient:
                     data = None
             self.registry.record_llm_call(
                 paper_id, purpose, getattr(resp, "model", self.model) or self.model,
-                pt, ct, cost, data is not None,
+                pt, ct, cost, data is not None, billing=eff.get("billing", "token"),
             )
             if data is not None:
                 return LLMResult(data, raw, self.model, pt, ct, cost)
@@ -171,6 +176,8 @@ def compute_cost(eff: dict[str, Any], prompt_tokens: int, completion_tokens: int
     """USD cost of one call: (miss*in + hit*cache + out*out) * multiplier * peak(2x)."""
     from .config import is_peak
 
+    if eff.get("billing") == "subscription":
+        return 0.0
     hit = min(cache_hit_tokens, prompt_tokens)
     base = (
         (prompt_tokens - hit) * float(eff.get("price_input_per_1m") or 0)
@@ -425,7 +432,7 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
     try:
         client = make_client(eff, timeout_s)
         kwargs: dict[str, Any] = {
-            "model": eff["model"], "max_tokens": 16,
+            "model": eff["model"], "max_tokens": 16 if not eff.get("min_max_tokens") else 2048,
             "messages": [{"role": "user", "content": "Reply with the single word: OK"}],
         }
         if eff.get("extra_body"):
@@ -470,7 +477,13 @@ def _parse_json(raw: str) -> tuple[dict | None, str]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        return None, f"not valid JSON ({exc.msg} at char {exc.pos})"
+        start, end = text.find("{"), text.rfind("}")
+        try:  # models without JSON mode sometimes wrap the object in prose
+            data = json.loads(text[start:end + 1]) if 0 <= start < end else None
+        except json.JSONDecodeError:
+            data = None
+        if data is None:
+            return None, f"not valid JSON ({exc.msg} at char {exc.pos})"
     if not isinstance(data, dict):
         return None, "top-level JSON value must be an object"
     return data, ""

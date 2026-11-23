@@ -44,6 +44,98 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 
+# One-click presets for other providers (checked against each provider's docs,
+# 2026-11-23). "subscription" = flat-rate plan whose API key may be used by
+# third-party apps; calls are logged with tokens but cost $0. Coding plans that
+# forbid use outside their listed coding tools (GLM Coding Plan, Alibaba Cloud
+# Coding Plan) or point app integrations to the pay-as-you-go platform (Kimi
+# Code) are offered through those providers' pay-as-you-go APIs instead.
+# Consumer subscriptions reached by OAuth login (ChatGPT, Claude Pro/Max,
+# Google Antigravity) are deliberately not supported: that breaks their terms.
+# Prices: USD per 1M tokens; an empty models dict means "type or fetch the
+# model name, fill in the price yourself".
+PRESETS: dict[str, dict[str, Any]] = {
+    "minimax_mplan": {
+        "label": "MiniMax M Plan", "group": "subscription",
+        "base_url": "https://api.minimax.cn/v1", "protocol": "openai",
+        "key_url": "https://platform.minimax.cn/console/plan",
+        "docs_url": "https://platform.minimaxi.com/docs/m-plan/other-tools",
+        "models": {"MiniMax-M3.1-Flash": {"label": "MiniMax-M3.1-Flash"}},
+        "default_model": "MiniMax-M3.1-Flash",
+        "json_mode": False, "min_max_tokens": 16000,
+        "note": "包月订阅（Go / Explore / Build），有 5 小时和每周额度。模型总是先思考，回复会慢一些。",
+    },
+    "ollama_cloud": {
+        "label": "Ollama Cloud", "group": "subscription",
+        "base_url": "https://ollama.com/v1", "protocol": "openai",
+        "key_url": "https://ollama.com/settings/keys",
+        "docs_url": "https://docs.ollama.com/cloud",
+        "models": {}, "default_model": "gemma4:31b",
+        "json_mode": False,  # cloud models do not support structured outputs
+        "note": "免费额度 + 付费订阅 / 额度包。模型名用「获取模型列表」选，例如 gemma4:31b。",
+    },
+    "anthropic": {
+        "label": "Anthropic Claude API", "group": "api",
+        "base_url": "https://api.anthropic.com", "protocol": "anthropic",
+        "key_url": "https://platform.claude.com/settings/keys",
+        "docs_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "models": {
+            "claude-opus-5-5": {"label": "claude-opus-5-5（最强）", "in": 4.0, "hit": 0.2, "out": 20.0},
+            "claude-sonnet-5-5": {"label": "claude-sonnet-5-5（均衡）", "in": 2.0, "hit": 0.1, "out": 10.0},
+            "claude-haiku-5-5": {"label": "claude-haiku-5-5（便宜、快）", "in": 0.1, "hit": 0.01, "out": 0.5},
+        },
+        "default_model": "claude-opus-5-5",
+        "no_temperature": True,  # current models reject sampling parameters
+        "min_max_tokens": 16000,
+        "note": "按量付费的 API Key（不是 Claude Pro / Max 订阅）。",
+    },
+    "openai": {
+        "label": "OpenAI API", "group": "api",
+        "base_url": "https://api.openai.com/v1", "protocol": "responses",
+        "key_url": "https://platform.openai.com/api-keys",
+        "docs_url": "https://openai.com/api/pricing/",
+        "models": {}, "default_model": "",
+        "note": "按量付费的 API Key（不是 ChatGPT Plus / Pro 订阅）。",
+    },
+    "gemini": {
+        "label": "Google Gemini API", "group": "api",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta", "protocol": "gemini",
+        "key_url": "https://aistudio.google.com/apikey",
+        "docs_url": "https://ai.google.dev/gemini-api/docs/pricing",
+        "models": {}, "default_model": "",
+        "note": "Google AI Studio 的 API Key，有免费层级。",
+    },
+    "moonshot": {
+        "label": "Kimi 开放平台", "group": "api",
+        "base_url": "https://api.moonshot.cn/v1", "protocol": "openai",
+        "key_url": "https://platform.kimi.com/console/api-keys",
+        "docs_url": "https://platform.kimi.com/docs/pricing/chat",
+        "models": {}, "default_model": "",
+        "note": "按量付费。Kimi Code 会员 Key 官方只用于编程工具，第三方应用请用开放平台。",
+    },
+    "zhipu": {
+        "label": "智谱开放平台（GLM）", "group": "api",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4", "protocol": "openai",
+        "key_url": "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+        "docs_url": "https://bigmodel.cn/pricing",
+        "models": {}, "default_model": "",
+        "note": "按量付费。GLM Coding Plan 只在官方指定的编程工具里抵扣套餐，在 PaperMap 里调用会扣账户余额。",
+    },
+    "dashscope": {
+        "label": "阿里云百炼（通义千问）", "group": "api",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "protocol": "openai",
+        "key_url": "https://bailian.console.aliyun.com/?tab=model#/api-key",
+        "docs_url": "https://help.aliyun.com/zh/model-studio/models",
+        "models": {}, "default_model": "",
+        "note": "按量付费的 sk- Key。百炼 Coding Plan（sk-sp-）明确禁止用于自定义应用，用了可能被封。",
+    },
+}
+
+
+def preset_models(pid: str) -> dict[str, dict[str, Any]]:
+    return (PRESETS.get(pid) or {}).get("models") or {}
+
+
 # Peak-hour schedules: (weekday Mon-Fri, UTC hour ranges) where prices double.
 # DeepSeek: 01:00-04:00 and 06:00-10:00 UTC on weekdays (= Beijing 09-12, 14-18).
 # Chinese public holidays are off-peak per DeepSeek, but are not modelled here,
@@ -80,6 +172,30 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
             "price_input_per_1m": price["in"], "price_cache_hit_per_1m": price["hit"],
             "price_output_per_1m": price["out"], "price_multiplier": 1.0,
             "peak_schedule": pre.get("peak_schedule", "none"),
+            "billing": "token", "json_mode": True, "no_temperature": False, "min_max_tokens": 0,
+        }
+    if provider in PRESETS:
+        pre = PRESETS[provider]
+        st = (llm.get("presets") or {}).get(provider) or {}
+        model = (st.get("model") or pre["default_model"] or "").strip()
+        sub = pre["group"] == "subscription"
+        price = pre["models"].get(model) or {}
+        def num(key: str, fallback: Any) -> float:
+            v = st.get(key)
+            return float(v) if v not in (None, "") else float(fallback or 0)
+        p_in = 0.0 if sub else num("price_input_per_1m", price.get("in"))
+        return {
+            "provider": provider, "preset_label": pre["label"], "base_url": pre["base_url"],
+            "protocol": pre["protocol"], "model": model,
+            "api_key": (st.get("api_key") or "").strip(), "api_key_env": "", "key_from_env": False,
+            "extra_body": pre.get("extra_body") or {},
+            "price_input_per_1m": p_in,
+            "price_cache_hit_per_1m": 0.0 if sub else num("price_cache_hit_per_1m", price.get("hit", p_in)),
+            "price_output_per_1m": 0.0 if sub else num("price_output_per_1m", price.get("out")),
+            "price_multiplier": 1.0, "peak_schedule": "none",
+            "billing": "subscription" if sub else "token",
+            "json_mode": pre.get("json_mode", True), "no_temperature": pre.get("no_temperature", False),
+            "min_max_tokens": int(pre.get("min_max_tokens") or 0),
         }
     c = llm.get("custom") or {}
     env = (c.get("api_key_env") or "").strip()
@@ -97,6 +213,8 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
         "price_output_per_1m": float(c.get("price_output_per_1m") or 0),
         "price_multiplier": float(c.get("price_multiplier") or 1.0),
         "peak_schedule": c.get("peak_schedule") if c.get("peak_schedule") in PEAK_SCHEDULES else "none",
+        "billing": "subscription" if c.get("billing") == "subscription" else "token",
+        "json_mode": True, "no_temperature": False, "min_max_tokens": 0,
     }
 
 
@@ -125,7 +243,9 @@ DEFAULTS: dict[str, Any] = {
             "price_output_per_1m": 0,
             "price_multiplier": 1.0,  # e.g. a relay's group ratio (分组倍率)
             "peak_schedule": "none",  # none | deepseek (2x at DeepSeek peak hours)
+            "billing": "token",  # token | subscription (flat-rate plan: tokens logged, cost $0)
         },
+        "presets": {},  # per-preset {api_key, model, price_*_per_1m}
         "max_input_chars": 60000,
         "monthly_budget_usd": 5,
         "timeout_s": 180,
@@ -280,8 +400,8 @@ class Config:
             raise ConfigError("output_language must be zh, en or bilingual")
         if not isinstance(self.raw.get("inbox_dirs"), list):
             raise ConfigError("inbox_dirs must be a list of folders")
-        if self.llm.get("provider", "deepseek") not in (*PROVIDERS, "custom"):
-            raise ConfigError(f"llm.provider must be one of {', '.join([*PROVIDERS, 'custom'])}")
+        if self.llm.get("provider", "deepseek") not in (*PROVIDERS, *PRESETS, "custom"):
+            raise ConfigError(f"llm.provider must be one of {', '.join([*PROVIDERS, *PRESETS, 'custom'])}")
         host = self.web.get("host")
         if host not in ("127.0.0.1", "localhost", "::1"):
             raise ConfigError("web.host must be a loopback address (127.0.0.1)")

@@ -20,6 +20,11 @@
       return { csrf: v("csrf"), provider: p, base_url: v("custom_base_url"), api_key: v("custom_api_key"),
                protocol: v("custom_protocol"), model: v("custom_model") };
     }
+    if (p !== "deepseek") {
+      const pane = form.querySelector(`.pane[data-pane="${p}"]`);
+      return { csrf: v("csrf"), provider: p, api_key: pane.querySelector('[data-role="key"]').value,
+               model: pane.querySelector('[data-role="model"]').value };
+    }
     return { csrf: v("csrf"), provider: p, api_key: v("official_api_key"), model: v("official_model") };
   }
   async function post(url) {
@@ -37,6 +42,22 @@
     } catch (err) { show(false, "✗ " + err); }
     e.target.disabled = false;
   });
+
+  form.querySelectorAll("[data-fetch-models]").forEach(btn => btn.addEventListener("click", async (e) => {
+    const pane = btn.closest(".pane");
+    e.target.disabled = true; show(true, "正在获取模型列表…"); result.className = "muted";
+    try {
+      const r = await post("/api/llm/models");
+      if (r.ok) {
+        const dl = pane.querySelector("datalist");
+        const known = new Set([...dl.options].map(o => o.value));
+        r.models.forEach(m => { if (!known.has(m)) { const o = document.createElement("option"); o.value = m; dl.appendChild(o); } });
+        show(true, `✓ 找到 ${r.models.length} 个模型，点击「模型」输入框即可选择`);
+        pane.querySelector('[data-role="model"]').focus();
+      } else { show(false, "✗ " + r.message + "（也可以直接手动填写模型名）"); }
+    } catch (err) { show(false, "✗ " + err); }
+    e.target.disabled = false;
+  }));
 
   document.getElementById("fetch_models").addEventListener("click", async (e) => {
     e.target.disabled = true; show(true, "正在获取模型列表…"); result.className = "muted";

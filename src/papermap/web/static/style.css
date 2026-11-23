@@ -349,3 +349,5 @@ a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .tag-chip:hover { color:var(--accent); text-decoration:none; }
 .res-table td.res-title { min-width:220px; max-width:340px; } .res-table td.res-title a { color:var(--fg); }
 .res-table td.res-title a { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.preset-head { margin: 14px 0 6px; }
+.choices.compact .choice { padding: 8px 12px; }
