@@ -1,9 +1,21 @@
 {% extends "base.html" %}
 {% block title %}从 Zotero 导入 - PaperMap{% endblock %}
+{% block content_class %}settings-content{% endblock %}
 {% block content %}
-<h2>从 Zotero 导入</h2>
+<div class="settings-shell">
+<header class="settings-header"><div>
+  <div class="settings-breadcrumb"><a href="/settings?section=import">导入与文件夹</a> <span aria-hidden="true">/</span> Zotero</div>
+  <h1>从 Zotero 导入</h1>
+</div></header>
 <p class="muted">PaperMap 读取 Zotero 数据库的一份<strong>副本</strong>，Zotero 里的文件和数据都不会被修改（Zotero 开着也没关系）。有 PDF 的条目会像拖进来的论文一样处理：识别 DOI、生成卡片、分类；超过 {{ 5 }} 篇时先在首页给出费用估算，等你确认。重复导入不会产生重复。</p>
-<form method="get" action="/zotero" class="row"><input type="text" name="dir" value="{{ zdir }}"><button type="button" class="secondary" data-pick-folder="zdir_input" hidden></button><button>读取</button></form>
+<form method="get" action="/zotero">
+  <label for="zdir_input">Zotero 数据目录</label>
+  <div class="row">
+    <input type="text" id="zdir_input" name="dir" value="{{ zdir }}">
+    <button type="button" class="secondary" data-pick-folder="zdir_input" data-pick-replace>选择文件夹…</button>
+    <button>读取</button>
+  </div>
+</form>
 {% if err %}<div class="notice">{{ err }}</div>{% endif %}
 {% if info %}
 <section class="card" style="margin-top:14px">
@@ -26,6 +38,7 @@
 </section>
 {% endif %}
 {% endif %}
+</div>
 {% endblock %}
 {% block scripts %}
 <script>

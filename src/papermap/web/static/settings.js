@@ -1,6 +1,7 @@
 (function () {
   const form = document.getElementById("settings");
-  const radios = form.querySelectorAll('input[name="provider"]');
+  const providerPicker = document.getElementById("provider_picker");
+  const modelSection = form.querySelector('[data-settings-panel="models"]');
   const result = document.getElementById("test_result");
   const accountProviders = new Set(["chatgpt_plan", "claude_cli"]);
   let accountPoll = null;
@@ -93,11 +94,10 @@
     renderReasoning();
   }
 
-  function current() { return form.querySelector('input[name="provider"]:checked').value; }
+  function current() { return providerPicker.value; }
   function showPane() {
     const p = current();
     form.querySelectorAll(".pane").forEach(el => { el.hidden = el.dataset.pane !== p; });
-    form.querySelectorAll(".choice").forEach(el => el.classList.toggle("active", el.querySelector("input").checked));
     result.textContent = ""; result.className = "muted";
     clearTimeout(accountPoll); const epoch = ++accountEpoch;
     ++catalogSequence; catalogRequest = null; ++claudeSequence; clearTimeout(claudeTimer);
@@ -105,13 +105,15 @@
       const btn = chatgptPane.querySelector("[data-fetch-models]");
       btn.disabled = false; delete btn.dataset.modelRequest;
     }
+    if (modelSection.hidden) return;
     if (accountProviders.has(p)) refreshAccount(p).then(state => {
       if (state.ready && p === "chatgpt_plan" && epoch === accountEpoch) loadChatgptModels(true);
       if (state.pending && epoch === accountEpoch) accountPoll = setTimeout(() => waitForAccount(p, Date.now() + 180000, epoch), 2500);
     });
     if (p === "claude_cli") { renderClaudeReasoning(); loadClaudeModels(true); }
   }
-  radios.forEach(r => r.addEventListener("change", showPane));
+  providerPicker.addEventListener("change", showPane);
+  document.addEventListener("papermap:settings-section", showPane);
 
   function payload(p = current()) {
     const v = id => (document.getElementById(id) || {}).value || "";
@@ -214,6 +216,12 @@
       if (state.needs_consent !== undefined || state.ready) login.dataset.consent = String(Boolean(state.needs_consent));
       if (provider === "chatgpt_plan") login.textContent = state.needs_consent ? "Continue with ChatGPT（重新授权）" : "Continue with ChatGPT";
       if (login.dataset.busy !== "1") login.disabled = pending || login.dataset.available === "false";
+    }
+    const logout = form.querySelector(`[data-account-logout="${provider}"]`);
+    if (logout) {
+      const connected = state.authenticated ?? state.connected;
+      if (state.ready || connected === true) logout.hidden = false;
+      else if (connected === false) logout.hidden = true;
     }
     const cancel = form.querySelector(`[data-account-cancel="${provider}"]`);
     if (cancel) cancel.hidden = !pending;

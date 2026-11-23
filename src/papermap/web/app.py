@@ -29,6 +29,13 @@ from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve
 HERE = Path(__file__).parent
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 LANGS = ("zh", "en", "bilingual")
+SETTINGS_GROUPS = (
+    ("AI 服务", (("models", "模型与账号", "settings"), ("translation", "翻译", "handbooks"))),
+    ("文献库", (("import", "导入与文件夹", "inbox"), ("processing", "论文处理", "papers"),
+                ("library", "知识库位置", "folder"), ("taxonomy", "学科与版本", "fields"))),
+    ("应用", (("application", "后台运行", "events"),)),
+)
+SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROUPS for item in items}
 
 
 def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAPI:
@@ -532,6 +539,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             info, err = None, str(exc)
         job = registry.one("SELECT * FROM jobs WHERE kind='zotero' ORDER BY id DESC LIMIT 1")
         return render(request, "zotero.html", info=info, err=err, zdir=str(zdir), job=job,
+                      settings_groups=SETTINGS_GROUPS, settings_section="import",
+                      settings_group_label=SETTINGS_SECTIONS["import"][0], settings_title="Zotero 导入",
                       result=json.loads(job["message"]) if job and job["status"] == "done" and (job["message"] or "").startswith("{") else None)
 
     @app.post("/api/zotero/import")
@@ -1224,9 +1233,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "events.html", events=registry.recent_events(500))
 
     @app.get("/settings", response_class=HTMLResponse)
-    def settings(request: Request, saved: int = 0, welcome: int = 0):
+    def settings(request: Request, saved: int = 0, welcome: int = 0, section: str = "models"):
         from ..claude_cli import model_options as claude_model_options
 
+        section = section if section in SETTINGS_SECTIONS else "models"
         llm = config.llm
         eff = config.effective_llm()
         custom = llm.get("custom") or {}
@@ -1246,6 +1256,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             tr=config.raw["translation"], bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
             claude_model_options=claude_model_options(),
+            settings_section=section, settings_groups=SETTINGS_GROUPS,
+            settings_group_label=SETTINGS_SECTIONS[section][0], settings_title=SETTINGS_SECTIONS[section][1],
         )
 
     @app.post("/settings")
@@ -1369,7 +1381,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             pass
         pipeline.llm.reset_client()
         threading.Thread(target=pipeline.process_pending, daemon=True).start()
-        return RedirectResponse("/settings?saved=1", status_code=303)
+        target = "/settings?saved=1"
+        if "settings_section" in form:
+            section = str(form["settings_section"])
+            target += "&section=" + (section if section in SETTINGS_SECTIONS else "models")
+        return RedirectResponse(target, status_code=303)
 
     def _form_llm(body: dict) -> dict:
         """Effective LLM settings from the (unsaved) form; blank key = stored key."""

@@ -1,42 +1,37 @@
 {% extends "base.html" %}
 {% block title %}设置 - PaperMap{% endblock %}
+{% block content_class %}settings-content{% endblock %}
 {% block content %}
-<h2>设置</h2>
-{% if welcome %}<div class="notice ok"><strong>欢迎使用 PaperMap！</strong>三步开始：① 在下面选择模型服务，连接订阅账号或填入 API Key，并点「测试连接」；② 确认自动导入文件夹，或直接拖入 PDF；③ 保存设置。<br>隐私提示：每篇新论文的文本（标题、摘要、关键章节）会发送到你选择的模型服务商；被排除规则命中的 PDF 永远不会发送。</div>{% endif %}
-{% if saved %}<div class="notice ok">已保存。入口文件夹的改动需要重启 <code>papermap run</code> 才生效。</div>{% endif %}
+<div class="settings-shell">
+  <header class="settings-header">
+    <div>
+      <div class="settings-breadcrumb">设置 <span aria-hidden="true">/</span> <span data-settings-group-label>{{ settings_group_label }}</span></div>
+      <h1 data-settings-title>{{ settings_title }}</h1>
+    </div>
+    <button type="submit" id="settings_save" form="settings">保存设置</button>
+  </header>
+  {% if welcome %}<div class="notice ok"><strong>欢迎使用 PaperMap</strong>。先连接模型，再到「导入与文件夹」选择 PDF 来源。论文文本会发送到所选服务商。</div>{% endif %}
+  {% if saved %}<div class="notice ok" role="status">设置已保存。</div>{% endif %}
 <form method="post" action="/settings" id="settings">
 <input type="hidden" name="csrf" id="csrf" value="{{ csrf }}">
-
-<section class="card">
-  <h3>模型服务</h3>
-  <p class="muted">论文文本会发送到这里选择的服务商。Key 只保存在本机配置文件里，页面不会显示已保存的 Key。</p>
-  <div class="choices">
-    {% for pid, p in providers.items() %}
-    <label class="choice">
-      <input type="radio" name="provider" value="{{ pid }}" {{ 'checked' if provider == pid }}>
-      <span><strong>{{ p.label }}</strong><br><span class="muted">按官方文档预设好，只需填 API Key</span></span>
-    </label>
-    {% endfor %}
-    <label class="choice">
-      <input type="radio" name="provider" value="custom" {{ 'checked' if provider == 'custom' }}>
-      <span><strong>自定义</strong><br><span class="muted">任意 OpenAI / Anthropic / Gemini 兼容服务、中转或本地模型</span></span>
-    </label>
+<input type="hidden" name="settings_section" value="{{ settings_section }}">
+<section class="settings-panel" data-settings-panel="models" aria-label="模型与账号" {% if settings_section != 'models' %}hidden{% endif %}>
+  <div class="settings-model-picker">
+    <label for="provider_picker">模型服务</label>
+    <select id="provider_picker" name="provider">
+      <optgroup label="包月订阅">
+        {% for pid, p in presets.items() if p.group == 'subscription' %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="按量付费 API">
+        {% for pid, p in providers.items() %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
+        {% for pid, p in presets.items() if p.group == 'api' %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="自定义服务"><option value="custom" {{ 'selected' if provider == 'custom' }}>自定义</option></optgroup>
+    </select>
   </div>
-  {% for grp, title, sub in [('subscription', '包月订阅', '连接官方账号或填写套餐 Key；受各服务的套餐额度限制'), ('api', '其他官方 API（按量付费）', '地址和协议已预设好，只填 Key 和模型')] %}
-  <p class="preset-head"><strong>{{ title }}</strong> <span class="muted small">{{ sub }}</span></p>
-  <div class="choices compact">
-    {% for pid, p in presets.items() if p.group == grp %}
-    <label class="choice">
-      <input type="radio" name="provider" value="{{ pid }}" {{ 'checked' if provider == pid }}>
-      <span><strong>{{ p.label }}</strong>{% if (preset_state.get(pid) or {}).get('api_key') %} <span class="ok-text small">✓ 已有 Key</span>{% endif %}</span>
-    </label>
-    {% endfor %}
-  </div>
-  {% endfor %}
-  <p class="muted small">ChatGPT 通过官方授权页连接；Claude 通过本机安装的官方 Claude Code 登录。PaperMap 不读取浏览器 Cookie，也不要求填写网页密码。订阅额度与按量付费 API 分开。</p>
-
+  <p class="muted small">论文文本会发送到所选服务商。API Key 仅保存在本机。</p>
   {% set ds = providers.deepseek %}
-  <div class="pane" data-pane="deepseek">
+  <div class="pane" data-pane="deepseek" {% if provider != "deepseek" %}hidden{% endif %}>
     <label for="official_api_key">API Key</label>
     <input type="password" id="official_api_key" name="official_api_key" autocomplete="off"
       placeholder="{% if official_key_state == 'env' %}已从环境变量 {{ ds.api_key_env }} 读取{% elif official_key_state == 'local' %}已保存，留空表示不修改{% else %}sk-...{% endif %}">
@@ -46,49 +41,61 @@
     <select id="official_model" name="official_model">
       {% for mid, m in ds.models.items() %}<option value="{{ mid }}" {{ 'selected' if cfg.llm.model == mid }}>{{ m.label }}</option>{% endfor %}
     </select>
-    <dl class="kv muted">
+    <details class="settings-provider-details"><summary>接口和计费说明</summary><dl class="kv muted">
       <dt>Base URL</dt><dd><code>{{ ds.base_url }}</code></dd>
       <dt>协议</dt><dd>{{ protocols[ds.protocol] }}</dd>
       <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按闲时价估算，北京时间工作日 9–12、14–18 点按 2 倍计）</dd>
-    </dl>
+    </dl></details>
   </div>
 
   {% for pid, p in presets.items() %}{% set st = preset_state.get(pid) or {} %}
-  <div class="pane" data-pane="{{ pid }}">
+  <div class="pane" data-pane="{{ pid }}" {% if provider != pid %}hidden{% endif %}>
+    {% set subscription = pid in ('chatgpt_plan', 'claude_cli') %}
+    {% if subscription %}
+    <section class="settings-account" aria-labelledby="account_title_{{ pid }}">
+      <div class="settings-account-heading">
+        <h2 id="account_title_{{ pid }}">订阅账号</h2>
+        <details class="account-help">
+          <summary>登录与用量说明</summary>
+          {% if pid == 'chatgpt_plan' %}
+          <p>在系统浏览器中完成 OpenAI 授权后，PaperMap 会使用该账号的套餐或余额。<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">管理 ChatGPT 用量</a></p>
+          {% else %}
+          <p>安装<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">官方 Claude Code</a>，用 Claude Pro 或 Max 账号登录，再回到这里刷新状态。API Key 登录不能作为订阅调用。</p>
+          {% endif %}
+        </details>
+      </div>
+      <p class="muted small" data-account-result="{{ pid }}" role="status" aria-live="polite">正在检查连接状态…</p>
+      <div class="row">
+        <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else '用官方 Claude Code 登录' }}</button>
+        <button type="button" class="secondary" data-account-status="{{ pid }}">刷新连接状态</button>
+        {% if pid == 'chatgpt_plan' %}<button type="button" class="secondary" data-account-cancel="{{ pid }}" hidden>取消等待</button>{% endif %}
+        <button type="button" class="ghost-btn" data-account-logout="{{ pid }}" hidden>{{ '断开连接' if pid == 'chatgpt_plan' else '注销本机 Claude Code' }}</button>
+        <a data-account-url="{{ pid }}" target="_blank" rel="noopener" hidden>打开官方授权页面</a>
+      </div>
+    </section>
+    {% else %}
     <p class="muted">{{ p.note }}</p>
-    {% if pid in ('chatgpt_plan', 'claude_cli') %}
-    <div class="row">
-      <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else '用官方 Claude Code 登录' }}</button>
-      <button type="button" class="secondary" data-account-status="{{ pid }}">刷新连接状态</button>
-      {% if pid == 'chatgpt_plan' %}<button type="button" class="secondary" data-account-cancel="{{ pid }}" hidden>取消等待</button>{% endif %}
-      <button type="button" class="ghost-btn" data-account-logout="{{ pid }}">{{ '断开连接' if pid == 'chatgpt_plan' else '注销本机 Claude Code' }}</button>
-    </div>
-    <p class="muted small" data-account-result="{{ pid }}" role="status" aria-live="polite">正在检查连接状态…</p>
-    <p class="muted small"><a data-account-url="{{ pid }}" target="_blank" rel="noopener" hidden>打开官方授权页面</a></p>
-    {% if pid == 'chatgpt_plan' %}
-    <p class="muted small">连接时会在系统浏览器打开 OpenAI 官方授权页。完成授权后回到这里刷新状态，然后保存设置；无需 API Key。</p>
-    <p class="muted small">当前 ChatGPT 账号的套餐或余额将用于 PaperMap。<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">管理 ChatGPT 用量</a></p>
-    {% else %}
-    <p class="muted small">需要先安装 <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">官方 Claude Code</a>。登录与注销会交给本机官方程序；使用 Claude Pro / Max 登录后回到这里刷新状态。当前凭据和计费方式由 Claude Code 决定，API Key 登录不能作为订阅调用。</p>
-    {% endif %}
-    {% else %}
     <label for="p_{{ pid }}_key">API Key</label>
     <input type="password" id="p_{{ pid }}_key" name="p_{{ pid }}_key" data-role="key" autocomplete="off"
       placeholder="{{ '已保存，留空表示不修改' if st.api_key else '粘贴 API Key' }}">
     <p class="muted">还没有 Key？到 <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} 控制台</a> 创建。
     {% if st.api_key %}<label class="inline"><input type="checkbox" name="p_{{ pid }}_clear" value="1"> 删除已保存的 Key</label>{% endif %}</p>
     {% endif %}
-    <label for="p_{{ pid }}_model">模型</label>
-    <div class="row">
-      <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
-        value="{{ st.model or p.default_model }}" placeholder="点右边按钮获取，或直接填写">
-      {% if pid in ('chatgpt_plan', 'claude_cli') %}
-      <label class="inline" for="p_{{ pid }}_reasoning_effort">推理强度</label>
-      <select class="ghost-select" id="p_{{ pid }}_reasoning_effort" data-role="reasoning-effort" aria-describedby="{{ pid }}_reasoning_hint">
-        <option value="">默认（模型决定）</option>
-        {% if st.reasoning_effort %}<option value="{{ st.reasoning_effort }}" selected disabled>{{ st.reasoning_effort }}（已保存，待确认）</option>{% endif %}
-      </select>
-      <input type="hidden" name="p_{{ pid }}_reasoning_effort" data-role="reasoning-value" value="{{ st.reasoning_effort or '' }}">
+    <div class="{{ 'subscription-model-row' if subscription else 'row' }}">
+      <div class="{{ 'model-field' if subscription else 'grow' }}">
+        <label for="p_{{ pid }}_model">模型</label>
+        <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
+          value="{{ st.model or p.default_model }}" placeholder="选择或输入模型名称">
+      </div>
+      {% if subscription %}
+      <div class="effort-field">
+        <label for="p_{{ pid }}_reasoning_effort">推理强度</label>
+        <select class="ghost-select" id="p_{{ pid }}_reasoning_effort" data-role="reasoning-effort" aria-describedby="{{ pid }}_reasoning_hint">
+          <option value="">默认（模型决定）</option>
+          {% if st.reasoning_effort %}<option value="{{ st.reasoning_effort }}" selected disabled>{{ st.reasoning_effort }}（已保存，待确认）</option>{% endif %}
+        </select>
+        <input type="hidden" name="p_{{ pid }}_reasoning_effort" data-role="reasoning-value" value="{{ st.reasoning_effort or '' }}">
+      </div>
       {% endif %}
       <button type="button" class="secondary" data-fetch-models>获取模型列表</button>
     </div>
@@ -106,17 +113,17 @@
       </div>
     </details>
     {% endif %}
-    <dl class="kv muted">
+    <details class="settings-provider-details"><summary>计费说明</summary><dl class="kv muted">
       {% if pid not in ('chatgpt_plan', 'claude_cli') %}
       <dt>Base URL</dt><dd><code>{{ p.base_url }}</code></dd>
       <dt>协议</dt><dd>{{ protocols[p.protocol] }}</dd>
       {% endif %}
       <dt>计费</dt><dd>{% if p.group == 'subscription' %}本地单列套餐用量，实际额度与费用以服务商为准{% else %}按量，<a href="{{ p.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>{% endif %}</dd>
-    </dl>
+    </dl></details>
   </div>
   {% endfor %}
 
-  <div class="pane" data-pane="custom">
+  <div class="pane" data-pane="custom" {% if provider != "custom" %}hidden{% endif %}>
     <label for="custom_base_url">Base URL</label>
     <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="例如 https://api.example.com/v1；Gemini 官方为 https://generativelanguage.googleapis.com/v1beta">
     <label for="custom_api_key">API Key</label>
@@ -155,8 +162,7 @@
   </div>
 </section>
 
-<section class="card">
-  <h3>处理选项</h3>
+<section class="settings-panel" data-settings-panel="processing" aria-label="论文处理" {% if settings_section != 'processing' %}hidden{% endif %}>
   <label for="output_language">卡片语言</label>
   <select id="output_language" name="output_language">
     {% for l, name in [('zh','中文'),('en','English'),('bilingual','中文 + 英文术语')] %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ name }}</option>{% endfor %}
@@ -166,8 +172,7 @@
   <p class="muted small">美元预算用于按量付费的 API。订阅调用遵循服务商的套餐额度，不因这里的 API 预算用完而暂停。</p>
 </section>
 
-<section class="card">
-  <h3>翻译</h3>
+<section class="settings-panel" data-settings-panel="translation" aria-label="翻译" {% if settings_section != 'translation' %}hidden{% endif %}>
   <p class="muted small">在论文详情里点「翻译全文…」，生成段落对照的译文，保存在这篇论文的文件夹里。基因名、软件名和分类表里的术语会作为术语表保持原文。</p>
   <label for="tr_default">默认翻译服务</label>
   <select id="tr_default" name="tr_default">{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
@@ -195,8 +200,7 @@
   </details>
 </section>
 
-<section class="card">
-  <h3>知识库位置</h3>
+<section class="settings-panel" data-settings-panel="library" aria-label="知识库位置" {% if settings_section != 'library' %}hidden{% endif %}>
   <p class="muted small">论文文件夹（PDF 副本、卡片、笔记、译文）、学科页和手册都在这里，可以直接当 Obsidian 库打开。可以把它放到 iCloud 云盘、坚果云、移动硬盘或你已有的 Obsidian 库里。数据库和设置始终留在 <code>{{ data_dir }}</code>，不会放进云盘（同步工具容易弄坏数据库）。</p>
   <p>当前位置：<code id="kb_dir">{{ kb_dir }}</code>{% if kb_default %} <span class="muted small">（默认）</span>{% endif %}</p>
   <div class="row">
@@ -208,8 +212,7 @@
   <p class="muted small">用 iCloud 时，建议在访达里对这个文件夹选「始终保留在此设备上」，否则不常用的 PDF 可能被移到云端，打开时要先下载。</p>
 </section>
 
-<section class="card">
-  <h3>新学科与知识库</h3>
+<section class="settings-panel" data-settings-panel="taxonomy" aria-label="学科与版本" {% if settings_section != 'taxonomy' %}hidden{% endif %}>
   <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
   <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">
   <label for="emb">Embedding 模型（可选）</label>
@@ -220,11 +223,10 @@
   {% if not git_available %}<span class="muted">— 这台电脑没有安装 git，暂不可用。</span>{% endif %}</p>
 </section>
 
-<section class="card">
-  <h3>导入</h3>
+<section class="settings-panel" data-settings-panel="import" aria-label="导入与文件夹" {% if settings_section != 'import' %}hidden{% endif %}>
   <p><a class="ghost-btn" href="/zotero">从 Zotero 导入…</a> <span class="muted small">带入 PDF、分组、标签和笔记，不改动 Zotero 的数据。</span></p>
   <label for="inbox_dirs">自动导入文件夹（可选，每行一个）</label>
-  <p class="muted small">放进这些文件夹的 PDF 会自动导入，例如 Zotero 的存储目录或下载文件夹。原文件不会被移动或修改。也可以直接把 PDF 拖进 PaperMap 窗口。</p>
+  <p class="muted small">放进这些文件夹的 PDF 会自动导入，例如 Zotero 的存储目录或下载文件夹。原文件不会被移动或修改。也可以直接把 PDF 拖进 PaperMap 窗口。更改自动导入目录后，重启 PaperMap 即可生效。</p>
   <textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
   <button type="button" class="secondary" data-pick-folder="inbox_dirs">选择文件夹…</button>
   <label for="exclude_dirs">永不处理的子文件夹名（逗号分隔）</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
@@ -232,12 +234,15 @@
   <label for="contact_email">联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
 </section>
 
-<button type="submit">保存设置</button>
 </form>
-<section class="card" style="margin-top:24px">
-  <h3>退出</h3>
+<section class="settings-panel" data-settings-panel="application" aria-label="后台运行" {% if settings_section != 'application' %}hidden{% endif %}>
+  <h3>退出 PaperMap</h3>
   <p class="muted">关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。</p>
   <form method="post" action="/shutdown" onsubmit="return confirm('确定退出 PaperMap？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">退出 PaperMap</button></form>
 </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/settings-nav.js?v={{ static_v }}"></script>
 <script src="/static/settings.js?v={{ static_v }}"></script>
 {% endblock %}

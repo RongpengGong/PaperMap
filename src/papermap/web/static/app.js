@@ -2,18 +2,44 @@
 (function () {
   const csrf = document.body.dataset.csrf;
   const toastEl = document.getElementById("toast");
-  const sidebar = document.querySelector(".sidebar");
+  const settingsPage = location.pathname === "/settings" || location.pathname === "/zotero";
+  const sidebar = document.querySelector(".sidebar, .settings-sidebar");
+  const sidebarScrollKey = settingsPage ? "papermap.settingsSidebarScroll" : "papermap.sidebarScroll";
+  const libraryPages = new Set(["/", "/search", "/qa", "/map", "/fields", "/handbooks", "/concepts",
+    "/figures", "/resources", "/citations", "/review", "/skills", "/taxonomy", "/costs", "/events", "/compare"]);
+  function libraryLocation(value) {
+    if (!value) return null;
+    try {
+      const url = new URL(value, location.origin);
+      if (url.origin !== location.origin || url.username || url.password) return null;
+      if (!libraryPages.has(url.pathname) && !/^\/(?:field|handbook|concept)\/[a-z0-9-]+$/.test(url.pathname)
+          && !/^\/(?:paper|reader)\/\d+$/.test(url.pathname)) return null;
+      return url.pathname + url.search + url.hash;
+    } catch (_) { return null; }
+  }
+  function rememberLibraryLocation() {
+    if (settingsPage) return;
+    const url = libraryLocation(location.href);
+    try { if (url) sessionStorage.setItem("papermap.libraryReturn", url); }
+    catch (_) { /* The default return link remains available. */ }
+  }
+  rememberLibraryLocation();
+  window.addEventListener("pagehide", rememberLibraryLocation);
+  let libraryReturn = "/";
+  try { libraryReturn = libraryLocation(sessionStorage.getItem("papermap.libraryReturn") || "") || libraryLocation(document.referrer) || "/"; }
+  catch (_) { libraryReturn = libraryLocation(document.referrer) || "/"; }
+  document.querySelectorAll("[data-settings-back]").forEach(link => { link.href = libraryReturn; });
   if (sidebar) {
     // Navigating between server-rendered pages replaces the sidebar DOM.
     // Restore this window's scroll position so its lower items stay in reach.
     window.addEventListener("pagehide", () => {
-      try { sessionStorage.setItem("papermap.sidebarScroll", String(sidebar.scrollTop)); }
+      try { sessionStorage.setItem(sidebarScrollKey, String(sidebar.scrollTop)); }
       catch (_) { /* Storage may be disabled in a private webview. */ }
     });
     window.addEventListener("pageshow", event => {
       if (event.persisted) return;
       try {
-        const position = sessionStorage.getItem("papermap.sidebarScroll");
+        const position = sessionStorage.getItem(sidebarScrollKey);
         if (position !== null) { sidebar.scrollTop = Number(position); return; }
       } catch (_) { /* Keep the active navigation link visible. */ }
       sidebar.querySelector("a.active")?.scrollIntoView({ block: "nearest" });
@@ -21,6 +47,7 @@
   }
   let toastTimer;
   function toast(msg, ms = 3500) {
+    if (!toastEl) return;
     toastEl.textContent = msg; toastEl.classList.add("show");
     clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
   }
@@ -44,7 +71,7 @@
       startPolling();
     } catch (e) { toast("导入失败：" + e); }
   }
-  document.addEventListener("click", e => { if (e.target.closest("#import_btn")) document.getElementById("import_input").click(); });
+  document.addEventListener("click", e => { if (e.target.closest("#import_btn")) document.getElementById("import_input")?.click(); });
   document.addEventListener("change", e => {
     if (e.target.id !== "import_input") return;
     const input = e.target; if (input.files.length) upload(input.files); input.value = "";
@@ -53,11 +80,11 @@
   const overlay = document.getElementById("drop_overlay");
   let depth = 0;
   const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
-  window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; overlay.hidden = false; });
+  window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; if (overlay) overlay.hidden = false; });
   window.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
-  window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; overlay.hidden = true; } });
+  window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; if (overlay) overlay.hidden = true; } });
   window.addEventListener("drop", e => {
-    if (!hasFiles(e)) return; e.preventDefault(); depth = 0; overlay.hidden = true;
+    if (!hasFiles(e)) return; e.preventDefault(); depth = 0; if (overlay) overlay.hidden = true;
     upload(e.dataTransfer.files);
   });
 
@@ -254,8 +281,9 @@
         if (panel && !typing) openPaper(panel.dataset.paper, false);
       }
       lastEvent = ver;
-      const badge = document.querySelector('.nav a[href="/review"] .badge');
-      if (s.review && !badge) document.querySelector('.nav a[href="/review"]').insertAdjacentHTML("beforeend", `<b class="badge">${s.review}</b>`);
+      const reviewLink = document.querySelector('.nav a[href="/review"]');
+      const badge = reviewLink?.querySelector(".badge");
+      if (s.review && !badge && reviewLink) reviewLink.insertAdjacentHTML("beforeend", `<b class="badge">${s.review}</b>`);
       else if (badge) { if (s.review) badge.textContent = s.review; else badge.remove(); }
       if (!s.pending && !s.busy && polling) { clearInterval(polling); polling = null; setTimeout(startPolling, 15000); }
     } catch (e) { /* server restarting */ }
@@ -277,6 +305,7 @@
     const path = await window.pywebview.api.pick_folder();
     if (path) {
       const ta = document.getElementById(btn.dataset.pickFolder);
+      if (!ta) return;
       ta.value = btn.hasAttribute("data-pick-replace") ? path : (ta.value.trim() ? ta.value.trim() + "\n" : "") + path;
     }
   }));
@@ -284,6 +313,7 @@
   // ------------------------------------------------------- groups (collections)
   const modal = document.getElementById("modal");
   function dialog(msg, { input = false, value = "", okText = "确定", danger = false } = {}) {
+    if (!modal) return Promise.resolve(null);
     return new Promise(resolve => {
       const inp = document.getElementById("modal_input"), ok = document.getElementById("modal_ok");
       document.getElementById("modal_msg").textContent = msg;
@@ -303,9 +333,12 @@
     return j;
   }
   async function refreshSidebar() {
+    if (settingsPage || !sidebar) return;
     const html = await (await fetch(location.href)).text();
     const doc = new DOMParser().parseFromString(html, "text/html");
-    document.querySelector(".sidebar").innerHTML = doc.querySelector(".sidebar").innerHTML;
+    const replacement = doc.querySelector(".sidebar");
+    if (!replacement) return;
+    sidebar.innerHTML = replacement.innerHTML;
     applyCollapsed();
     if (list) refreshList();
     const panel = document.querySelector(".panel"); if (panel) openPaper(panel.dataset.paper, false);
@@ -321,6 +354,7 @@
 
   const menu = document.getElementById("ctx_menu");
   function showMenu(x, y, items) {
+    if (!menu) return;
     menu.innerHTML = "";
     items.forEach(it => {
       if (it === "-") { menu.appendChild(document.createElement("hr")); return; }
@@ -335,8 +369,8 @@
     menu.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
     menu.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
   }
-  document.addEventListener("click", e => { if (!menu.contains(e.target)) menu.hidden = true; });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") menu.hidden = true; });
+  document.addEventListener("click", e => { if (menu && !menu.contains(e.target)) menu.hidden = true; });
+  document.addEventListener("keydown", e => { if (menu && e.key === "Escape") menu.hidden = true; });
 
   window.pmDialog = dialog; window.pmApi = api; window.pmMenu = showMenu;
 
@@ -344,6 +378,7 @@
   const lb = document.getElementById("lightbox");
   let lbFig = null;
   function openFigure(f) {
+    if (!lb) return;
     lbFig = f;
     document.getElementById("lb_title").textContent = f.label + (f.paper ? " · " + f.paper : "");
     document.getElementById("lb_img").src = `/api/figure/${f.id}.png?scale=2`;
@@ -354,10 +389,12 @@
     lb.hidden = false;
   }
   window.pmOpenFigure = openFigure;
-  document.getElementById("lb_close").onclick = () => lb.hidden = true;
-  lb.addEventListener("click", e => { if (e.target === lb) lb.hidden = true; });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") lb.hidden = true; });
-  document.getElementById("lb_explain").onclick = async ev => {
+  const lbClose = document.getElementById("lb_close");
+  if (lbClose) lbClose.onclick = () => { if (lb) lb.hidden = true; };
+  lb?.addEventListener("click", e => { if (e.target === lb) lb.hidden = true; });
+  document.addEventListener("keydown", e => { if (lb && e.key === "Escape") lb.hidden = true; });
+  const lbExplain = document.getElementById("lb_explain");
+  if (lbExplain) lbExplain.onclick = async ev => {
     const b = ev.target; b.disabled = true;
     document.getElementById("lb_expl").innerHTML = `<p class="job-line"><span class="spinner"></span>模型正在看图…</p>`;
     const j = await api(`/api/figure/${lbFig.id}/explain`, {});
@@ -365,7 +402,8 @@
     document.getElementById("lb_expl").innerHTML = j.ok ? j.html : "";
     if (j.ok) { lbFig.explanation_html = j.html; document.getElementById("lb_notes").hidden = false; }
   };
-  document.getElementById("lb_notes").onclick = async () => {
+  const lbNotes = document.getElementById("lb_notes");
+  if (lbNotes) lbNotes.onclick = async () => {
     if ((await api(`/api/figure/${lbFig.id}/to-notes`, {})).ok) toast("已加到这篇论文的「我的笔记」");
   };
   async function loadFigures(box) {

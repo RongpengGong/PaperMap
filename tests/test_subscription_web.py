@@ -25,8 +25,10 @@ def subscription_client(config, registry, monkeypatch):
 def test_subscription_choices_do_not_request_api_keys(subscription_client):
     client, _ = subscription_client
     html = client.get("/settings").text
+    picker = re.search(r'<select\b(?=[^>]*\bid="provider_picker")(?=[^>]*\bname="provider")[^>]*>(.*?)</select>', html, re.S)
+    assert picker, "One native provider selector must remain the submitted input"
     for provider in ("chatgpt_plan", "claude_cli"):
-        assert f'name="provider" value="{provider}"' in html
+        assert f'value="{provider}"' in picker.group(1)
         assert f'data-account-start="{provider}"' in html
         assert f'data-account-status="{provider}"' in html
         assert f'name="p_{provider}_key"' not in html
@@ -302,9 +304,10 @@ class Element {
   focus() {}
   closest() { return this.pane; }
 }
-const ids = {}, panes = {}, radios = [], account = {}, starts = [], cancels = [], statuses = [], logouts = [], fetchers = [];
-for (const name of ["csrf","test_result","test_conn","fetch_models","custom_model","custom_base_url","custom_api_key","custom_protocol","official_api_key","official_model"]) ids[name] = new Element();
+const ids = {}, panes = {}, account = {}, starts = [], cancels = [], statuses = [], logouts = [], fetchers = [];
+for (const name of ["csrf","provider_picker","test_result","test_conn","fetch_models","custom_model","custom_base_url","custom_api_key","custom_protocol","official_api_key","official_model"]) ids[name] = new Element();
 ids.csrf.value = "test-csrf";
+ids.provider_picker.value = "custom";
 const caps = [
   {id:"gpt-a", label:"Sol", reasoning_efforts:["low","medium","high","xhigh","max","ultra"], default_reasoning_effort:"medium", reasoning_efforts_known:true},
   {id:"gpt-b", label:"Other", reasoning_efforts:["low","high"], default_reasoning_effort:"high", reasoning_efforts_known:true},
@@ -314,7 +317,6 @@ const aliases = [
   {id:"haiku",label:"Haiku",reasoning_efforts:[],reasoning_efforts_known:true,default_reasoning_effort:""},
 ];
 for (const p of ["chatgpt_plan","claude_cli","custom","deepseek"]) {
-  const radio = new Element(p); radio.checked = p === "custom"; radios.push(radio);
   const pane = panes[p] = new Element("", {pane:p});
   const parts = pane.parts = {model:new Element(p === "chatgpt_plan" ? "gpt-a" : p === "claude_cli" ? "opus" : "other"), datalist:new Element()};
   if (p === "chatgpt_plan" || p === "claude_cli") {
@@ -335,13 +337,14 @@ for (const p of ["chatgpt_plan","claude_cli","custom","deepseek"]) {
   };
 }
 const form = ids.settings = new Element();
+const modelSection = new Element(); modelSection.hidden = false;
 form.querySelector = sel => {
-  if (sel === 'input[name="provider"]:checked') return radios.find(r=>r.checked);
+  if (sel === '[data-settings-panel="models"]') return modelSection;
   let m = sel.match(/\.pane\[data-pane="([^"]+)"\]/); if (m) return panes[m[1]];
   m = sel.match(/\[data-account-(result|url|start|cancel|status|logout)="([^"]+)"\]/); if (m) return account[m[2]+":"+m[1]];
   return null;
 };
-form.querySelectorAll = sel => ({'input[name="provider"]':radios,".pane":Object.values(panes),".choice":[],"[data-account-start]":starts,"[data-account-cancel]":cancels,"[data-account-status]":statuses,"[data-account-logout]":logouts,"[data-fetch-models]":fetchers}[sel] || []);
+form.querySelectorAll = sel => ({".pane":Object.values(panes),".choice":[],"[data-account-start]":starts,"[data-account-cancel]":cancels,"[data-account-status]":statuses,"[data-account-logout]":logouts,"[data-fetch-models]":fetchers}[sel] || []);
 const requests = []; let mode = "normal", release;
 function reply(data) { return {ok:true,json:async()=>data}; }
 async function fetch(url, opts) {
@@ -358,16 +361,20 @@ async function fetch(url, opts) {
   }
   throw new Error("Unexpected request " + url);
 }
-const context = {document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[]},
+const documentEvents = new Element();
+const context = {document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[],addEventListener:documentEvents.addEventListener.bind(documentEvents)},
   fetch,window:{pmDialog:async()=>true,pmToast(){}},setTimeout:()=>1,clearTimeout(){},console};
 vm.runInNewContext(fs.readFileSync(process.argv[1],"utf8"),context);
 const flush = async()=>{for(let i=0;i<12;i++) await new Promise(resolve=>setImmediate(resolve));};
-async function choose(p) { radios.forEach(r=>r.checked=r.value===p); await radios.find(r=>r.value===p).emit("change"); await flush(); }
+async function choose(p) { ids.provider_picker.value=p; await ids.provider_picker.emit("change"); await flush(); }
 const values = select=>select.children.map(x=>x.value);
 (async()=>{
   const gp=panes.chatgpt_plan.parts, cp=panes.claude_cli.parts;
   assert.equal(requests.length,0,"custom startup must not inspect subscription accounts");
+  modelSection.hidden=true;
   await choose("chatgpt_plan");
+  assert.equal(requests.length,0,"non-model settings must not inspect subscription accounts or fetch models");
+  modelSection.hidden=false; await documentEvents.emit("papermap:settings-section"); await flush();
   assert.deepEqual(values(gp["reasoning-effort"]),["","low","medium","high","xhigh","max","ultra"]);
   assert.equal(gp["reasoning-effort"].value,"ultra","saved selection restored after automatic model discovery");
   gp.model.value="gpt-b"; await gp.model.emit("input");
@@ -396,6 +403,9 @@ const values = select=>select.children.map(x=>x.value);
   await account["chatgpt_plan:start"].emit("click");
   release({ok:true,models:["pre-authorization-model"],model_options:[]}); await beforeLogin;
   assert(!gp.datalist.children.some(x=>x.value==="pre-authorization-model"),"pre-login response must not replace authorized capabilities");
+  const requestsBeforeHidden=requests.length;
+  modelSection.hidden=true; await documentEvents.emit("papermap:settings-section"); await choose("claude_cli");
+  assert.equal(requests.length,requestsBeforeHidden,"switching hidden provider state must not contact accounts");
   console.log("settings effort behavior and races passed");
 })().catch(err=>{console.error(err);process.exitCode=1;});
 '''
