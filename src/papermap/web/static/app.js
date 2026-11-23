@@ -254,7 +254,7 @@
     const path = await window.pywebview.api.pick_folder();
     if (path) {
       const ta = document.getElementById(btn.dataset.pickFolder);
-      ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + path;
+      ta.value = btn.hasAttribute("data-pick-replace") ? path : (ta.value.trim() ? ta.value.trim() + "\n" : "") + path;
     }
   }));
 

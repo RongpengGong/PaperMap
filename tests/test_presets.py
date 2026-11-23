@@ -70,3 +70,41 @@ def test_settings_saves_preset_key(config, registry):
     # blank key keeps the stored one; custom relay settings are untouched
     c.post("/settings", data={"csrf": _token(c), "provider": "moonshot", **BASE_FORM})
     assert config.effective_llm()["api_key"] == "sk-kimi"
+
+
+def test_knowledge_dir_move(config, registry, tmp_path):
+    from papermap import library
+
+    kb = config.knowledge_dir
+    (kb / "papers" / "p1").mkdir(parents=True)
+    (kb / "papers" / "p1" / "p1.md").write_text("card")
+    c = client(config, registry)
+    tok = _token(c)
+    # a non-empty folder gets a PaperMap subfolder; nested targets are refused
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "mine.md").write_text("x")
+    pre = c.post("/api/knowledge/move", json={"csrf": tok, "path": str(vault)}).json()
+    assert pre["ok"] and pre["target"] == str(vault / "PaperMap") and pre["files"] == 1
+    assert not c.post("/api/knowledge/move", json={"csrf": tok, "path": str(kb / "papers")}).json()["ok"]
+    r = c.post("/api/knowledge/move", json={"csrf": tok, "path": str(vault), "confirm": True}).json()
+    assert r["ok"]
+    assert config.knowledge_dir == vault / "PaperMap"
+    assert (vault / "PaperMap" / "papers" / "p1" / "p1.md").read_text() == "card" and not kb.exists()
+    assert "knowledge_dir" in config.path.read_text()
+    # back to the default location
+    r = c.post("/api/knowledge/move", json={"csrf": tok, "reset": True, "confirm": True}).json()
+    assert r["ok"] and config.knowledge_dir == config.data_dir / "knowledge" and config.raw["knowledge_dir"] == ""
+    assert (kb / "papers" / "p1" / "p1.md").exists()
+    # cross-volume path (copy + verify + delete)
+    src, dst = tmp_path / "a", tmp_path / "b"
+    (src / "x").mkdir(parents=True)
+    (src / "x" / "f.txt").write_text("hi")
+    import os
+    orig = os.rename
+    os.rename = lambda *a: (_ for _ in ()).throw(OSError("cross-device"))
+    try:
+        n, how = library.move_knowledge(src, dst)
+    finally:
+        os.rename = orig
+    assert (n, how) == (1, "copied") and (dst / "x" / "f.txt").read_text() == "hi" and not src.exists()

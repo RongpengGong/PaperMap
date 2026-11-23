@@ -138,3 +138,66 @@ def migrate_flat_layout(knowledge_dir: Path, registry: Registry, language: str) 
         ensure_notes(knowledge_dir, new_rel, row["title"] or "", language, body)
         moved += 1
     return moved
+
+
+# ---------------------------------------------------------------- relocation
+KB_MARKERS = ("papers", "fields", "handbooks", "concepts", "_pending")
+
+
+def resolve_move_target(current: Path, chosen: Path) -> Path:
+    """Where the knowledge base would live if the user picked ``chosen``.
+    An empty (or missing) folder is used as is; a folder that already has other
+    files gets a ``PaperMap`` subfolder so we never mix into e.g. a vault root."""
+    chosen = chosen.expanduser()
+    if not chosen.is_absolute():
+        raise ValueError("请选择一个完整的文件夹路径")
+    current = current.resolve()
+    target = chosen if not chosen.exists() or not any(_visible(chosen)) else chosen / "PaperMap"
+    t = target.resolve()
+    if t == current:
+        raise ValueError("知识库已经在这个位置")
+    if t.is_relative_to(current) or current.is_relative_to(t):
+        raise ValueError("新位置不能在当前知识库里面，也不能是它的上级文件夹")
+    if target.exists() and any(_visible(target)):
+        raise ValueError(f"{target} 已经有文件了，请选一个空文件夹")
+    if target.exists() and target.is_file():
+        raise ValueError(f"{target} 是一个文件")
+    return target
+
+
+def _visible(d: Path):
+    return (x for x in d.iterdir() if not x.name.startswith("."))
+
+
+def _count_files(d: Path) -> tuple[int, int]:
+    n = size = 0
+    for root, _dirs, files in os.walk(d):
+        for f in files:
+            n += 1
+            size += os.path.getsize(os.path.join(root, f))
+    return n, size
+
+
+def move_knowledge(current: Path, target: Path) -> tuple[int, str]:
+    """Move the whole knowledge folder to ``target`` (stored paths are relative,
+    so nothing in the database changes). Same disk: one rename. Another disk or
+    cloud folder: copy, verify file count and size, then delete the original."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.rmdir()  # empty (checked by resolve_move_target); rename needs it gone
+    if not current.exists():
+        target.mkdir(parents=True)
+        return 0, "renamed"
+    before = _count_files(current)
+    try:
+        os.rename(current, target)
+        return before[0], "renamed"
+    except OSError:
+        pass  # different volume
+    shutil.copytree(current, target, copy_function=shutil.copy2)
+    after = _count_files(target)
+    if after != before:
+        shutil.rmtree(target, ignore_errors=True)
+        raise OSError(f"复制后文件数量或大小不一致（{after[0]}/{before[0]}），已取消，原知识库保持不变")
+    shutil.rmtree(current)
+    return before[0], "copied"

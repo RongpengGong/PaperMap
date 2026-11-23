@@ -74,6 +74,25 @@
     e.target.disabled = false;
   });
 
+  // knowledge base location
+  async function moveKb(body) {
+    const pre = await window.pmApi("/api/knowledge/move", body);
+    if (!pre.ok) return;
+    const yes = await window.pmDialog(`把知识库（${pre.files} 个文件）移动到：\n${pre.target}\n\n移动期间暂停处理新论文；完成后原位置不再保留副本。`, { okText: "移动" });
+    if (!yes) return;
+    window.pmToast("正在移动知识库…");
+    const r = await window.pmApi("/api/knowledge/move", { ...body, confirm: true });
+    if (r.ok) { window.pmToast(`已移动 ${r.files} 个文件`); setTimeout(() => location.reload(), 800); }
+  }
+  const kbMove = document.getElementById("kb_move");
+  kbMove && kbMove.addEventListener("click", () => {
+    const path = document.getElementById("kb_new").value.trim();
+    if (!path) { window.pmToast("请先选择或填写新位置"); return; }
+    moveKb({ path });
+  });
+  const kbReset = document.getElementById("kb_reset");
+  kbReset && kbReset.addEventListener("click", () => moveKb({ reset: true }));
+
   // translation services: add / delete custom endpoints
   const csrf = document.getElementById("csrf").value;
   const addBtn = document.getElementById("add_service_btn");

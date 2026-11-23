@@ -221,6 +221,7 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
 DEFAULTS: dict[str, Any] = {
     "inbox_dirs": [],
     "data_dir": DEFAULT_DATA_DIR,
+    "knowledge_dir": "",  # empty = <data_dir>/knowledge
     "exclude": {
         "dir_names": ["_private", "drafts"],
         "filename_patterns": ["*draft*", "*_SI.pdf", "*supplement*"],
@@ -343,7 +344,10 @@ class Config:
 
     @property
     def knowledge_dir(self) -> Path:
-        return self.data_dir / "knowledge"
+        """Markdown knowledge base; ``knowledge_dir`` in the config moves it
+        elsewhere (iCloud, an Obsidian vault...). The database stays in data_dir."""
+        custom = (self.raw.get("knowledge_dir") or "").strip()
+        return _expand(custom) if custom else self.data_dir / "knowledge"
 
     @property
     def logs_dir(self) -> Path:

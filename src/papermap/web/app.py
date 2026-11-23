@@ -1236,6 +1236,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             exclude_dirs=", ".join(config.exclude_dir_names),
             exclude_patterns=", ".join(config.exclude_patterns),
             git_available=kb_git.available(), welcome=welcome,
+            kb_dir=str(config.knowledge_dir), kb_default=(config.knowledge_dir == config.data_dir / "knowledge"),
+            data_dir=str(config.data_dir),
             tr=config.raw["translation"], bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
         )
@@ -1376,6 +1378,45 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             if str(body.get("api_key", "")).strip():
                 llm["api_key"] = str(body["api_key"]).strip()
         return effective_llm(llm)
+
+    @app.post("/api/knowledge/move")
+    async def api_knowledge_move(request: Request):
+        """Move the knowledge folder. ``confirm`` false = only report where it would go."""
+        body = await request.json()
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        default = config.data_dir / "knowledge"
+        chosen = Path(str(body.get("path") or "").strip()) if not body.get("reset") else default
+        current = config.knowledge_dir
+        try:
+            target = chosen if body.get("reset") else library.resolve_move_target(current, chosen)
+            if body.get("reset") and (target.resolve() == current.resolve() or (target.exists() and any(target.iterdir()))):
+                raise ValueError("默认位置已经在用，或那里已经有文件")
+            for inbox in config.inbox_dirs:
+                if target.resolve().is_relative_to(inbox.resolve()):
+                    raise ValueError(f"新位置在自动导入文件夹 {inbox} 里面，里面的 PDF 会被反复扫描，请换一个位置")
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": str(exc)}
+        n_files = sum(1 for _ in current.rglob("*") if _.is_file()) if current.exists() else 0
+        if not body.get("confirm"):
+            return {"ok": True, "target": str(target), "files": n_files}
+        running = registry.one("SELECT count(*) AS n FROM jobs WHERE status IN ('queued','running')")["n"]
+        if running or busy:
+            return {"ok": False, "message": "还有翻译、解读或批量任务在运行，请等它们完成后再移动"}
+
+        def run():
+            with pipeline._lock:  # no paper is written while the folder moves
+                n, how = library.move_knowledge(current, target)
+                config.raw["knowledge_dir"] = "" if target.resolve() == default.resolve() else str(target)
+                config.save()
+                config.ensure_dirs()
+            return n, how
+        try:
+            n, how = await run_in_threadpool(run)
+        except OSError as exc:
+            registry.log("error", f"moving the knowledge base failed: {exc}")
+            return {"ok": False, "message": f"移动失败：{exc}"}
+        registry.log("info", f"knowledge base moved to {target} ({n} files, {how})")
+        return {"ok": True, "target": str(target), "files": n}
 
     @app.post("/api/llm/models")
     async def api_models(request: Request):

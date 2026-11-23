@@ -166,6 +166,19 @@
 </section>
 
 <section class="card">
+  <h3>知识库位置</h3>
+  <p class="muted small">论文文件夹（PDF 副本、卡片、笔记、译文）、学科页和手册都在这里，可以直接当 Obsidian 库打开。可以把它放到 iCloud 云盘、坚果云、移动硬盘或你已有的 Obsidian 库里。数据库和设置始终留在 <code>{{ data_dir }}</code>，不会放进云盘（同步工具容易弄坏数据库）。</p>
+  <p>当前位置：<code id="kb_dir">{{ kb_dir }}</code>{% if kb_default %} <span class="muted small">（默认）</span>{% endif %}</p>
+  <div class="row">
+    <input type="text" id="kb_new" placeholder="新位置，例如 ~/Library/Mobile Documents/com~apple~CloudDocs/PaperMap">
+    <button type="button" class="secondary" data-pick-folder="kb_new" data-pick-replace>选择文件夹…</button>
+    <button type="button" id="kb_move">移动到这里</button>
+  </div>
+  <p class="muted small">选空文件夹就直接用它；选的文件夹里已经有别的文件时，会在里面新建一个 <code>PaperMap</code> 子文件夹。整个知识库会搬过去，原位置不再保留副本。{% if not kb_default %} <button type="button" class="ghost-btn" id="kb_reset">搬回默认位置</button>{% endif %}</p>
+  <p class="muted small">用 iCloud 时，建议在访达里对这个文件夹选「始终保留在此设备上」，否则不常用的 PDF 可能被移到云端，打开时要先下载。</p>
+</section>
+
+<section class="card">
   <h3>新学科与知识库</h3>
   <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
   <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">
