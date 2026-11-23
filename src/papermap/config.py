@@ -13,7 +13,12 @@ import yaml
 DEFAULT_DATA_DIR = "~/PaperMap"
 CONFIG_ENV = "PAPERMAP_CONFIG"
 
-PROTOCOLS = {"openai": "OpenAI 兼容 (Chat Completions)", "anthropic": "Anthropic 兼容 (Messages)"}
+PROTOCOLS = {
+    "openai": "OpenAI Chat Completions",
+    "responses": "OpenAI Responses",
+    "anthropic": "Anthropic Messages",
+    "gemini": "Gemini API",
+}
 
 # Official provider presets. Values follow the provider's official docs
 # (DeepSeek: api-docs.deepseek.com, checked 2026-11). Prices are USD per 1M
@@ -86,7 +91,7 @@ DEFAULTS: dict[str, Any] = {
             "base_url": "",
             "api_key": "",
             "api_key_env": "",
-            "protocol": "openai",  # openai | anthropic
+            "protocol": "openai",  # openai | responses | anthropic | gemini
             "model": "",
             "extra_body": {},
             "price_input_per_1m": 0,

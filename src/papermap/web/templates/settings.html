@@ -18,7 +18,7 @@
     {% endfor %}
     <label class="choice">
       <input type="radio" name="provider" value="custom" {{ 'checked' if provider == 'custom' }}>
-      <span><strong>自定义</strong><br><span class="muted">任意 OpenAI / Anthropic 兼容服务、中转或本地模型</span></span>
+      <span><strong>自定义</strong><br><span class="muted">任意 OpenAI / Anthropic / Gemini 兼容服务、中转或本地模型</span></span>
     </label>
   </div>
 
@@ -42,7 +42,7 @@
 
   <div class="pane" data-pane="custom">
     <label for="custom_base_url">Base URL</label>
-    <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="https://api.example.com/v1">
+    <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="例如 https://api.example.com/v1；Gemini 官方为 https://generativelanguage.googleapis.com/v1beta">
     <label for="custom_api_key">API Key</label>
     <input type="password" id="custom_api_key" name="custom_api_key" autocomplete="off"
       placeholder="{{ '已保存，留空表示不修改' if custom_key_state else 'sk-...' }}">

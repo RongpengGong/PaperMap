@@ -155,40 +155,50 @@ def make_client(eff: dict[str, Any], timeout_s: float = 180) -> Any:
         )
     if missing:
         raise LLMNotConfigured(f"LLM settings incomplete: missing {', '.join(missing)} (Settings page).")
-    if eff["protocol"] == "anthropic":
-        return _AnthropicClient(eff["base_url"], eff["api_key"], timeout_s)
+    proto = eff["protocol"]
+    if proto in HTTP_CLIENTS:
+        return HTTP_CLIENTS[proto](eff["base_url"], eff["api_key"], timeout_s)
     from openai import OpenAI
 
     return OpenAI(api_key=eff["api_key"], base_url=eff["base_url"], timeout=timeout_s, max_retries=3)
 
 
-class _AnthropicClient:
-    """Minimal Anthropic Messages API client exposed as chat.completions.create."""
+def _versioned(base: str, path: str) -> str:
+    """Join base + path, tolerating a base that already ends in /v1."""
+    base = base.rstrip("/")
+    if base.endswith("/v1") and path.startswith("/v1/"):
+        path = path[3:]
+    return base + path
+
+
+class _HTTPClient:
+    """Shared retry loop; subclasses build the request and parse the reply."""
 
     def __init__(self, base_url: str, api_key: str, timeout_s: float,
                  transport: httpx.BaseTransport | None = None):
-        self.url = base_url.rstrip("/") + "/v1/messages"
-        self.headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"}
+        self.base = base_url.rstrip("/")
+        self.api_key = api_key
         self.http = httpx.Client(timeout=timeout_s, transport=transport)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
+    def request(self, model: str, system: str, turns: list[dict], max_tokens: int,
+                temperature: float | None, json_mode: bool, extra: dict) -> tuple[str, dict, dict]:
+        raise NotImplementedError  # -> (url, headers, body)
+
+    def parse(self, data: dict) -> tuple[str, int, int, int]:
+        raise NotImplementedError  # -> (text, prompt_tokens, completion_tokens, cache_hit_tokens)
+
     def create(self, model: str, messages: list[dict], max_tokens: int = 4096,
-               temperature: float | None = None, extra_body: dict | None = None, **_: Any) -> Any:
+               temperature: float | None = None, extra_body: dict | None = None,
+               response_format: dict | None = None, **_: Any) -> Any:
         system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
-        body: dict[str, Any] = {
-            "model": model, "max_tokens": max_tokens,
-            "messages": [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"],
-        }
-        if system:
-            body["system"] = system
-        if temperature is not None:
-            body["temperature"] = temperature
-        body.update(extra_body or {})
+        turns = [m for m in messages if m["role"] != "system"]
+        json_mode = bool(response_format and response_format.get("type") == "json_object")
+        url, headers, body = self.request(model, system, turns, max_tokens, temperature, json_mode, extra_body or {})
         delay = 2.0
         for attempt in range(4):
             try:
-                resp = self.http.post(self.url, headers=self.headers, json=body)
+                resp = self.http.post(url, headers=headers, json=body)
             except httpx.HTTPError as exc:
                 if attempt == 3:
                     raise LLMHTTPError(0, str(exc)) from exc
@@ -202,23 +212,106 @@ class _AnthropicClient:
             if resp.status_code >= 400:
                 raise LLMHTTPError(resp.status_code, _error_text(resp))
             data = resp.json()
-            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-            u = data.get("usage") or {}
-            usage = SimpleNamespace(
-                prompt_tokens=int(u.get("input_tokens", 0)) + int(u.get("cache_read_input_tokens", 0) or 0),
-                completion_tokens=int(u.get("output_tokens", 0)),
-                prompt_cache_hit_tokens=int(u.get("cache_read_input_tokens", 0) or 0),
-            )
+            text, pt, ct, hit = self.parse(data)
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
-                usage=usage, model=data.get("model", model),
+                usage=SimpleNamespace(prompt_tokens=pt, completion_tokens=ct, prompt_cache_hit_tokens=hit),
+                model=data.get("model") or data.get("modelVersion") or model,
             )
         raise LLMHTTPError(0, "retries exhausted")
 
 
+class _AnthropicClient(_HTTPClient):
+    """Anthropic Messages API (POST /v1/messages)."""
+
+    def request(self, model, system, turns, max_tokens, temperature, json_mode, extra):
+        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens,
+                                "messages": [{"role": m["role"], "content": m["content"]} for m in turns]}
+        if system:
+            body["system"] = system
+        if temperature is not None:
+            body["temperature"] = temperature
+        body.update(extra)
+        headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"}
+        return _versioned(self.base, "/v1/messages"), headers, body
+
+    def parse(self, data):
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        u = data.get("usage") or {}
+        hit = int(u.get("cache_read_input_tokens") or 0)
+        return text, int(u.get("input_tokens") or 0) + hit, int(u.get("output_tokens") or 0), hit
+
+
+class _ResponsesClient(_HTTPClient):
+    """OpenAI Responses API (POST /responses)."""
+
+    def request(self, model, system, turns, max_tokens, temperature, json_mode, extra):
+        body: dict[str, Any] = {"model": model, "max_output_tokens": max_tokens,
+                                "input": [{"role": m["role"], "content": m["content"]} for m in turns]}
+        if system:
+            body["instructions"] = system
+        if temperature is not None:
+            body["temperature"] = temperature
+        if json_mode:
+            body["text"] = {"format": {"type": "json_object"}}
+        body.update(extra)
+        return self.base + "/responses", {"Authorization": f"Bearer {self.api_key}"}, body
+
+    def parse(self, data):
+        if isinstance(data.get("output_text"), str):
+            text = data["output_text"]
+        else:
+            text = "".join(
+                c.get("text", "")
+                for item in data.get("output", []) if item.get("type") == "message"
+                for c in item.get("content", []) if c.get("type") == "output_text"
+            )
+        u = data.get("usage") or {}
+        hit = int((u.get("input_tokens_details") or {}).get("cached_tokens") or 0)
+        return text, int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0), hit
+
+
+class _GeminiClient(_HTTPClient):
+    """Google Gemini API (POST /models/{model}:generateContent)."""
+
+    def request(self, model, system, turns, max_tokens, temperature, json_mode, extra):
+        gen: dict[str, Any] = {"maxOutputTokens": max_tokens}
+        if temperature is not None:
+            gen["temperature"] = temperature
+        if json_mode:
+            gen["responseMimeType"] = "application/json"
+        body: dict[str, Any] = {
+            "contents": [{"role": "model" if m["role"] == "assistant" else "user",
+                          "parts": [{"text": m["content"]}]} for m in turns],
+            "generationConfig": gen,
+        }
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        body.update(extra)
+        name = model if model.startswith("models/") else f"models/{model}"
+        return f"{self.base}/{name}:generateContent", {"x-goog-api-key": self.api_key}, body
+
+    def parse(self, data):
+        cands = data.get("candidates") or []
+        parts = ((cands[0].get("content") or {}).get("parts") or []) if cands else []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        u = data.get("usageMetadata") or {}
+        return (text, int(u.get("promptTokenCount") or 0),
+                int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0),
+                int(u.get("cachedContentTokenCount") or 0))
+
+
+HTTP_CLIENTS: dict[str, type[_HTTPClient]] = {
+    "anthropic": _AnthropicClient,
+    "responses": _ResponsesClient,
+    "gemini": _GeminiClient,
+}
+
+
 def _error_text(resp: httpx.Response) -> str:
     try:
-        err = resp.json().get("error")
+        body = resp.json()
+        err = body.get("error") if isinstance(body, dict) else None
         if isinstance(err, dict):
             return str(err.get("message") or err)
         return str(err or resp.text[:300])
@@ -227,18 +320,24 @@ def _error_text(resp: httpx.Response) -> str:
 
 
 def list_models(eff: dict[str, Any], timeout_s: float = 20) -> list[str]:
-    """Ask the endpoint which models it offers (GET /models)."""
+    """Ask the endpoint which models it offers."""
     if not eff.get("base_url") or not eff.get("api_key"):
         raise LLMNotConfigured("Base URL and API key are needed to list models")
     base = eff["base_url"].rstrip("/")
-    if eff["protocol"] == "anthropic":
-        url, headers = base + "/v1/models", {"x-api-key": eff["api_key"], "anthropic-version": "2023-06-01"}
+    proto = eff["protocol"]
+    if proto == "anthropic":
+        url, headers = _versioned(base, "/v1/models"), {"x-api-key": eff["api_key"], "anthropic-version": "2023-06-01"}
+    elif proto == "gemini":
+        url, headers = base + "/models", {"x-goog-api-key": eff["api_key"]}
     else:
         url, headers = base + "/models", {"Authorization": f"Bearer {eff['api_key']}"}
     resp = httpx.get(url, headers=headers, timeout=timeout_s, follow_redirects=True)
     if resp.status_code >= 400:
         raise LLMHTTPError(resp.status_code, _error_text(resp))
-    return sorted({m.get("id") for m in resp.json().get("data", []) if m.get("id")})
+    body = resp.json()
+    if proto == "gemini":
+        return sorted({m["name"].removeprefix("models/") for m in body.get("models", []) if m.get("name")})
+    return sorted({m.get("id") for m in body.get("data", []) if m.get("id")})
 
 
 def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, Any]:

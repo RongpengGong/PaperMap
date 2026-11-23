@@ -31,6 +31,13 @@ def _ask(prompt: str, default: str = "") -> str:
     return ans or default
 
 
+def _ask_choice(prompt: str, options: list[str], default: str) -> str:
+    ans = _ask(f"{prompt} ({' / '.join(options)})", default)
+    while ans not in options:
+        ans = _ask(f"Please type one of: {' / '.join(options)}", default)
+    return ans
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     print(f"PaperMap {__version__} setup\n")
     data_dir = _ask("Data folder (config, database, knowledge base)", cfgmod.DEFAULT_DATA_DIR)
@@ -42,7 +49,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     lang = _ask("Card language: zh / en / bilingual", "zh")
     while lang not in ("zh", "en", "bilingual"):
         lang = _ask("Please type zh, en or bilingual", "zh")
-    print("\nLLM provider:\n  1) DeepSeek official (just paste your API key)\n  2) Custom (any OpenAI/Anthropic-compatible endpoint)")
+    print("\nLLM provider:\n  1) DeepSeek official (just paste your API key)\n  2) Custom (OpenAI Chat/Responses, Anthropic or Gemini compatible endpoint)")
     choice = _ask("Choose 1 or 2", "1")
     llm: dict = {}
     print("You can leave the key empty and set it later on the web Settings page.")
@@ -50,7 +57,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         llm["provider"] = "custom"
         llm["custom"] = {
             "base_url": _ask("Base URL", ""),
-            "protocol": "anthropic" if _ask("API protocol: openai / anthropic", "openai").startswith("a") else "openai",
+            "protocol": _ask_choice("API protocol", list(cfgmod.PROTOCOLS), "openai"),
             "model": _ask("Model name", ""),
             "api_key": getpass.getpass("API key (input hidden, Enter to skip): ").strip(),
         }

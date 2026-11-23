@@ -46,3 +46,59 @@ def test_anthropic_client_maps_messages_api():
     assert captured["body"]["system"] == "sys" and captured["body"]["messages"] == [{"role": "user", "content": "hi"}]
     assert captured["body"]["thinking"] == {"type": "disabled"} and "response_format" not in captured["body"]
     assert resp.choices[0].message.content == '{"a": 1}' and resp.usage.prompt_tokens == 10
+
+
+def _capture(reply):
+    captured = {}
+
+    def handler(req: httpx.Request):
+        captured["url"] = str(req.url)
+        captured["headers"] = req.headers
+        captured["body"] = json.loads(req.content)
+        return httpx.Response(200, json=reply)
+
+    return captured, httpx.MockTransport(handler)
+
+
+MSGS = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}]
+
+
+def test_anthropic_base_ending_in_v1_is_not_doubled():
+    from papermap.llm import _AnthropicClient
+    cap, tr = _capture({"content": [{"type": "text", "text": "x"}], "usage": {}})
+    _AnthropicClient("https://proxy.example/v1", "k", 10, transport=tr).create(model="m", messages=MSGS)
+    assert cap["url"] == "https://proxy.example/v1/messages"
+
+
+def test_responses_client():
+    from papermap.llm import _ResponsesClient
+    reply = {"model": "gpt-x", "output": [
+        {"type": "reasoning", "summary": []},
+        {"type": "message", "content": [{"type": "output_text", "text": "{\"a\": 2}"}]}],
+        "usage": {"input_tokens": 7, "output_tokens": 3, "input_tokens_details": {"cached_tokens": 2}}}
+    cap, tr = _capture(reply)
+    c = _ResponsesClient("https://api.moleapi.com/v1", "k", 10, transport=tr)
+    r = c.chat.completions.create(model="gpt-x", messages=MSGS, max_tokens=50,
+                                  response_format={"type": "json_object"})
+    assert cap["url"] == "https://api.moleapi.com/v1/responses"
+    assert cap["headers"]["authorization"] == "Bearer k"
+    assert cap["body"]["instructions"] == "sys" and cap["body"]["input"] == [{"role": "user", "content": "hi"}]
+    assert cap["body"]["text"] == {"format": {"type": "json_object"}} and cap["body"]["max_output_tokens"] == 50
+    assert r.choices[0].message.content == '{"a": 2}'
+    assert (r.usage.prompt_tokens, r.usage.completion_tokens, r.usage.prompt_cache_hit_tokens) == (7, 3, 2)
+
+
+def test_gemini_client():
+    from papermap.llm import _GeminiClient
+    reply = {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": True}, {"text": "{\"b\": 1}"}]}}],
+             "usageMetadata": {"promptTokenCount": 11, "candidatesTokenCount": 4}}
+    cap, tr = _capture(reply)
+    c = _GeminiClient("https://generativelanguage.googleapis.com/v1beta", "gk", 10, transport=tr)
+    r = c.chat.completions.create(model="gemini-pro", messages=MSGS + [{"role": "assistant", "content": "prev"}],
+                                  response_format={"type": "json_object"})
+    assert cap["url"] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+    assert cap["headers"]["x-goog-api-key"] == "gk"
+    assert cap["body"]["systemInstruction"] == {"parts": [{"text": "sys"}]}
+    assert [t["role"] for t in cap["body"]["contents"]] == ["user", "model"]
+    assert cap["body"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert r.choices[0].message.content == '{"b": 1}' and r.usage.prompt_tokens == 11
