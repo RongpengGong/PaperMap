@@ -71,8 +71,11 @@
   </div>
   {% if notes_text is not none %}
   <div class="tab-body" data-body="notes" hidden>
-    <textarea class="notes" spellcheck="false" placeholder="写下你的笔记（Markdown）。自动保存。">{{ notes_text }}</textarea>
+    <div class="notes-bar"><button type="button" class="ghost-btn" data-notes-preview>预览</button><span class="muted small">输入 <code>[[</code> 链接其他论文或学科</span></div>
+    <textarea class="notes" spellcheck="false" placeholder="写下你的笔记（Markdown）。自动保存。输入 [[ 可以链接到其他论文或学科。">{{ notes_text }}</textarea>
+    <div class="notes-preview md" hidden></div>
     <p class="muted small" data-notes-status>保存在这篇论文的文件夹里，PaperMap 永远不会改动它。⌘S 立即保存。</p>
+    {% if backlinks %}<h3>提到这篇论文的地方</h3><ul class="backlinks">{% for b in backlinks %}<li>{% if b.paper_id %}<a href="/?id={{ b.paper_id }}">{{ b.label }}</a>{% else %}{{ b.label }}{% endif %}<br><span class="muted small">{{ b.snippet }}</span></li>{% endfor %}</ul>{% endif %}
   </div>
   {% endif %}
   {% if translation %}

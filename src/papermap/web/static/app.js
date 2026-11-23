@@ -178,7 +178,46 @@
       };
       notes.addEventListener("input", () => { status.textContent = "编辑中…"; clearTimeout(timer); timer = setTimeout(save, 800); });
       notes.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); } });
-      notes.addEventListener("blur", save);
+      notes.addEventListener("blur", () => setTimeout(save, 150));
+      // [[ link suggestions
+      const pop = document.createElement("div"); pop.className = "link-pop"; pop.hidden = true; document.body.appendChild(pop);
+      let items = [], sel = 0, startPos = -1;
+      const close = () => { pop.hidden = true; startPos = -1; };
+      const pick = i => {
+        const it = items[i]; if (!it) return;
+        const v = notes.value, end = notes.selectionStart;
+        notes.value = v.slice(0, startPos) + it.insert + v.slice(end);
+        notes.selectionStart = notes.selectionEnd = startPos + it.insert.length;
+        close(); notes.dispatchEvent(new Event("input"));
+      };
+      const render = () => {
+        pop.innerHTML = items.map((it, i) => `<div class="lp-item ${i === sel ? "on" : ""}" data-i="${i}">${it.label.replace(/[<>&]/g, "")}</div>`).join("") || `<div class="lp-empty">没有匹配的论文或学科</div>`;
+      };
+      notes.addEventListener("keyup", async e => {
+        if (["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(e.key) && !pop.hidden) return;
+        const v = notes.value.slice(0, notes.selectionStart), at = v.lastIndexOf("[[");
+        if (at === -1 || v.slice(at).includes("]]") || v.slice(at).includes("\n")) { close(); return; }
+        startPos = at;
+        items = await (await fetch("/api/link-suggest?q=" + encodeURIComponent(v.slice(at + 2)))).json(); sel = 0; render();
+        const r = notes.getBoundingClientRect();
+        pop.style.left = r.left + 12 + "px"; pop.style.top = Math.min(innerHeight - 260, r.top + 40) + "px"; pop.style.width = Math.min(520, r.width - 24) + "px";
+        pop.hidden = false;
+      });
+      notes.addEventListener("keydown", e => {
+        if (pop.hidden) return;
+        if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(items.length - 1, sel + 1); render(); }
+        if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(0, sel - 1); render(); }
+        if (e.key === "Enter") { e.preventDefault(); pick(sel); }
+        if (e.key === "Escape") close();
+      });
+      pop.addEventListener("mousedown", e => { const d = e.target.closest(".lp-item"); if (d) { e.preventDefault(); pick(+d.dataset.i); } });
+      notes.addEventListener("blur", () => setTimeout(close, 150));
+      const pv = panel.querySelector("[data-notes-preview]"), pvBox = panel.querySelector(".notes-preview");
+      pv && pv.addEventListener("click", async () => {
+        const showing = !pvBox.hidden;
+        if (!showing) pvBox.innerHTML = (await api("/api/notes-preview", { text: notes.value })).html || "";
+        pvBox.hidden = showing; notes.hidden = !showing; pv.textContent = showing ? "预览" : "编辑";
+      });
     }
   }
   initPanel();

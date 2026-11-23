@@ -170,7 +170,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                                     "html": md_html(_split_front(f.read_text("utf-8"))[1])})
         jobs = registry.query("SELECT * FROM jobs WHERE paper_id=? ORDER BY id DESC LIMIT 6", (paper_id,))
         tr_cfg = config.raw.get("translation") or {}
+        from .. import notelinks
+
         return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+                "backlinks": notelinks.backlinks(registry, config.knowledge_dir, paper_id),
                 "translation": translation, "skill_outputs": outputs,
                 "active_jobs": [j for j in jobs if j["status"] in ("queued", "running")],
                 "failed_jobs": [j for j in jobs[:3] if j["status"] == "error"],
@@ -230,6 +233,18 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if f is None:
             raise HTTPException(404)
         return FileResponse(f, media_type="application/pdf", content_disposition_type="inline", filename=f.name)
+
+    @app.get("/api/link-suggest")
+    def link_suggest(q: str = ""):
+        from .. import notelinks
+
+        pipeline.taxonomy()
+        return notelinks.suggest(registry, q)
+
+    @app.post("/api/notes-preview")
+    async def notes_preview(request: Request):
+        body = await json_body(request)
+        return {"html": md_html(str(body.get("text", "")))}
 
     @app.post("/paper/{paper_id}/notes")
     async def paper_notes(paper_id: int, request: Request):
