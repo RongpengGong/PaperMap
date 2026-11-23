@@ -23,7 +23,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-build = ["pyinstaller>=6.0"]
+build = ["pyinstaller>=6.0", "pystray>=0.19", "pillow>=10"]
+tray = ["pystray>=0.19", "pillow>=10"]
 
 [project.scripts]
 papermap = "papermap.cli:main"

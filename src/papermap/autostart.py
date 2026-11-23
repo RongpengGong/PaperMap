@@ -14,8 +14,8 @@ TASK = "PaperMap"
 
 def command(config_path: Path) -> list[str]:
     """The command that starts the watcher + web UI without opening a browser."""
-    if getattr(sys, "frozen", False):  # PyInstaller build
-        return [sys.executable, "--config", str(config_path), "run"]
+    if getattr(sys, "frozen", False):  # packaged app: desktop mode with tray, no browser
+        return [sys.executable, "--config", str(config_path), "app", "--background"]
     exe = Path(sys.executable)
     if os.name == "nt":  # pythonw.exe avoids a console window at login
         pyw = exe.with_name("pythonw.exe")
@@ -40,7 +40,7 @@ def describe(config_path: Path, log_dir: Path) -> str:
     return f"systemd user service {_linux_unit()} running: {' '.join(cmd)}"
 
 
-def install(config_path: Path, log_dir: Path) -> str:
+def install(config_path: Path, log_dir: Path, start_now: bool = True) -> str:
     cmd = command(config_path)
     log_dir.mkdir(parents=True, exist_ok=True)
     if sys.platform == "darwin":
@@ -54,6 +54,8 @@ def install(config_path: Path, log_dir: Path) -> str:
                 "StandardErrorPath": str(log_dir / "autostart.log"),
                 "ProcessType": "Background",
             }, fh)
+        if not start_now:
+            return f"Installed {plist} (starts at next login)"
         uid = os.getuid()
         subprocess.run(["launchctl", "bootout", f"gui/{uid}", str(plist)], capture_output=True)
         r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist)], capture_output=True, text=True)

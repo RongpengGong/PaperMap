@@ -21,9 +21,9 @@ PaperMap 在你自己的电脑上运行。你把论文 PDF 放进一个文件夹
 ### 方式一：直接下载（推荐给不写代码的用户）
 
 1. 下载对应系统的压缩包（`PaperMap-Windows` 或 `PaperMap-macOS`），解压到任意位置。
-2. **Windows**：双击 `PaperMap\PaperMap.exe`。
-   **macOS**：双击 `PaperMap.app`。第一次打开如果提示「无法验证开发者」，请在「系统设置 → 隐私与安全性」里点「仍要打开」。
-3. 浏览器会自动打开 PaperMap 的设置页。
+2. **macOS**：把 `PaperMap.app` 拖进「应用程序」文件夹，双击打开。第一次打开如果提示「无法验证开发者」，请在「系统设置 → 隐私与安全性」里点「仍要打开」；如果提示要访问「文稿」或「下载」文件夹，点「允许」（PaperMap 只读取你指定的入口文件夹）。
+   **Windows**：双击 `PaperMap\PaperMap.exe`。
+3. 浏览器会自动打开 PaperMap 的设置页。PaperMap 没有自己的窗口：它常驻在**菜单栏（macOS 右上角）/ 任务栏通知区域（Windows 右下角）**，点那个小图标可以「打开 PaperMap」「打开知识库文件夹」「登录时自动启动」「退出」。再次双击应用也只会打开浏览器，不会重复启动。
 
 ### 方式二：用 Python 安装（需要 Python 3.10 或更新版本）
 
@@ -79,7 +79,7 @@ papermap autostart status
 papermap autostart uninstall
 ```
 
-打包版：在终端里运行 `PaperMap --config ~/PaperMap/config.yaml autostart install`（Windows 用 `PaperMap.exe`）。之后随时在浏览器打开 <http://127.0.0.1:8765>。要退出，在设置页底部点「退出 PaperMap」。
+打包版（应用程序）：直接在菜单栏 / 托盘图标的菜单里勾选「登录时自动启动」即可。之后随时在浏览器打开 <http://127.0.0.1:8765>，或点菜单栏图标「打开 PaperMap」。要退出，点图标菜单里的「退出 PaperMap」（或设置页底部的按钮）。
 
 ---
 

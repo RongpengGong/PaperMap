@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import logging
+import os
 import signal
 import sys
 import threading
@@ -110,8 +111,21 @@ def _load(args: argparse.Namespace):
 
     cfg = cfgmod.load(args.config)
     cfg.ensure_dirs()
+    _file_logging(cfg.logs_dir)
     reg = Registry(cfg.db_path)
     return cfg, reg, Pipeline(cfg, reg)
+
+
+def _file_logging(log_dir: Path) -> None:
+    """Also log to <data>/logs/papermap.log (the packaged app has no console)."""
+    from logging.handlers import RotatingFileHandler
+
+    root = logging.getLogger()
+    if any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        return
+    h = RotatingFileHandler(log_dir / "papermap.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root.addHandler(h)
 
 
 def _key_hint(cfg) -> None:
@@ -192,8 +206,9 @@ def _open_browser_later(url: str, delay: float = 1.5) -> None:
 
 
 def cmd_app(args: argparse.Namespace) -> int:
-    """Double-click mode: create a default config on first use, then run
-    the watcher + web UI and open the browser."""
+    """Desktop-app mode (double-click / login item): create a default config on
+    first use, run the watcher + web UI, show a menu-bar/tray icon, and open
+    the browser unless --background."""
     path = Path(args.config).expanduser() if args.config else cfgmod.default_config_path()
     first_run = not path.exists()
     if first_run:
@@ -205,15 +220,43 @@ def cmd_app(args: argparse.Namespace) -> int:
         print(f"Created {path}")
     cfg = cfgmod.load(path)
     if _already_running(cfg):
-        print("PaperMap is already running; opening the browser.")
-        import webbrowser
+        if not getattr(args, "background", False):
+            import webbrowser
 
-        webbrowser.open(_web_url(cfg))
+            webbrowser.open(_web_url(cfg))
+        print("PaperMap is already running.")
         return 0
     args.config = str(path)
-    args.no_web = False
-    args.open = "/settings?welcome=1" if first_run else "/"
-    return cmd_run(args)
+    start_page = "/settings?welcome=1" if first_run else "/"
+
+    from . import tray
+
+    if getattr(args, "no_tray", False) or not tray.available():
+        args.no_web = False
+        args.open = None if getattr(args, "background", False) else start_page
+        return cmd_run(args)
+
+    import uvicorn
+
+    from .watcher import Watcher
+    from .web.app import create_app
+
+    cfg, reg, pipe = _load(args)
+    watcher = Watcher(cfg, pipe)
+    watcher.start()
+    server = uvicorn.Server(uvicorn.Config(create_app(cfg, reg, pipe), host=cfg.web["host"],
+                                           port=int(cfg.web["port"]), log_level="warning"))
+    threading.Thread(target=server.run, name="web", daemon=True).start()
+    if not getattr(args, "background", False):
+        _open_browser_later(_web_url(cfg, start_page))
+
+    def quit_all() -> None:
+        server.should_exit = True
+        watcher.stop()
+        threading.Timer(2.0, lambda: os._exit(0)).start()
+
+    tray.run(_web_url(cfg), cfg.knowledge_dir, cfg.inbox_dirs, cfg.path, cfg.logs_dir, quit_all)
+    return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -302,7 +345,7 @@ def cmd_autostart(args: argparse.Namespace) -> int:
         print("Autostart:", autostart.status())
         print(autostart.describe(cfg.path, cfg.logs_dir))
     elif args.action == "install":
-        print(autostart.install(cfg.path, cfg.logs_dir))
+        print(autostart.install(cfg.path, cfg.logs_dir, start_now=not args.no_start))
         print(f"PaperMap now starts at login; web UI at {_web_url(cfg)}")
     else:
         print(autostart.uninstall())
@@ -410,8 +453,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_consolidate)
     p = sub.add_parser("autostart", help="start PaperMap automatically at login")
     p.add_argument("action", choices=["install", "uninstall", "status"])
+    p.add_argument("--no-start", action="store_true", help="only register; start at next login")
     p.set_defaults(func=cmd_autostart)
-    p = sub.add_parser("app", help="first-run setup if needed, run, and open the browser (double-click mode)")
+    p = sub.add_parser("app", help="desktop mode: first-run setup, run with a menu-bar icon, open the browser")
+    p.add_argument("--background", action="store_true", help="do not open the browser (used at login)")
+    p.add_argument("--no-tray", action="store_true", help="no menu-bar/tray icon")
     p.set_defaults(func=cmd_app)
     p = sub.add_parser("status", help="show library summary")
     p.add_argument("--limit", type=int, default=30)
@@ -420,6 +466,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windowed builds (no console) have no stdout/stderr on Windows
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
     for stream in (sys.stdout, sys.stderr):  # Windows consoles may not be UTF-8
         try:
             stream.reconfigure(errors="replace")
@@ -428,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.cmd is None:  # plain `papermap` / double-clicked executable
         args.func = cmd_app
+        args.background = False
+        args.no_tray = False
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

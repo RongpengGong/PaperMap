@@ -16,7 +16,7 @@ Everything is plain Markdown that opens in [Obsidian](https://obsidian.md), but 
 
 ## Install
 
-**Download (recommended for non-programmers):** unzip `PaperMap-Windows` or `PaperMap-macOS`, then double-click `PaperMap.exe` / `PaperMap.app`. On macOS, if you see "cannot verify developer", allow it under System Settings → Privacy & Security. Your browser opens the settings page.
+**Download (recommended for non-programmers):** on macOS drag `PaperMap.app` into Applications and open it; on Windows double-click `PaperMap\PaperMap.exe`. On macOS, if you see "cannot verify developer", allow it under System Settings → Privacy & Security, and allow access to Documents/Downloads if asked. Your browser opens the settings page. PaperMap has no window of its own: it lives in the **menu bar (macOS) / notification area (Windows)** – the icon's menu has Open PaperMap, Open knowledge folder, Start at login, and Quit.
 
 **With Python ≥ 3.10:** `pip install .` (or `uv tool install .`) in the source folder, then run `papermap`.
 

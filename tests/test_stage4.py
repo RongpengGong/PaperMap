@@ -114,3 +114,19 @@ def test_ref_ids_in_prose_become_author_year():
     from papermap.llm import replace_ref_ids
     labels = {"P1": "Cai 2026", "P2": "de Jong 2026"}
     assert replace_ref_ids("51 samples (P1) vs P2; P10 stays", labels) == "51 samples (Cai 2026) vs de Jong 2026; P10 stays"
+
+
+def test_autostart_command_for_packaged_app(monkeypatch, tmp_path):
+    import sys
+
+    from papermap import autostart
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", "/Applications/PaperMap.app/Contents/MacOS/PaperMap")
+    cmd = autostart.command(tmp_path / "config.yaml")
+    assert cmd[0].endswith("MacOS/PaperMap") and cmd[-2:] == ["app", "--background"]
+
+
+def test_tray_icon_assets_exist():
+    from importlib import resources
+    static = resources.files("papermap.web").joinpath("static")
+    assert static.joinpath("icon.png").is_file() and static.joinpath("tray.png").is_file()
