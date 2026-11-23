@@ -155,9 +155,8 @@ def extract_for_llm(path: str | Path, max_chars: int) -> str:
     """
     with pymupdf.open(path) as doc:
         n = min(doc.page_count, MAX_PAGES_FOR_LLM)
-        lines: list[str] = []
-        for i in range(n):
-            lines.extend(doc[i].get_text().splitlines())
+        page_lines = [doc[i].get_text().splitlines() for i in range(n)]
+    lines = _drop_running_headers(page_lines)
 
     sections: dict[str, list[str]] = {"head": []}
     legends: list[str] = []
@@ -206,6 +205,22 @@ def extract_for_llm(path: str | Path, max_chars: int) -> str:
         leftover = max(0, budget - len(chunk))
         out.append(f"## {label}\n{chunk}")
     return "\n\n".join(out)[:max_chars]
+
+
+def _drop_running_headers(page_lines: list[list[str]]) -> list[str]:
+    """Remove page headers/footers: short lines repeated on many pages."""
+    from collections import Counter
+
+    if len(page_lines) < 4:
+        return [ln for page in page_lines for ln in page]
+
+    def key(ln: str) -> str:
+        return re.sub(r"\d+", "#", ln.strip().lower())
+
+    counts = Counter(k for page in page_lines for k in {key(ln) for ln in page if ln.strip()})
+    limit = max(3, int(len(page_lines) * 0.3))
+    repeated = {k for k, c in counts.items() if c >= limit and len(k) < 120}
+    return [ln for page in page_lines for ln in page if key(ln) not in repeated]
 
 
 def _join_lines(lines: list[str]) -> str:
