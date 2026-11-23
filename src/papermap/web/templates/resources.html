@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}数据资源 - PaperMap{% endblock %}
+{% block content %}
+<h2>数据资源</h2>
+<p class="muted">从论文全文里自动找出的数据库登录号和代码仓库（GEO、SRA、EGA、ArrayExpress、CNGB、GSA、dbGaP、PRIDE、Zenodo、GitHub、TCGA 等）。「本研究产生 / 引用的公开数据」是根据所在句子推断的，以原文为准；点页码可以跳到原文核对。</p>
+<form method="get" action="/resources" class="row filters-row">
+  <select name="kind" style="width:auto"><option value="">全部来源</option>{% for k, lbl in kinds %}{% if counts.get(k) %}<option value="{{ k }}" {{ 'selected' if kind == k }}>{{ lbl }} ({{ counts[k] }})</option>{% endif %}{% endfor %}</select>
+  <select name="role" style="width:auto"><option value="">全部用途</option>
+    <option value="generated" {{ 'selected' if role == 'generated' }}>本研究产生</option>
+    <option value="reused" {{ 'selected' if role == 'reused' }}>引用的公开数据</option>
+    <option value="_none" {{ 'selected' if role == '_none' }}>未注明</option></select>
+  <select name="scope" style="width:auto">
+    <option value="">整个文献库</option>
+    {% if groups %}<optgroup label="分组">{% for g in groups %}<option value="c:{{ g.id }}" {{ 'selected' if scope == 'c:' ~ g.id }}>{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}</optgroup>{% endif %}
+    {% if fields %}<optgroup label="学科">{% for f in fields %}<option value="f:{{ f.slug }}" {{ 'selected' if scope == 'f:' ~ f.slug }}>{{ f.name_zh }}</option>{% endfor %}</optgroup>{% endif %}
+  </select>
+  <button>筛选</button>
+  <span class="grow"></span>
+  <a class="ghost-btn" data-download href="/resources.csv?kind={{ kind }}&role={{ role }}&scope={{ scope }}">导出 CSV</a>
+</form>
+<p class="muted small">{{ items|length }} 条</p>
+<table class="res-table">
+  <tr><th>论文</th><th>来源</th><th>登录号 / 链接</th><th>用途</th><th>上下文</th></tr>
+  {% for r in items %}
+  <tr>
+    <td><a href="/?id={{ r.paper_id }}">{{ r.first_author or '?' }} {{ r.year or '' }}</a><br><span class="muted small">{{ r.journal or '' }}</span></td>
+    <td class="small">{{ r.label }}</td>
+    <td><a target="_blank" rel="noopener" href="{{ r.url }}"><code>{{ r.accession }}</code></a></td>
+    <td><span class="role-chip role-{{ r.role or 'none' }}">{{ roles[r.role] }}</span></td>
+    <td class="small muted">{{ r.context[:220] }}{% if r.context|length > 220 %}…{% endif %} <a href="/reader/{{ r.paper_id }}?page={{ (r.page or 0) + 1 }}&q={{ r.accession|urlencode }}">p.{{ (r.page or 0) + 1 }}</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">没有找到。新论文处理完后会自动提取；已有论文在启动时后台补齐。</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll("[data-download]").forEach(a => a.addEventListener("click", async e => {
+  if (!(window.pywebview && window.pywebview.api && window.pywebview.api.save_text)) return;
+  e.preventDefault();
+  const text = await (await fetch(a.href)).text();
+  const path = await window.pywebview.api.save_text("papermap-data-resources.csv", text);
+  if (path) pmToast("已保存到 " + path);
+}));
+</script>
+{% endblock %}

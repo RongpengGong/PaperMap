@@ -369,6 +369,31 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "search.html", q=q, kind=kind, groups=groups, total=total, kinds=srch.KINDS,
                       terms=srch.query_terms(q), indexed=state)
 
+    # --------------------------------------------------------- data resources
+    @app.get("/resources", response_class=HTMLResponse)
+    def resources_page(request: Request, kind: str = "", role: str = "", scope: str = ""):
+        from .. import qa as qamod
+        from .. import resources as res
+
+        items = res.rows(registry, kind, role, qamod.scope_paper_ids(registry, scope) if scope else None)
+        counts = {r["kind"]: r["n"] for r in registry.query("SELECT kind, count(*) AS n FROM data_resources GROUP BY kind")}
+        pipeline.taxonomy()
+        return render(request, "resources.html", items=items, kind=kind, role=role, scope=scope,
+                      kinds=[(k, lbl) for k, lbl, _, _ in res.PATTERNS], counts=counts, roles=res.ROLE_LABELS,
+                      groups=_flat_tree(registry.collection_tree()),
+                      fields=[f for f in registry.active_fields() if registry.field_paper_rows(f["id"])])
+
+    @app.get("/resources.csv")
+    def resources_csv(kind: str = "", role: str = "", scope: str = ""):
+        from fastapi.responses import Response
+
+        from .. import qa as qamod
+        from .. import resources as res
+
+        items = res.rows(registry, kind, role, qamod.scope_paper_ids(registry, scope) if scope else None)
+        return Response(res.to_csv(items), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="papermap-data-resources.csv"'})
+
     # --------------------------------------------------------------------- Q&A
     def answer_html(answer: str, sources: list[dict]) -> str:
         by = {x["id"]: x for x in sources}

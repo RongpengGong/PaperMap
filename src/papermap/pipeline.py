@@ -749,13 +749,23 @@ class Pipeline:
         return next((Path(f) for f in self.registry.paper_file_paths(paper_id) if Path(f).exists()), None)
 
     def reindex(self, paper_id: int, force: bool = False) -> bool:
-        from . import search
+        """Full-text index + data-resource extraction (both skip unchanged papers)."""
+        from . import resources, search
 
+        pdf = self.pdf_for(paper_id)
         try:
-            return search.index_paper(self.config.knowledge_dir, self.registry, paper_id, self.pdf_for(paper_id), force)
+            changed = search.index_paper(self.config.knowledge_dir, self.registry, paper_id, pdf, force)
         except Exception:  # noqa: BLE001 - search must never break processing
             log.exception("indexing paper %s failed", paper_id)
             return False
+        resources.ensure_schema(self.registry)
+        missing = self.registry.one("SELECT 1 FROM data_resources WHERE paper_id=? LIMIT 1", (paper_id,)) is None
+        if pdf is not None and (changed or (missing and force)):
+            try:
+                resources.store(self.registry, paper_id, resources.extract_pdf(pdf))
+            except Exception:  # noqa: BLE001
+                log.exception("resource extraction failed for paper %s", paper_id)
+        return changed
 
     def reindex_all(self, force: bool = False) -> int:
         n = 0
