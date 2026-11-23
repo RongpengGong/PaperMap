@@ -135,7 +135,33 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             if row["kb_path"].count("/") >= 2:
                 np_ = library.notes_path(config.knowledge_dir, row["kb_path"])
                 notes_text = np_.read_text("utf-8") if np_.exists() else ""
+        from .. import skills_runtime as sr
+
+        translation, outputs = None, []
+        skills = sr.discover(config)
+        if row["kb_path"] and row["kb_path"].count("/") >= 2:
+            card = config.knowledge_dir / row["kb_path"]
+            tj = card.with_name(f"{card.stem}.translation.json")
+            if tj.exists():
+                try:
+                    translation = json.loads(tj.read_text("utf-8"))
+                except ValueError:
+                    translation = None
+            for sk in skills.values():
+                f = sr.output_path(card, sk.id)
+                if f.exists():
+                    outputs.append({"id": sk.id, "label": sk.label,
+                                    "html": md_html(_split_front(f.read_text("utf-8"))[1])})
+        jobs = registry.query("SELECT * FROM jobs WHERE paper_id=? ORDER BY id DESC LIMIT 6", (paper_id,))
+        tr_cfg = config.raw.get("translation") or {}
         return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+                "translation": translation, "skill_outputs": outputs,
+                "active_jobs": [j for j in jobs if j["status"] in ("queued", "running")],
+                "failed_jobs": [j for j in jobs[:3] if j["status"] == "error"],
+                "skills_ok": [sk for sk in skills.values() if sk.supported],
+                "default_skill": sr.default_skill_id(config, skills),
+                "tr_services": tr_cfg.get("services", []), "tr_default": tr_cfg.get("default", "bilibili"),
+                "tr_ack": bool(tr_cfg.get("privacy_ack")),
                 "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
                 "pcollections": [{"id": r["id"], "path": registry.collection_path(r["id"])}
                                  for r in registry.paper_collections(paper_id)],
@@ -162,7 +188,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.get("/api/state")
     def api_state():
-        return {"pending": pipeline.pending_count(), "busy": bool(busy) or pipeline._lock.locked(),
+        jobs = registry.one("SELECT count(*) AS n, max(updated_at) AS u FROM jobs WHERE status IN ('queued','running')")
+        last_job = registry.one("SELECT max(updated_at) AS u FROM jobs")["u"] or ""
+        return {"pending": pipeline.pending_count() + (jobs["n"] or 0),
+                "busy": bool(busy) or pipeline._lock.locked() or bool(jobs["n"]),
+                "jobs_version": last_job,
                 "papers": registry.one("SELECT count(*) AS n FROM papers")["n"],
                 "last_event": registry.one("SELECT max(id) AS m FROM events")["m"] or 0,
                 "review": _review_count(registry, pipeline.new_field_threshold)}
@@ -261,6 +291,34 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 refresh_cards_later(ids_of(body))
             else:
                 raise HTTPException(404)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
+
+    @app.post("/paper/{paper_id}/translate")
+    async def paper_translate(paper_id: int, request: Request):
+        body = await json_body(request)
+        sid = str(body.get("service") or "")
+        tr = config.raw["translation"]
+        svc = next((x for x in tr.get("services", []) if x.get("id") == (sid or tr.get("default"))), None)
+        if svc is None:
+            return {"ok": False, "message": "找不到这个翻译服务"}
+        if svc.get("kind") == "bilibili" and not tr.get("privacy_ack"):
+            if not body.get("ack"):
+                return {"ok": False, "need_ack": True}
+            tr["privacy_ack"] = True
+            config.save()
+        try:
+            pipeline.submit_translation(paper_id, sid)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
+
+    @app.post("/paper/{paper_id}/skill")
+    async def paper_skill(paper_id: int, request: Request):
+        body = await json_body(request)
+        try:
+            pipeline.submit_skill(paper_id, str(body.get("skill", "")))
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
@@ -612,6 +670,68 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         fn()
         return {"ok": True}
 
+    @app.post("/api/translation/services")
+    async def tr_service_add(request: Request):
+        body = await json_body(request)
+        name, base, model = (str(body.get(k, "")).strip() for k in ("name", "base_url", "model"))
+        if not (name and base and model):
+            return {"ok": False, "message": "名称、Base URL 和模型名都要填"}
+        tr = config.raw["translation"]
+        sid = "custom-" + secrets.token_hex(3)
+        tr.setdefault("services", []).append({
+            "id": sid, "name": name, "kind": "custom", "base_url": base, "model": model,
+            "api_key": str(body.get("api_key", "")).strip(),
+            "protocol": body.get("protocol") if body.get("protocol") in PROTOCOLS else "openai",
+            "mode": body.get("mode") if body.get("mode") in ("translate", "polish", "custom") else "translate",
+            "prompt": str(body.get("prompt", "")),
+            "price_input_per_1m": float(body.get("price_in") or 0), "price_output_per_1m": float(body.get("price_out") or 0),
+        })
+        config.save()
+        return {"ok": True, "id": sid}
+
+    @app.post("/api/translation/services/{sid}/delete")
+    async def tr_service_delete(sid: str, request: Request):
+        await json_body(request)
+        tr = config.raw["translation"]
+        if sid in ("bilibili", "main"):
+            return {"ok": False, "message": "内置服务不能删除"}
+        tr["services"] = [x for x in tr.get("services", []) if x.get("id") != sid]
+        if tr.get("default") == sid:
+            tr["default"] = "bilibili"
+        config.save()
+        return {"ok": True}
+
+    # ------------------------------------------------------------------ skills
+    @app.get("/skills", response_class=HTMLResponse)
+    def skills_page(request: Request, saved: int = 0):
+        from .. import skills_runtime as sr
+
+        skills = sr.discover(config)
+        return render(request, "skills.html", skills=sorted(skills.values(), key=lambda k: (not k.supported, k.source != "builtin", k.label)),
+                      default_skill=sr.default_skill_id(config, skills), sources=sr.SOURCES,
+                      auto=bool((config.raw.get("skills") or {}).get("auto_new_papers")), saved=saved,
+                      skills_dir=config.data_dir / "skills")
+
+    @app.post("/skills")
+    def skills_save(csrf: str = Form(...), default: str = Form(""), auto: str = Form("")):
+        _check_csrf(csrf, csrf_token)
+        sk = config.raw.setdefault("skills", {})
+        sk["default"] = default
+        sk["auto_new_papers"] = bool(auto)
+        config.save()
+        return RedirectResponse("/skills?saved=1", status_code=303)
+
+    @app.post("/api/skills/install")
+    async def skills_install(request: Request):
+        from .. import skills_runtime as sr
+
+        body = await json_body(request)
+        try:
+            sk = sr.install(config, Path(str(body.get("path", ""))))
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True, "id": sk.id, "supported": sk.supported, "reason": sk.reason}
+
     @app.post("/shutdown")
     def shutdown(csrf: str = Form(...)):
         """Quit button for the packaged app (no terminal to press Ctrl+C in).
@@ -640,6 +760,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             exclude_dirs=", ".join(config.exclude_dir_names),
             exclude_patterns=", ".join(config.exclude_patterns),
             git_available=kb_git.available(), welcome=welcome,
+            tr=config.raw["translation"], bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
+            protocols_all=PROTOCOLS,
         )
 
     @app.post("/settings")
@@ -665,12 +787,28 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         exclude_dirs: str = Form(""),
         exclude_patterns: str = Form(""),
         contact_email: str = Form(""),
+        tr_default: str = Form("bilibili"),
+        tr_bilibili_model: str = Form("Index-Translate-35B-A3B"),
+        tr_target: str = Form("zh"),
+        tr_fallback: str = Form(""),
+        tr_auto: str = Form(""),
         new_field_threshold: int = Form(3),
         embedding_model: str = Form(""),
         knowledge_git: str = Form(""),
     ):
         _check_csrf(csrf, csrf_token)
         raw = config.raw
+        from ..translate import BILIBILI_MODELS
+
+        tr = raw["translation"]
+        if any(x.get("id") == tr_default for x in tr.get("services", [])):
+            tr["default"] = tr_default
+        for svc in tr.get("services", []):
+            if svc.get("kind") == "bilibili" and tr_bilibili_model in BILIBILI_MODELS:
+                svc["model"] = tr_bilibili_model
+        tr["target_language"] = tr_target if tr_target in ("zh", "en") else "zh"
+        tr["fallback_to_main"] = bool(tr_fallback)
+        tr["auto_new_papers"] = bool(tr_auto)
         raw["new_field_threshold"] = max(1, new_field_threshold)
         raw.setdefault("embedding", {})["model"] = embedding_model.strip()
         raw["knowledge_git"] = bool(knowledge_git)

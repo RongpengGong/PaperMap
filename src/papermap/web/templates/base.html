@@ -10,6 +10,7 @@
 {%- elif name == 'taxonomy' %}<path d="M4 6h16M4 12h10M4 18h6"/>
 {%- elif name == 'events' %}<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>
 {%- elif name == 'settings' %}<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+{%- elif name == 'skills' %}<path d="M12 3l2.5 5.2 5.5.8-4 3.9 1 5.6L12 16l-5 2.5 1-5.6-4-3.9 5.5-.8z"/>
 {%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
 {%- elif name == 'folder' %}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 {%- elif name == 'inbox' %}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
@@ -20,7 +21,7 @@
   ('/', 'papers', '论文'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
   ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/review', 'review', '待审核'),
 ] -%}
-{%- set nav2 = [('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
+{%- set nav2 = [('/skills', 'skills', '技能'), ('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

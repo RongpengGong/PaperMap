@@ -52,4 +52,18 @@
     } catch (err) { show(false, "✗ " + err); }
     e.target.disabled = false;
   });
+
+  // translation services: add / delete custom endpoints
+  const csrf = document.getElementById("csrf").value;
+  const addBtn = document.getElementById("add_service_btn");
+  addBtn && addBtn.addEventListener("click", async () => {
+    const body = { csrf };
+    document.querySelectorAll("#add_service [data-f]").forEach(el => body[el.dataset.f] = el.value);
+    const j = await (await fetch("/api/translation/services", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    if (j.ok) location.reload(); else window.pmToast(j.message || "添加失败");
+  });
+  document.querySelectorAll("[data-del-service]").forEach(b => b.addEventListener("click", async () => {
+    const j = await (await fetch(`/api/translation/services/${b.dataset.delService}/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf }) })).json();
+    if (j.ok) location.reload(); else window.pmToast(j.message || "删除失败");
+  }));
 })();

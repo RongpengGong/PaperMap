@@ -89,6 +89,35 @@
 </section>
 
 <section class="card">
+  <h3>翻译</h3>
+  <p class="muted small">在论文详情里点「翻译全文…」，生成段落对照的译文，保存在这篇论文的文件夹里。基因名、软件名和分类表里的术语会作为术语表保持原文。</p>
+  <label for="tr_default">默认翻译服务</label>
+  <select id="tr_default" name="tr_default">{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
+  <label for="tr_bm">bilibili 模型</label>
+  <select id="tr_bm" name="tr_bilibili_model">{% set cur = (tr.services|selectattr('kind', 'equalto', 'bilibili')|first or {}).get('model') %}{% for k, v in bilibili_models.items() %}<option value="{{ k }}" {{ 'selected' if k == cur }}>{{ v }}</option>{% endfor %}</select>
+  <p class="muted small">bilibili Index-Translate 由 B 站官方免费提供、无需 Key（将来是否收费未知）。使用时论文正文会发送到 B 站服务器。</p>
+  <label for="tr_target">翻译成</label>
+  <select id="tr_target" name="tr_target"><option value="zh" {{ 'selected' if tr.target_language == 'zh' }}>中文</option><option value="en" {{ 'selected' if tr.target_language == 'en' }}>英文</option></select>
+  <p><label class="inline"><input type="checkbox" name="tr_fallback" value="1" {{ 'checked' if tr.fallback_to_main }}> 翻译服务出错时，自动改用主模型翻译</label><br>
+     <label class="inline"><input type="checkbox" name="tr_auto" value="1" {{ 'checked' if tr.auto_new_papers }}> 新论文生成卡片后自动翻译全文</label></p>
+  <details>
+    <summary>其他翻译接口（{{ tr.services|selectattr('kind', 'equalto', 'custom')|list|length }} 个自定义）</summary>
+    <table class="svc-table"><tr><th>名称</th><th>类型</th><th>模型</th><th></th></tr>
+    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ {'bilibili':'内置','main':'主模型','custom':'自定义'}[svc.kind] }}</td><td><code>{{ svc.model or '（主模型）' }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
+    </table>
+    <div class="add-service" id="add_service">
+      <div class="row"><label class="grow">名称<input type="text" data-f="name" placeholder="例如：DeepL 中转"></label><label class="grow">Base URL<input type="text" data-f="base_url" placeholder="https://…/v1"></label></div>
+      <div class="row"><label class="grow">API Key<input type="password" data-f="api_key" autocomplete="off"></label><label class="grow">模型名<input type="text" data-f="model"></label>
+        <label>协议<select data-f="protocol">{% for k, v in protocols_all.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label></div>
+      <div class="row"><label>模式<select data-f="mode"><option value="translate">翻译</option><option value="polish">润色</option><option value="custom">自定义 prompt</option></select></label>
+        <label class="grow">自定义 prompt（可用 {text} 和 {target}）<input type="text" data-f="prompt" placeholder="留空用默认翻译指令"></label></div>
+      <div class="row"><label class="grow">输入 $/百万 token<input type="number" step="any" min="0" data-f="price_in" value="0"></label><label class="grow">输出 $/百万 token<input type="number" step="any" min="0" data-f="price_out" value="0"></label></div>
+      <button type="button" class="secondary" id="add_service_btn">添加这个翻译接口</button>
+    </div>
+  </details>
+</section>
+
+<section class="card">
   <h3>新学科与知识库</h3>
   <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
   <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">

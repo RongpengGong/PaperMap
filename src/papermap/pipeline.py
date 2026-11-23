@@ -100,6 +100,7 @@ class Pipeline:
         # While True, new papers are registered (DOI, metadata) but not sent to
         # the LLM: used for bulk imports until the user confirms the estimate.
         self.hold = False
+        self._jobs = None
         self._taxonomy: Taxonomy | None = None
         self._taxonomy_sig: tuple | None = None
 
@@ -368,6 +369,10 @@ class Pipeline:
         )
         self.classify_paper(paper_id)
         self.place_pdfs(paper_id)
+        try:
+            self._auto_jobs(paper_id)
+        except Exception as exc:  # noqa: BLE001
+            self.registry.log("warning", f"Automatic translation/skill not started: {exc}", paper_id)
         self.kb_commit(f"Add paper {row['doi'] or (row['title'] or '')[:60]}")
         return "processed"
 
@@ -657,6 +662,76 @@ class Pipeline:
         self.registry.log("info", f"Proposed field '{row['name_zh'] or row['name_en']}' rejected; "
                                   "similar proposals will be ignored")
         self.kb_commit(f"Reject proposed field {row['slug']}")
+
+    # ------------------------------------------------- translation & skills
+    @property
+    def jobs(self):
+        if self._jobs is None:
+            from .jobs import JobRunner
+
+            self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill})
+        return self._jobs
+
+    def _paper_files(self, paper_id: int) -> tuple[Path, Path]:
+        row = self.registry.get_paper(paper_id)
+        if row is None or row["status"] != "done" or not row["kb_path"] or row["kb_path"].count("/") < 2:
+            raise ValueError("the paper needs a finished card first")
+        card = self.config.knowledge_dir / row["kb_path"]
+        pdf = library.pdf_path(self.config.knowledge_dir, row["kb_path"])
+        if not pdf.exists():
+            pdf = next((Path(f) for f in self.registry.paper_file_paths(paper_id) if Path(f).exists()), None)
+        if pdf is None:
+            raise ValueError("no PDF file found for this paper")
+        return pdf, card
+
+    def _job_translate(self, job: dict, progress) -> str:
+        from . import translate
+
+        pdf, card = self._paper_files(job["paper_id"])
+        try:
+            tax = self.taxonomy()
+        except TaxonomyError:
+            tax = None
+        out = translate.translate_paper(self.config, self.registry, self.llm, job["paper_id"], pdf, card, tax,
+                                        job["arg"] or None, progress)
+        self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
+        self.kb_commit(f"Translate paper #{job['paper_id']}")
+        return out.name
+
+    def _job_skill(self, job: dict, progress) -> str:
+        from . import skills_runtime as sr
+
+        skills = sr.discover(self.config)
+        sk = skills.get(job["arg"])
+        if sk is None:
+            raise ValueError(f"skill '{job['arg']}' not found")
+        pdf, card = self._paper_files(job["paper_id"])
+        progress(0, 1)
+        out = sr.run(sk, self.config, self.registry, self.llm, job["paper_id"], pdf, card)
+        progress(1, 1)
+        self.registry.log("info", f"Skill '{sk.label}' written: {out.name}", job["paper_id"])
+        self.kb_commit(f"Skill {sk.id} for paper #{job['paper_id']}")
+        return out.name
+
+    def submit_translation(self, paper_id: int, service_id: str = "") -> int:
+        self._paper_files(paper_id)
+        return self.jobs.submit("translate", paper_id, service_id)
+
+    def submit_skill(self, paper_id: int, skill_id: str) -> int:
+        self._paper_files(paper_id)
+        return self.jobs.submit("skill", paper_id, skill_id)
+
+    def _auto_jobs(self, paper_id: int) -> None:
+        tr = self.config.raw.get("translation") or {}
+        if tr.get("auto_new_papers") and (tr.get("privacy_ack") or tr.get("default") != "bilibili"):
+            self.submit_translation(paper_id)
+        sk = self.config.raw.get("skills") or {}
+        if sk.get("auto_new_papers"):
+            from . import skills_runtime as sr
+
+            sid = sr.default_skill_id(self.config, sr.discover(self.config))
+            if sid:
+                self.submit_skill(paper_id, sid)
 
     def place_pdfs(self, paper_id: int) -> None:
         """Put the paper's PDF(s) into its folder, then refresh the card's pdf link."""

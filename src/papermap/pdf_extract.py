@@ -223,6 +223,15 @@ def _drop_running_headers(page_lines: list[list[str]]) -> list[str]:
     return [ln for page in page_lines for ln in page if key(ln) not in repeated]
 
 
+def extract_full_text(path: str | Path, max_chars: int = 200000) -> str:
+    """Whole main text (running headers and reference lists removed) for skills."""
+    with pymupdf.open(path) as doc:
+        n = min(doc.page_count, MAX_PAGES_FOR_LLM)
+        page_lines = [doc[i].get_text().splitlines() for i in range(n)]
+    lines = [ln for ln in _drop_running_headers(page_lines) if not _REFERENCE_LINE_RE.search(ln)]
+    return _join_lines(lines)[:max_chars]
+
+
 def _join_lines(lines: list[str]) -> str:
     text = "\n".join(lines)
     text = re.sub(r"-\n(?=[a-z])", "", text)  # de-hyphenate line breaks

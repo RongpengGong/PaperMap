@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,          -- translate / skill
+    paper_id INTEGER NOT NULL,
+    arg TEXT NOT NULL DEFAULT '',  -- service id / skill id
+    status TEXT NOT NULL,        -- queued / running / done / error
+    progress INTEGER NOT NULL DEFAULT 0,
+    total INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS collections (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,

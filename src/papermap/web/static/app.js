@@ -138,13 +138,14 @@
   async function poll() {
     try {
       const s = await (await fetch("/api/state")).json();
-      if (lastEvent !== null && s.last_event !== lastEvent) {
+      const ver = s.last_event + "|" + (s.jobs_version || "");
+      if (lastEvent !== null && ver !== lastEvent) {
         await refreshList();
         const panel = document.querySelector(".panel");
         const typing = document.activeElement && document.activeElement.classList.contains("notes");
         if (panel && !typing) openPaper(panel.dataset.paper, false);
       }
-      lastEvent = s.last_event;
+      lastEvent = ver;
       const badge = document.querySelector('.nav a[href="/review"] .badge');
       if (s.review && !badge) document.querySelector('.nav a[href="/review"]').insertAdjacentHTML("beforeend", `<b class="badge">${s.review}</b>`);
       else if (badge) { if (s.review) badge.textContent = s.review; else badge.remove(); }
@@ -153,6 +154,7 @@
   }
   function startPolling() { if (!polling) { poll(); polling = setInterval(poll, 2500); } }
   if (list) startPolling();
+  window.pmStartPolling = startPolling;
 
   // ------------------------------------------- native folder picker (app only)
   window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
@@ -183,7 +185,7 @@
   async function api(url, body = {}) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...body }) });
     const j = await r.json().catch(() => ({ ok: false, message: "HTTP " + r.status }));
-    if (!j.ok) toast(j.message || "操作失败");
+    if (!j.ok && !j.need_ack) toast(j.message || "操作失败");
     return j;
   }
   async function refreshSidebar() {
@@ -250,7 +252,24 @@
       api(`/api/collections/${rm.dataset.removeGroup}/remove`, { paper_ids: [pid] }).then(j => j.ok && refreshSidebar());
     }
   }, true);
-  document.addEventListener("change", e => {
+  document.addEventListener("change", async e => {
+    const tsel = e.target.closest("[data-translate]"), ssel = e.target.closest("[data-skill]");
+    if (tsel || ssel) {
+      const el = tsel || ssel, value = el.value; el.value = ""; if (!value) return;
+      const pid = el.closest(".panel").dataset.paper;
+      let j;
+      if (tsel) {
+        j = await api(`/paper/${pid}/translate`, { service: value });
+        if (j.need_ack) {
+          if (!(await dialog("使用 bilibili 免费翻译时，论文正文会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。", { okText: "继续翻译" }))) return;
+          j = await api(`/paper/${pid}/translate`, { service: value, ack: true });
+        }
+      } else {
+        j = await api(`/paper/${pid}/skill`, { skill: value });
+      }
+      if (j.ok) { toast(tsel ? "已开始翻译，完成后会出现「译文对照」标签" : "已开始解读，完成后会出现新标签"); openPaper(pid, false); startPolling(); }
+      return;
+    }
     const sel = e.target.closest("[data-add-group]"); if (!sel || !sel.value) return;
     const pid = sel.closest(".panel").dataset.paper;
     api(`/api/collections/${sel.value}/add`, { paper_ids: [pid] }).then(j => { if (j.ok) { toast("已加入分组"); refreshSidebar(); } });

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -125,7 +126,14 @@ class FakeCompletions:
     def create(self, **kwargs):
         system = kwargs["messages"][0]["content"]
         self.last_system = system
-        if "You consolidate" in system:
+        if "【源文】" in system:  # translation via the main model (single user message)
+            self.translate_calls = getattr(self, "translate_calls", 0) + 1
+            nums = re.findall(r"^\[(\d+)\]", system.split("【源文】")[1], re.M)
+            content = "\n\n".join(f"[{n}] 主模型译文{n}" for n in nums) if nums else "主模型译文"
+        elif "You are running the agent skill" in system:
+            self.skill_calls = getattr(self, "skill_calls", 0) + 1
+            content = "## 一句话\n\n测试技能输出"
+        elif "You consolidate" in system:
             self.consolidate_calls = getattr(self, "consolidate_calls", 0) + 1
             content = json.dumps(CONSOLIDATE)
         elif "study handbook" in system:

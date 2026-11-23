@@ -80,6 +80,30 @@ class LLMClient:
             hit = int(getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
         return pt, ct, compute_cost(self.config.effective_llm(), pt, ct, hit, when)
 
+    def chat_text(self, system: str, user: str, purpose: str, paper_id: int | None = None,
+                  max_tokens: int = 8192, eff: dict | None = None, client: Any = None) -> LLMResult:
+        """Free-text answer (Markdown). ``eff``/``client`` select another endpoint (custom services)."""
+        eff = eff or self.config.effective_llm()
+        client = client or self._get_client()
+        self.check_budget()
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
+        kwargs: dict[str, Any] = {"model": eff["model"], "messages": messages, "max_tokens": max_tokens,
+                                  "temperature": 0.3}
+        if eff.get("extra_body"):
+            kwargs["extra_body"] = eff["extra_body"]
+        resp = client.chat.completions.create(**kwargs)
+        raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
+        usage = getattr(resp, "usage", None)
+        pt = int(getattr(usage, "prompt_tokens", 0) or 0)
+        ct = int(getattr(usage, "completion_tokens", 0) or 0)
+        hit = int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
+        cost = compute_cost(eff, pt, ct, hit)
+        self.registry.record_llm_call(paper_id, purpose, getattr(resp, "model", eff["model"]) or eff["model"],
+                                      pt, ct, cost, bool(raw))
+        if not raw:
+            raise LLMError("empty answer from the model")
+        return LLMResult({}, raw, eff["model"], pt, ct, cost)
+
     def chat_json(
         self,
         system: str,
@@ -388,6 +412,13 @@ def replace_ref_ids(text: str, labels: dict[str, str]) -> str:
         return labels.get(m.group(0), m.group(0))
 
     return re.sub(r"\bP\d{1,3}\b", sub, text)
+
+
+def strip_think(text: str) -> str:
+    """Drop chain-of-thought blocks some models prepend."""
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1]
+    return text.strip().removeprefix("<think>").strip()
 
 
 def _parse_json(raw: str) -> tuple[dict | None, str]:
