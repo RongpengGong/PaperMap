@@ -124,9 +124,14 @@ class FakeCompletions:
         self.last_system = ""
 
     def create(self, **kwargs):
+        self.last_messages = kwargs["messages"]
         system = kwargs["messages"][0]["content"]
+        if not isinstance(system, str):
+            system = " ".join(c.get("text", "") for c in system if isinstance(c, dict))
         self.last_system = system
-        if "You compare a small set of papers" in system:
+        if "help a biomedical researcher read one figure" in system or "helping a biomedical researcher read one figure" in system:
+            content = "## 这张图想说明什么\n\n成纤维细胞的空间分布。"
+        elif "You compare a small set of papers" in system:
             content = "两篇都用了 Visium [P1][P2]。"
         elif "search keywords for a full-text index" in system:
             content = json.dumps({"keywords": ["fibroblast", "Visium", "肝癌"]})

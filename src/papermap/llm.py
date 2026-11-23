@@ -81,12 +81,21 @@ class LLMClient:
         return pt, ct, compute_cost(self.config.effective_llm(), pt, ct, hit, when)
 
     def chat_text(self, system: str, user: str, purpose: str, paper_id: int | None = None,
-                  max_tokens: int = 8192, eff: dict | None = None, client: Any = None) -> LLMResult:
-        """Free-text answer (Markdown). ``eff``/``client`` select another endpoint (custom services)."""
+                  max_tokens: int = 8192, eff: dict | None = None, client: Any = None,
+                  images: list[bytes] | None = None) -> LLMResult:
+        """Free-text answer (Markdown). ``eff``/``client`` select another endpoint (custom services);
+        ``images`` (PNG bytes) are sent with the user message (vision models)."""
         eff = eff or self.config.effective_llm()
         client = client or self._get_client()
         self.check_budget()
-        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
+        content: Any = user
+        if images:
+            import base64
+
+            content = [{"type": "text", "text": user}] + [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(img).decode()}}
+                for img in images]
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
         kwargs: dict[str, Any] = {"model": eff["model"], "messages": messages, "max_tokens": max_tokens,
                                   "temperature": 0.3}
         if eff.get("extra_body"):
@@ -229,7 +238,7 @@ class _HTTPClient:
     def create(self, model: str, messages: list[dict], max_tokens: int = 4096,
                temperature: float | None = None, extra_body: dict | None = None,
                response_format: dict | None = None, **_: Any) -> Any:
-        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system" and isinstance(m["content"], str))
         turns = [m for m in messages if m["role"] != "system"]
         json_mode = bool(response_format and response_format.get("type") == "json_object")
         url, headers, body = self.request(model, system, turns, max_tokens, temperature, json_mode, extra_body or {})
@@ -259,12 +268,37 @@ class _HTTPClient:
         raise LLMHTTPError(0, "retries exhausted")
 
 
+def _parts(content: Any) -> list[tuple[str, str]]:
+    """OpenAI-style content (str or list) -> [("text", s) | ("image", data_url)]."""
+    if isinstance(content, str):
+        return [("text", content)]
+    out = []
+    for c in content:
+        if c.get("type") == "text":
+            out.append(("text", c.get("text", "")))
+        elif c.get("type") == "image_url":
+            out.append(("image", (c.get("image_url") or {}).get("url", "")))
+    return out
+
+
+def _b64(data_url: str) -> tuple[str, str]:
+    head, _, data = data_url.partition(",")
+    return head.split(":")[1].split(";")[0] if ":" in head else "image/png", data
+
+
 class _AnthropicClient(_HTTPClient):
     """Anthropic Messages API (POST /v1/messages)."""
 
     def request(self, model, system, turns, max_tokens, temperature, json_mode, extra):
+        def conv(content):
+            if isinstance(content, str):
+                return content
+            return [{"type": "text", "text": v} if k == "text" else
+                    {"type": "image", "source": {"type": "base64", "media_type": _b64(v)[0], "data": _b64(v)[1]}}
+                    for k, v in _parts(content)]
+
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens,
-                                "messages": [{"role": m["role"], "content": m["content"]} for m in turns]}
+                                "messages": [{"role": m["role"], "content": conv(m["content"])} for m in turns]}
         if system:
             body["system"] = system
         if temperature is not None:
@@ -284,8 +318,14 @@ class _ResponsesClient(_HTTPClient):
     """OpenAI Responses API (POST /responses)."""
 
     def request(self, model, system, turns, max_tokens, temperature, json_mode, extra):
+        def conv(content):
+            if isinstance(content, str):
+                return content
+            return [{"type": "input_text", "text": v} if k == "text" else {"type": "input_image", "image_url": v}
+                    for k, v in _parts(content)]
+
         body: dict[str, Any] = {"model": model, "max_output_tokens": max_tokens,
-                                "input": [{"role": m["role"], "content": m["content"]} for m in turns]}
+                                "input": [{"role": m["role"], "content": conv(m["content"])} for m in turns]}
         if system:
             body["instructions"] = system
         if temperature is not None:
@@ -320,7 +360,8 @@ class _GeminiClient(_HTTPClient):
             gen["responseMimeType"] = "application/json"
         body: dict[str, Any] = {
             "contents": [{"role": "model" if m["role"] == "assistant" else "user",
-                          "parts": [{"text": m["content"]}]} for m in turns],
+                          "parts": [{"text": v} if k == "text" else {"inline_data": {"mime_type": _b64(v)[0], "data": _b64(v)[1]}}
+                                    for k, v in _parts(m["content"])]} for m in turns],
             "generationConfig": gen,
         }
         if system:

@@ -14,6 +14,7 @@
 {%- elif name == 'qa' %}<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.4.1-.7.5-.7.9V14M12 17h.01"/>
 {%- elif name == 'resources' %}<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>
 {%- elif name == 'citations' %}<path d="M7 7h4v4H7zM13 13h4v4h-4zM11 9h2a2 2 0 0 1 2 2v2"/><circle cx="18" cy="6" r="2"/><path d="M11 7l5.3-1"/>
+{%- elif name == 'figures' %}<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>
 {%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
 {%- elif name == 'folder' %}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 {%- elif name == 'inbox' %}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
@@ -22,7 +23,7 @@
 {%- set path = request.url.path -%}
 {%- set nav = [
   ('/', 'papers', '论文'), ('/qa', 'qa', '问答'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
-  ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/resources', 'resources', '数据资源'), ('/citations', 'citations', '引用'), ('/review', 'review', '待审核'),
+  ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/figures', 'figures', '图片库'), ('/resources', 'resources', '数据资源'), ('/citations', 'citations', '引用'), ('/review', 'review', '待审核'),
 ] -%}
 {%- set nav2 = [('/skills', 'skills', '技能'), ('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
@@ -71,6 +72,7 @@
 <div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>松开以导入 PDF</p><span>会复制进你的文献库，原文件不动</span></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="ctx_menu" class="ctx-menu" hidden></div>
+<div id="lightbox" class="lightbox" hidden><div class="lb-box"><div class="lb-head"><strong id="lb_title"></strong><span class="grow"></span><button type="button" class="ghost-btn" id="lb_explain">讲解这张图</button><button type="button" class="ghost-btn" id="lb_notes" hidden>加到我的笔记</button><a class="ghost-btn" id="lb_page" href="#">在原文中查看</a><button type="button" class="icon-btn" id="lb_close">×</button></div><div class="lb-body"><img id="lb_img" alt=""><div class="lb-side"><p class="small" id="lb_legend"></p><div id="lb_expl" class="md"></div></div></div></div></div>
 <div id="modal" class="modal" hidden><div class="modal-box"><p id="modal_msg"></p><input type="text" id="modal_input" hidden><div class="modal-actions"><button type="button" class="secondary" id="modal_cancel">取消</button><button type="button" id="modal_ok">确定</button></div></div></div>
 <script src="/static/app.js?v={{ static_v }}"></script>
 {% block scripts %}{% endblock %}

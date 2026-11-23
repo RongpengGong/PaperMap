@@ -441,6 +441,79 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rel = cmp.save(config.knowledge_dir, items, title, text)
         return {"ok": True, "html": md_html(text), "saved": rel, "cost": cost}
 
+    # ---------------------------------------------------------------- figures
+    def figure_row(fid: int):
+        from .. import figures as figmod
+
+        figmod.ensure_schema(registry)
+        f = registry.one("SELECT * FROM figures WHERE id=?", (fid,))
+        if f is None:
+            raise HTTPException(404)
+        return f
+
+    @app.get("/api/figures/{paper_id}")
+    def figures_list(paper_id: int):
+        from .. import figures as figmod
+
+        pdf = pipeline.pdf_for(paper_id)
+        if pdf is not None:
+            figmod.sync(registry, paper_id, pdf)
+        figmod.ensure_schema(registry)
+        return [{"id": f["id"], "label": f["label"], "page": f["page"], "legend": f["legend"],
+                 "explanation_html": md_html(f["explanation"]) if f["explanation"] else ""}
+                for f in registry.query("SELECT * FROM figures WHERE paper_id=? ORDER BY id", (paper_id,))]
+
+    @app.get("/api/figure/{fid}.png")
+    def figure_png(fid: int, scale: float = 2.0):
+        from .. import figures as figmod
+
+        f = figure_row(fid)
+        pdf = pipeline.pdf_for(f["paper_id"])
+        if pdf is None:
+            raise HTTPException(404)
+        scale = min((1.0, 2.0, 3.0), key=lambda s: abs(s - scale))
+        return FileResponse(figmod.image(pdf, f, config.data_dir / "cache" / "figures", scale), media_type="image/png",
+                            headers={"Cache-Control": "max-age=86400"})
+
+    @app.post("/api/figure/{fid}/explain")
+    async def figure_explain(fid: int, request: Request):
+        from .. import figures as figmod
+
+        await json_body(request)
+        f = figure_row(fid)
+        pdf = pipeline.pdf_for(f["paper_id"])
+        png = figmod.image(pdf, f, config.data_dir / "cache" / "figures", 2.0).read_bytes()
+        try:
+            text = await run_in_threadpool(figmod.explain, config, registry, pipeline.llm, f, png)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:240]}（当前模型可能不支持看图）"}
+        return {"ok": True, "html": md_html(text)}
+
+    @app.post("/api/figure/{fid}/to-notes")
+    async def figure_to_notes(fid: int, request: Request):
+        await json_body(request)
+        f = figure_row(fid)
+        row = registry.get_paper(f["paper_id"])
+        if not f["explanation"] or not row["kb_path"] or row["kb_path"].count("/") < 2:
+            return {"ok": False, "message": "还没有讲解"}
+        from ..kb_writer import atomic_write
+
+        notes = library.notes_path(config.knowledge_dir, row["kb_path"])
+        old = notes.read_text("utf-8") if notes.exists() else ""
+        atomic_write(notes, old.rstrip() + f"\n\n## {f['label']} 讲解（p.{f['page'] + 1}）\n\n{f['explanation'].strip()}\n")
+        background("reindex", pipeline.reindex, f["paper_id"])
+        return {"ok": True}
+
+    @app.get("/figures", response_class=HTMLResponse)
+    def figures_page(request: Request, paper: int | None = None):
+        from .. import figures as figmod
+
+        figmod.ensure_schema(registry)
+        sql = ("SELECT f.id, f.label, f.page, f.legend, f.paper_id, p.first_author, p.year, p.title FROM figures f "
+               "JOIN papers p ON p.id=f.paper_id WHERE p.status != 'ignored'")
+        rows = registry.query(sql + (" AND f.paper_id=?" if paper else "") + " ORDER BY p.id DESC, f.id", (paper,) if paper else ())
+        return render(request, "figures.html", rows=rows, paper=paper)
+
     # -------------------------------------------------------------- citations
     @app.get("/citations", response_class=HTMLResponse)
     def citations_page(request: Request, min_citing: int = 2, paper: int | None = None):

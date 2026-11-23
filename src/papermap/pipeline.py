@@ -759,6 +759,13 @@ class Pipeline:
         except Exception:  # noqa: BLE001 - search must never break processing
             log.exception("indexing paper %s failed", paper_id)
             return False
+        if pdf is not None:
+            try:
+                from . import figures
+
+                figures.sync(self.registry, paper_id, pdf)
+            except Exception:  # noqa: BLE001
+                log.exception("figure detection failed for paper %s", paper_id)
         resources.ensure_schema(self.registry)
         missing = self.registry.one("SELECT 1 FROM data_resources WHERE paper_id=? LIMIT 1", (paper_id,)) is None
         if pdf is not None and (changed or (missing and force)):

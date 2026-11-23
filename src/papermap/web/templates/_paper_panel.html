@@ -62,6 +62,7 @@
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">我的笔记</button>{% endif %}
       {% if translation %}<button class="tab" data-tab="translation" type="button">译文对照</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
+      {% if has_pdf and p.status == 'done' %}<button class="tab" data-tab="figures" type="button">图片</button>{% endif %}
       <button class="tab" data-tab="info" type="button">文件与日志</button>
     </div>
     <div class="side-scroll">
@@ -91,6 +92,7 @@
   </div>
   {% endif %}
   {% for o in skill_outputs %}<div class="tab-body" data-body="skill-{{ o.id }}" hidden><div class="md">{{ o.html|safe }}</div></div>{% endfor %}
+  {% if has_pdf and p.status == 'done' %}<div class="tab-body" data-body="figures" hidden><div class="fig-grid" data-figures="{{ p.id }}"><p class="muted small">读取中…</p></div></div>{% endif %}
   <div class="tab-body" data-body="info" hidden>
     <h3>文件</h3><ul class="files">{% for f in files %}<li><code>{{ f }}</code></li>{% endfor %}</ul>
     {% if dois %}<h3>DOI</h3><ul>{% for d in dois %}<li><code>{{ d.doi }}</code> ({{ d.kind }})</li>{% endfor %}</ul>{% endif %}
