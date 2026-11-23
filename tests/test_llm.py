@@ -102,3 +102,29 @@ def test_gemini_client():
     assert [t["role"] for t in cap["body"]["contents"]] == ["user", "model"]
     assert cap["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert r.choices[0].message.content == '{"b": 1}' and r.usage.prompt_tokens == 11
+
+
+def test_peak_schedule_and_cost():
+    from datetime import datetime, timezone
+
+    from papermap.config import is_peak
+    from papermap.llm import compute_cost
+    mon_10_bj = datetime(2026, 11, 23, 2, 30, tzinfo=timezone.utc)   # Monday 10:30 Beijing
+    mon_13_bj = datetime(2026, 11, 23, 5, 0, tzinfo=timezone.utc)    # Monday 13:00 Beijing (lunch)
+    sat = datetime(2026, 11, 28, 2, 30, tzinfo=timezone.utc)
+    assert is_peak("deepseek", mon_10_bj) and not is_peak("deepseek", mon_13_bj) and not is_peak("deepseek", sat)
+    assert not is_peak("none", mon_10_bj)
+    # the moleapi bill: (1705*0.15 + 59*0.6 + 62208*0.003)/1e6 * 0.1 = $0.000048 (off-peak)
+    eff = {"price_input_per_1m": 0.15, "price_cache_hit_per_1m": 0.003, "price_output_per_1m": 0.6,
+           "price_multiplier": 0.1, "peak_schedule": "deepseek"}
+    off = compute_cost(eff, 63913, 59, 62208, mon_13_bj)
+    assert round(off, 6) == 0.000048
+    assert compute_cost(eff, 63913, 59, 62208, mon_10_bj) == 2 * off
+
+
+def test_custom_cache_price_defaults_to_input():
+    from papermap import config as cfgmod
+    cfg = cfgmod.from_dict({"llm": {"provider": "custom", "custom": {"price_input_per_1m": 0.5}}})
+    assert cfg.effective_llm()["price_cache_hit_per_1m"] == 0.5
+    cfg = cfgmod.from_dict({"llm": {"provider": "custom", "custom": {"price_input_per_1m": 0.5, "price_cache_hit_per_1m": 0}}})
+    assert cfg.effective_llm()["price_cache_hit_per_1m"] == 0.0

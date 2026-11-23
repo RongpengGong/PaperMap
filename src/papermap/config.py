@@ -22,7 +22,8 @@ PROTOCOLS = {
 
 # Official provider presets. Values follow the provider's official docs
 # (DeepSeek: api-docs.deepseek.com, checked 2026-11). Prices are USD per 1M
-# tokens at peak rate, used only for the local cost estimate / budget.
+# tokens at the off-peak rate; peak hours cost 2x. Used only for the local
+# cost estimate / monthly budget.
 PROVIDERS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "label": "DeepSeek 官方",
@@ -31,15 +32,35 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "api_key_env": "DEEPSEEK_API_KEY",
         "key_url": "https://platform.deepseek.com/api_keys",
         "docs_url": "https://api-docs.deepseek.com/quick_start/pricing",
+        "peak_schedule": "deepseek",  # off-peak prices below, doubled at peak hours
         # Thinking mode is on by default; structured extraction does not need it.
         "extra_body": {"thinking": {"type": "disabled"}},
         "models": {
-            "deepseek-flash": {"label": "deepseek-flash（快、便宜，推荐）", "in": 0.3, "hit": 0.006, "out": 1.2},
-            "deepseek-v4-pro": {"label": "deepseek-v4-pro（更强、更贵）", "in": 1.32, "hit": 0.044, "out": 3.96},
+            "deepseek-flash": {"label": "deepseek-flash（快、便宜，推荐）", "in": 0.15, "hit": 0.003, "out": 0.6},
+            "deepseek-v4-pro": {"label": "deepseek-v4-pro（更强、更贵）", "in": 0.66, "hit": 0.022, "out": 1.98},
         },
         "default_model": "deepseek-flash",
     },
 }
+
+
+# Peak-hour schedules: (weekday Mon-Fri, UTC hour ranges) where prices double.
+# DeepSeek: 01:00-04:00 and 06:00-10:00 UTC on weekdays (= Beijing 09-12, 14-18).
+# Chinese public holidays are off-peak per DeepSeek, but are not modelled here,
+# so estimates on those days err on the high side.
+PEAK_SCHEDULES = {"none": [], "deepseek": [(1, 4), (6, 10)]}
+
+
+def is_peak(schedule: str, when=None) -> bool:
+    from datetime import datetime, timezone
+
+    windows = PEAK_SCHEDULES.get(schedule or "none", [])
+    if not windows:
+        return False
+    t = when or datetime.now(timezone.utc)
+    if t.tzinfo is not None:
+        t = t.astimezone(timezone.utc)
+    return t.weekday() < 5 and any(a <= t.hour < b for a, b in windows)
 
 
 def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
@@ -57,7 +78,8 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
             "key_from_env": bool(os.environ.get(env, "").strip()),
             "extra_body": pre["extra_body"],
             "price_input_per_1m": price["in"], "price_cache_hit_per_1m": price["hit"],
-            "price_output_per_1m": price["out"],
+            "price_output_per_1m": price["out"], "price_multiplier": 1.0,
+            "peak_schedule": pre.get("peak_schedule", "none"),
         }
     c = llm.get("custom") or {}
     env = (c.get("api_key_env") or "").strip()
@@ -69,8 +91,12 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
         "api_key_env": env, "key_from_env": bool(env_key),
         "extra_body": c.get("extra_body") or {},
         "price_input_per_1m": float(c.get("price_input_per_1m") or 0),
-        "price_cache_hit_per_1m": float(c.get("price_input_per_1m") or 0),
+        # cache-read price defaults to the normal input price when not given
+        "price_cache_hit_per_1m": float(c["price_cache_hit_per_1m"]) if c.get("price_cache_hit_per_1m") not in (None, "")
+        else float(c.get("price_input_per_1m") or 0),
         "price_output_per_1m": float(c.get("price_output_per_1m") or 0),
+        "price_multiplier": float(c.get("price_multiplier") or 1.0),
+        "peak_schedule": c.get("peak_schedule") if c.get("peak_schedule") in PEAK_SCHEDULES else "none",
     }
 
 
@@ -95,7 +121,10 @@ DEFAULTS: dict[str, Any] = {
             "model": "",
             "extra_body": {},
             "price_input_per_1m": 0,
+            "price_cache_hit_per_1m": None,  # None = same as input price
             "price_output_per_1m": 0,
+            "price_multiplier": 1.0,  # e.g. a relay's group ratio (分组倍率)
+            "peak_schedule": "none",  # none | deepseek (2x at DeepSeek peak hours)
         },
         "max_input_chars": 60000,
         "monthly_budget_usd": 5,

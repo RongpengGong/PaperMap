@@ -36,7 +36,7 @@
     <dl class="kv muted">
       <dt>Base URL</dt><dd><code>{{ ds.base_url }}</code></dd>
       <dt>协议</dt><dd>{{ protocols[ds.protocol] }}</dd>
-      <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按高峰价估算花费）</dd>
+      <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按闲时价估算，北京时间工作日 9–12、14–18 点按 2 倍计）</dd>
     </dl>
   </div>
 
@@ -57,12 +57,17 @@
       <button type="button" class="secondary" id="fetch_models">获取模型列表</button>
     </div>
     <datalist id="model_list"></datalist>
-    <details>
-      <summary class="muted">价格（可选，用于本地估算花费和预算）</summary>
+    <details {{ 'open' if custom.price_input_per_1m }}>
+      <summary class="muted">价格（可选，用于本地估算花费和每月预算）</summary>
+      <p class="muted">照服务商账单填写，单位是美元 / 百万 token。</p>
       <div class="row">
-        <label class="grow">输入 $/百万 token<input type="number" step="0.001" min="0" name="custom_price_in" value="{{ custom.price_input_per_1m or 0 }}"></label>
-        <label class="grow">输出 $/百万 token<input type="number" step="0.001" min="0" name="custom_price_out" value="{{ custom.price_output_per_1m or 0 }}"></label>
+        <label class="grow">输入<input type="number" step="any" min="0" name="custom_price_in" value="{{ custom.price_input_per_1m or 0 }}"></label>
+        <label class="grow">缓存读取<input type="number" step="any" min="0" name="custom_price_cache" value="{{ custom.price_cache_hit_per_1m if custom.price_cache_hit_per_1m is not none else '' }}" placeholder="留空 = 同输入价"></label>
+        <label class="grow">输出<input type="number" step="any" min="0" name="custom_price_out" value="{{ custom.price_output_per_1m or 0 }}"></label>
+        <label class="grow">倍率（如中转站分组倍率）<input type="number" step="any" min="0" name="custom_multiplier" value="{{ custom.price_multiplier or 1 }}"></label>
       </div>
+      <p><label class="inline"><input type="checkbox" name="custom_peak" value="1" {{ 'checked' if custom.peak_schedule == 'deepseek' }}>
+        高峰时段价格翻倍（按 DeepSeek 规则：北京时间工作日 9:00–12:00、14:00–18:00；上面填闲时价）</label></p>
     </details>
   </div>
 

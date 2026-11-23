@@ -372,7 +372,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         custom_protocol: str = Form("openai"),
         custom_model: str = Form(""),
         custom_price_in: float = Form(0),
+        custom_price_cache: str = Form(""),
         custom_price_out: float = Form(0),
+        custom_multiplier: float = Form(1.0),
+        custom_peak: str = Form(""),
         output_language: str = Form("zh"),
         monthly_budget_usd: float = Form(5),
         inbox_dirs: str = Form(""),
@@ -402,6 +405,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         c["model"] = custom_model.strip()
         c["price_input_per_1m"] = max(0.0, custom_price_in)
         c["price_output_per_1m"] = max(0.0, custom_price_out)
+        try:
+            c["price_cache_hit_per_1m"] = max(0.0, float(custom_price_cache)) if custom_price_cache.strip() else None
+        except ValueError:
+            c["price_cache_hit_per_1m"] = None
+        c["price_multiplier"] = custom_multiplier if custom_multiplier > 0 else 1.0
+        c["peak_schedule"] = "deepseek" if custom_peak else "none"
         if clear_custom_key:
             c["api_key"] = ""
         elif custom_api_key.strip():

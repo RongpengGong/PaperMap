@@ -69,19 +69,16 @@ class LLMClient:
                     "raise llm.monthly_budget_usd in Settings to continue."
                 )
 
-    def _cost(self, usage: Any) -> tuple[int, int, float]:
+    def _cost(self, usage: Any, when=None) -> tuple[int, int, float]:
         if usage is None:
             return 0, 0, 0.0
         pt = int(getattr(usage, "prompt_tokens", 0) or 0)
         ct = int(getattr(usage, "completion_tokens", 0) or 0)
         hit = int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
-        cfg = self.config.effective_llm()
-        cost = (
-            (pt - hit) * float(cfg.get("price_input_per_1m", 0))
-            + hit * float(cfg.get("price_cache_hit_per_1m", 0))
-            + ct * float(cfg.get("price_output_per_1m", 0))
-        ) / 1e6
-        return pt, ct, cost
+        if not hit:  # OpenAI-style usage: prompt_tokens_details.cached_tokens
+            details = getattr(usage, "prompt_tokens_details", None)
+            hit = int(getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
+        return pt, ct, compute_cost(self.config.effective_llm(), pt, ct, hit, when)
 
     def chat_json(
         self,
@@ -134,6 +131,23 @@ class LLMClient:
                 },
             ]
         raise LLMError(f"LLM returned invalid JSON twice: {last_err}", raw=last_raw)
+
+
+def compute_cost(eff: dict[str, Any], prompt_tokens: int, completion_tokens: int,
+                 cache_hit_tokens: int = 0, when=None) -> float:
+    """USD cost of one call: (miss*in + hit*cache + out*out) * multiplier * peak(2x)."""
+    from .config import is_peak
+
+    hit = min(cache_hit_tokens, prompt_tokens)
+    base = (
+        (prompt_tokens - hit) * float(eff.get("price_input_per_1m") or 0)
+        + hit * float(eff.get("price_cache_hit_per_1m") or 0)
+        + completion_tokens * float(eff.get("price_output_per_1m") or 0)
+    ) / 1e6
+    factor = float(eff.get("price_multiplier") or 1.0)
+    if is_peak(eff.get("peak_schedule", "none"), when):
+        factor *= 2
+    return base * factor
 
 
 # --------------------------------------------------------------------- clients
