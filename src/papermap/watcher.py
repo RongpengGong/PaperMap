@@ -23,6 +23,10 @@ def iter_inbox_pdfs(config: Config) -> Iterator[Path]:
     """Recursively yield candidate PDFs in all inbox folders (startup scan)."""
     excluded = {d.lower() for d in config.exclude_dir_names}
     for inbox in config.inbox_dirs:
+        try:
+            os.listdir(inbox)
+        except OSError:
+            continue
         if not inbox.is_dir():
             log.warning("Inbox folder does not exist: %s", inbox)
             continue
@@ -137,12 +141,25 @@ class Watcher:
 
     def start(self) -> None:
         handler = _Handler(self._on_event)
+        self.denied: list[Path] = []
         for inbox in self.config.inbox_dirs:
-            if inbox.is_dir():
-                self.observer.schedule(handler, str(inbox), recursive=True)
-                log.info("Watching %s", inbox)
-            else:
+            # Touch the folder first with a plain listdir: on macOS this is where a
+            # privacy prompt (Documents/Downloads/Desktop) waits for the user, and
+            # listdir does it without holding Python's global lock. watchdog's
+            # FSEvents module would block every thread of the app instead.
+            try:
+                os.listdir(inbox)
+            except FileNotFoundError:
                 self.pipeline.registry.log("warning", f"Inbox folder does not exist: {inbox}")
+                continue
+            except PermissionError:
+                self.denied.append(inbox)
+                self.pipeline.registry.log(
+                    "error", f"No permission to read {inbox}. On macOS allow it in System Settings → Privacy & "
+                    "Security → Files and Folders → PaperMap (文件与文件夹), then restart PaperMap.")
+                continue
+            self.observer.schedule(handler, str(inbox), recursive=True)
+            log.info("Watching %s", inbox)
         self.observer.start()
         self.debouncer.start()
         self._worker.start()
