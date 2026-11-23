@@ -40,7 +40,7 @@ HEADINGS = {
         "tools": "软件 / 工具包",
         "findings": "主要发现",
         "limits": "局限性",
-        "mine": "与我相关的点",
+        "mine": "我的笔记",
         "fields": "所属学科",
         "nodoi": "⚠️ 无 DOI",
         "sample": "样本量",
@@ -60,7 +60,7 @@ HEADINGS = {
         "tools": "Software / tools",
         "findings": "Key findings",
         "limits": "Limitations",
-        "mine": "Relevance to me",
+        "mine": "My notes",
         "fields": "Fields",
         "nodoi": "⚠️ No DOI",
         "sample": "Sample size",
@@ -105,6 +105,8 @@ def render_card(
     user_section: str | None = None,
     added: str | None = None,
     fields: list[dict] | None = None,
+    stem: str | None = None,
+    has_pdf: bool = False,
 ) -> str:
     h = HEADINGS["en" if language == "en" else "zh"]
     authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
@@ -119,6 +121,8 @@ def render_card(
         "fields": [f["slug"] for f in fields or [] if f["axis"] == "method" and f["status"] == "accepted"],
         "topics": [f["slug"] for f in fields or [] if f["axis"] == "topic" and f["status"] == "accepted"],
         "tools": card.get("tools", []),
+        "pdf": f"{stem}.pdf" if stem and has_pdf else None,
+        "notes": f"{stem}.notes.md" if stem else None,
         "file_paths": file_paths,
         "added": added or date.today().isoformat(),
     }
@@ -157,7 +161,13 @@ def render_card(
     section(h["tools"], ", ".join(f"`{t}`" for t in card.get("tools", [])) or "—")
     section(h["findings"], "\n".join(f"{i}. {x}" for i, x in enumerate(card.get("key_findings", []), 1)))
     section(h["limits"], bullets(card.get("limitations", [])))
-    out.extend([f"## {h['mine']}", "", USER_BEGIN, user_section if user_section is not None else h["mine_hint"], USER_END, ""])
+    if stem:  # notes live in their own file next to the card; embedded for Obsidian
+        hint = "（在 {f} 里写，PaperMap 永远不会改动它）" if language != "en" else "(edit {f}; PaperMap never changes it)"
+        out.extend([f"## {h['mine']}", "", f"![[{stem}.notes]]", "", hint.format(f=f"{stem}.notes.md"), ""])
+        if has_pdf:
+            out.extend([f"📄 [[{stem}.pdf]]", ""])
+    else:
+        out.extend([f"## {h['mine']}", "", USER_BEGIN, user_section if user_section is not None else h["mine_hint"], USER_END, ""])
     section(h["fields"], _fields_block(fields or [], h, language))
     return "\n".join(out).rstrip() + "\n"
 
@@ -218,14 +228,23 @@ def write_card(
     existing_rel_path: str | None = None,
     fields: list[dict] | None = None,
 ) -> str:
-    """Write (or rewrite) a card, preserving the user's section. Returns rel path."""
-    papers_dir = knowledge_dir / "papers"
-    papers_dir.mkdir(parents=True, exist_ok=True)
-    rel = existing_rel_path or f"papers/{card_filename(meta, fallback_id)}"
+    """Write (or rewrite) a card in the paper's own folder. Returns rel path."""
+    if existing_rel_path:
+        rel = existing_rel_path
+    else:
+        stem = card_filename(meta, fallback_id).removesuffix(".md")
+        rel = f"papers/{stem}/{stem}.md"
     path = knowledge_dir / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stem = path.stem if rel.count("/") >= 2 else None  # legacy flat cards keep the inline block
+    if stem:
+        from .library import ensure_notes
+
+        ensure_notes(knowledge_dir, rel, meta.get("title", ""), language)
     text = render_card(
         meta, card, file_paths, all_dois, language,
         user_section=read_user_section(path), added=read_added(path), fields=fields,
+        stem=stem, has_pdf=bool(stem) and (path.parent / f"{stem}.pdf").exists(),
     )
     atomic_write(path, text)
     return rel

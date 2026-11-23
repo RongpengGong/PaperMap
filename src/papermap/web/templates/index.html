@@ -1,33 +1,35 @@
 {% extends "base.html" %}
+{% block title %}论文 - PaperMap{% endblock %}
+{% block content_class %}split-content{% endblock %}
 {% block content %}
-<p class="muted">隐私提示：每篇新论文的文本（标题、摘要、关键章节）会发送到你配置的 LLM 服务商；被排除规则命中的 PDF 不会发送。</p>
-{% if bulk %}
-<div class="notice">
-  <strong>有 {{ bulk.papers }} 篇新论文等待处理。</strong>
-  预计用量约 {{ "%.2f"|format(bulk.tokens_in / 1e6) }}M 输入 + {{ "%.2f"|format(bulk.tokens_out / 1e6) }}M 输出 token
-  {% if bulk.priced %}，费用约 ${{ "%.3f"|format(bulk.cost_offpeak) }}（闲时）– ${{ "%.3f"|format(bulk.cost_peak) }}（高峰）{% else %}（未填价格，无法估算费用）{% endif %}。
-  本月已花 ${{ "%.3f"|format(bulk.spent) }}{% if bulk.budget %} / 预算 ${{ "%.2f"|format(bulk.budget) }}{% endif %}。
-  中途关掉程序也没关系，下次会从断点继续。
-  <form method="post" action="/bulk/start" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button>开始处理</button></form>
+<div class="split">
+  <section class="list-pane">
+    <div class="list-head">
+      <input type="search" id="q" value="{{ q }}" placeholder="搜索标题、作者、期刊、DOI" autocomplete="off">
+      <select id="status_filter" title="按状态筛选">
+        <option value="">全部 ({{ counts.values()|sum }})</option>
+        {% set names = {'done':'已完成','new':'等待处理','extracting':'处理中','doi_unverified':'DOI 待确认','skipped_supplement':'补充材料','error':'出错'} %}
+        {% for s, n in counts.items() %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ names.get(s, s) }} ({{ n }})</option>{% endfor %}
+      </select>
+    </div>
+    {% if bulk %}
+    <div class="notice compact">
+      <strong>{{ bulk.papers }} 篇新论文等待处理</strong><br>
+      约 {{ "%.2f"|format(bulk.tokens_in / 1e6) }}M + {{ "%.2f"|format(bulk.tokens_out / 1e6) }}M token{% if bulk.priced %}，约 ${{ "%.3f"|format(bulk.cost_offpeak) }}–${{ "%.3f"|format(bulk.cost_peak) }}{% endif %}
+      <form method="post" action="/bulk/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>开始处理</button></form>
+    </div>
+    {% endif %}
+    <div id="paper_list" data-selected="{{ selected or '' }}">{% include "_paper_list.html" %}</div>
+  </section>
+  <section class="detail-pane" id="detail">
+    {% if p is defined and p %}{% include "_paper_panel.html" %}
+    {% else %}
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg>
+      <h2>把 PDF 拖到这里</h2>
+      <p>PaperMap 会识别 DOI、生成论文卡片并自动归入学科。也可以点左上角「导入 PDF」，或在设置里添加自动导入文件夹（例如 Zotero 存储目录）。</p>
+    </div>
+    {% endif %}
+  </section>
 </div>
-{% elif busy and pending_n %}<div class="notice ok">正在后台处理，还剩 {{ pending_n }} 篇。刷新页面查看进度。</div>{% endif %}
-<div class="filters">
-  <a href="/">全部</a>
-  {% for s, n in counts.items() %}<a href="/?status={{ s }}">{{ s }} ({{ n }})</a>{% endfor %}
-</div>
-<table>
-<tr><th>#</th><th>标题</th><th>年份</th><th>期刊</th><th>DOI</th><th>状态</th></tr>
-{% for p in papers %}
-<tr>
-  <td>{{ p.id }}</td>
-  <td><a href="/paper/{{ p.id }}">{{ p.title or "(无标题)" }}</a></td>
-  <td>{{ p.year or "" }}</td>
-  <td>{{ p.journal or "" }}</td>
-  <td><code>{{ p.doi or (p.doi_candidate ~ " ?" if p.doi_candidate else "无 DOI") }}</code></td>
-  <td><span class="chip {{ p.status }}">{{ p.status }}</span></td>
-</tr>
-{% else %}
-<tr><td colspan="6" class="muted">还没有论文。把 PDF 放进入口文件夹，然后运行 <code>papermap scan</code> 或 <code>papermap run</code>。</td></tr>
-{% endfor %}
-</table>
 {% endblock %}

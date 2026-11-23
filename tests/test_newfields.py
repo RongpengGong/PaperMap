@@ -160,7 +160,7 @@ def test_web_pending_flow(config, registry, pipe):
     c = TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765")
     review = c.get("/review").text
     assert "已达阈值" in review and "3 / 3 篇" in review
-    assert '<span class="badge">1</span>' in review
+    assert "<b class=\"badge\">1</b>" in review
     r = c.post("/review/pending", data={"csrf": _token(c), "pending_id": registry.pending_fields()[0]["id"],
                                         "action": "establish", "slug": "glioblastoma", "name_zh": "胶质母细胞瘤",
                                         "name_en": "Glioblastoma", "description": "GBM", "axis": "topic"},

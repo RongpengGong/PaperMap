@@ -24,6 +24,7 @@ def main() -> int:
         "--collect-submodules", "uvicorn",     # uvicorn imports loops/protocols dynamically
         "--hidden-import", "watchdog.observers",
         "--hidden-import", "pystray", "--collect-submodules", "pystray",
+        "--collect-submodules", "webview", "--collect-data", "webview",
         "--osx-bundle-identifier", "com.papermap.app",
         "--distpath", str(ROOT / "dist"), "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
@@ -41,7 +42,7 @@ def main() -> int:
 
 
 def _patch_info_plist(app: Path) -> None:
-    """Menu-bar app: no Dock icon (LSUIElement); readable name and version."""
+    """Regular Dock app that accepts PDFs dropped on its icon; name and version."""
     import plistlib
 
     sys.path.insert(0, str(ROOT / "src"))
@@ -50,8 +51,12 @@ def _patch_info_plist(app: Path) -> None:
     info = app / "Contents" / "Info.plist"
     with open(info, "rb") as fh:
         data = plistlib.load(fh)
+    data.pop("LSUIElement", None)
     data.update({
-        "LSUIElement": True,
+        "CFBundleDocumentTypes": [{
+            "CFBundleTypeName": "PDF document", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": ["com.adobe.pdf"],
+        }],
         "CFBundleDisplayName": "PaperMap",
         "CFBundleShortVersionString": __version__,
         "CFBundleVersion": __version__,

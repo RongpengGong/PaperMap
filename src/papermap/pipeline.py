@@ -23,7 +23,7 @@ from . import classify as clf
 from . import handbook as hbmod
 from . import concepts as conceptmod
 from . import consolidate as consmod
-from . import kb_git, newfields
+from . import kb_git, library, newfields
 from . import taxonomy as taxmod
 from .kb_fields import write_fields
 from .registry import Registry
@@ -109,7 +109,14 @@ class Pipeline:
         p = Path(path).expanduser().resolve()
         with self._lock:
             try:
-                return self._handle_path(p)
+                outcome = self._handle_path(p)
+                if outcome in ("known", "duplicate_file", "duplicate_doi", "duplicate_title", "same_work") \
+                        and library._is_within(p, self.config.imported_dir):
+                    row = self.registry.one(
+                        "SELECT f.paper_id FROM file_paths fp JOIN files f ON f.id=fp.file_id WHERE fp.path=?", (str(p),))
+                    if row and row["paper_id"]:
+                        self.place_pdfs(row["paper_id"])
+                return outcome
             except MetadataUnavailable as exc:
                 self.registry.log("warning", f"Metadata service unavailable, will retry later: {p.name} ({exc})")
                 return "retry_later"
@@ -360,6 +367,7 @@ class Pipeline:
             paper_id,
         )
         self.classify_paper(paper_id)
+        self.place_pdfs(paper_id)
         self.kb_commit(f"Add paper {row['doi'] or (row['title'] or '')[:60]}")
         return "processed"
 
@@ -648,6 +656,31 @@ class Pipeline:
         self.registry.log("info", f"Proposed field '{row['name_zh'] or row['name_en']}' rejected; "
                                   "similar proposals will be ignored")
         self.kb_commit(f"Reject proposed field {row['slug']}")
+
+    def place_pdfs(self, paper_id: int) -> None:
+        """Put the paper's PDF(s) into its folder, then refresh the card's pdf link."""
+        try:
+            notes = library.place_pdfs(self.config.knowledge_dir, self.config.imported_dir, self.registry, paper_id)
+        except Exception as exc:  # noqa: BLE001 - never lose the card over a copy problem
+            self.registry.log("warning", f"Could not file the PDF of paper #{paper_id}: {exc}", paper_id)
+            return
+        if notes:
+            self._refresh_card(paper_id)
+
+    def migrate_library(self) -> int:
+        """One-time move from flat cards to one folder per paper (idempotent)."""
+        n = library.migrate_flat_layout(self.config.knowledge_dir, self.registry, self.config.output_language)
+        if n:
+            for row in self.registry.query("SELECT id FROM papers WHERE kb_path IS NOT NULL"):
+                self._refresh_card(row["id"])
+                self.place_pdfs(row["id"])
+            try:
+                self.refresh_concepts()
+                self.refresh_fields()
+            except Exception:  # noqa: BLE001
+                log.exception("refresh after migration failed")
+            self.registry.log("info", f"Library reorganised: {n} papers now have their own folder")
+        return n
 
     def refresh_concepts(self) -> None:
         conceptmod.write_all(self.config.knowledge_dir, self.registry, self.config.output_language,

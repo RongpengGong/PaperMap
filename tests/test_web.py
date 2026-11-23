@@ -14,7 +14,7 @@ def client(config, registry):
 def test_pages_render(config, registry):
     c = client(config, registry)
     r = c.get("/")
-    assert r.status_code == 200 and "尚未设置 LLM API Key" in r.text
+    assert r.status_code == 200 and "尚未设置模型 API Key" in r.text
     assert c.get("/settings").status_code == 200
     assert c.get("/events").status_code == 200
 
@@ -126,3 +126,42 @@ def test_review_and_taxonomy_actions(config, registry, pdfs):
     assert "\r" not in (config.data_dir / "taxonomy.yaml").read_text()
     assert "已保存" in ok.text and config.raw["taxonomy_file"] == "taxonomy.yaml"
     assert "用旧版分类表" in ok.text
+
+
+def test_import_upload_panel_pdf_notes(config, registry, pdfs):
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from papermap.web.app import create_app
+
+    from .test_pipeline import make_pipeline
+    pipe, _ = make_pipeline(config, registry)
+    config.ensure_dirs()
+    c = TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765")
+    tok = _token(c)
+    data = pdfs["paper"].read_bytes()
+    r = c.post("/api/import", data={"csrf": tok},
+               files=[("files", ("my paper.pdf", data, "application/pdf")), ("files", ("notes.txt", b"x", "text/plain"))])
+    assert r.json() == {"ok": True, "count": 1, "skipped": 1}
+    for _ in range(100):
+        rows = registry.list_papers()
+        if rows and rows[0]["status"] == "done" and rows[0]["kb_path"]:
+            break
+        time.sleep(0.05)
+    row = registry.list_papers()[0]
+    assert row["status"] == "done"
+    assert not list(config.imported_dir.glob("*.pdf"))  # moved into the paper folder
+    home = c.get("/").text
+    assert "paper-row selected" in home and "我的笔记" in home
+    assert c.get(f"/paper/{row['id']}/pdf").content == data
+    panel = c.get(f"/paper/{row['id']}/panel").text
+    assert "Finding two" in panel and 'data-tab="pdf"' in panel
+    assert c.post(f"/paper/{row['id']}/notes", json={"csrf": tok, "text": "hello\r\nworld"}).json()["ok"]
+    from papermap import library
+    assert library.notes_path(config.knowledge_dir, row["kb_path"]).read_text() == "hello\nworld"
+    assert c.post(f"/paper/{row['id']}/notes", json={"csrf": "bad", "text": "x"}).status_code == 403
+    assert c.post("/api/import", data={"csrf": "bad"}).status_code == 403
+    lst = c.get("/papers/list?q=Spatial").text
+    assert "paper-row" in lst and "paper-row" not in c.get("/papers/list?q=zzzz-nothing").text
+    assert c.get(f"/paper/{row['id']}", follow_redirects=False).status_code == 307

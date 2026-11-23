@@ -101,8 +101,11 @@
 </section>
 
 <section class="card">
-  <h3>文件夹</h3>
-  <label for="inbox_dirs">入口文件夹（每行一个）</label><textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
+  <h3>导入</h3>
+  <label for="inbox_dirs">自动导入文件夹（可选，每行一个）</label>
+  <p class="muted small">放进这些文件夹的 PDF 会自动导入，例如 Zotero 的存储目录或下载文件夹。原文件不会被移动或修改。也可以直接把 PDF 拖进 PaperMap 窗口。</p>
+  <textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
+  <button type="button" class="secondary" data-pick-folder="inbox_dirs">选择文件夹…</button>
   <label for="exclude_dirs">永不处理的子文件夹名（逗号分隔）</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
   <label for="exclude_patterns">永不处理的文件名模式（逗号分隔）</label><input type="text" id="exclude_patterns" name="exclude_patterns" value="{{ exclude_patterns }}">
   <label for="contact_email">联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
@@ -115,5 +118,5 @@
   <p class="muted">关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。</p>
   <form method="post" action="/shutdown" onsubmit="return confirm('确定退出 PaperMap？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">退出 PaperMap</button></form>
 </section>
-<script src="/static/settings.js"></script>
+<script src="/static/settings.js?v={{ static_v }}"></script>
 {% endblock %}

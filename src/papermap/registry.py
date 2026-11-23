@@ -251,6 +251,13 @@ class Registry:
             self.conn.commit()
             return file_id
 
+    def move_file_path(self, file_id: int, old: str, new: str) -> None:
+        """A managed file was moved on disk (imported/ -> paper folder)."""
+        with self._lock:
+            self.conn.execute("UPDATE files SET path=? WHERE id=? AND path=?", (new, file_id, old))
+            self.conn.execute("UPDATE OR REPLACE file_paths SET path=? WHERE file_id=? AND path=?", (new, file_id, old))
+            self.conn.commit()
+
     def link_file(self, sha: str, paper_id: int) -> None:
         self.execute("UPDATE files SET paper_id=? WHERE sha256=?", (paper_id, sha))
 

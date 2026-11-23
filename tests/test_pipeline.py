@@ -50,22 +50,21 @@ def test_restart_is_idempotent(config, registry, pdfs):
     pipe2, comp2 = make_pipeline(config, reg2)
     assert pipe2.handle_path(pdfs["paper"]) == "known"
     assert comp2.calls == 0
-    assert len(list((config.knowledge_dir / "papers").glob("*.md"))) == 1
+    assert len([d for d in (config.knowledge_dir / "papers").iterdir() if d.is_dir()]) == 1
     reg2.close()
 
 
-def test_user_section_survives_rewrite(config, registry, pdfs):
+def test_notes_file_survives_rewrite(config, registry, pdfs):
     pipe, _ = make_pipeline(config, registry)
     pipe.handle_path(pdfs["paper"])
     row = registry.paper_by_doi(OWN_DOI)
-    path = config.knowledge_dir / row["kb_path"]
-    text = path.read_text()
-    start = text.index("<!-- user:begin -->") + len("<!-- user:begin -->\n")
-    end = text.index("<!-- user:end -->")
-    path.write_text(text[:start] + "MY OWN NOTE\n" + text[end:])
+    card = config.knowledge_dir / row["kb_path"]
+    notes = card.with_name(card.stem + ".notes.md")
+    assert notes.exists() and f"![[{card.stem}.notes]]" in card.read_text()
+    notes.write_text("MY OWN NOTE\n")
     registry.update_paper(row["id"], status="new")
     assert pipe.process_paper(row["id"], force=True) == "processed"
-    assert "MY OWN NOTE" in path.read_text()
+    assert notes.read_text() == "MY OWN NOTE\n"
 
 
 def test_no_key_waits_without_crash(config, registry, pdfs):

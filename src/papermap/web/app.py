@@ -13,13 +13,13 @@ from pathlib import Path
 import markdown as md
 import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
-from .. import kb_git
+from .. import kb_git, library
 from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry
@@ -36,6 +36,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
     csrf_token = secrets.token_urlsafe(24)
+    # cache-busting for static assets (app updates must not show stale CSS/JS)
+    static_v = str(int(max(f.stat().st_mtime for f in (HERE / "static").iterdir())))
+    templates.env.globals["static_v"] = static_v
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
@@ -62,7 +65,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         threading.Thread(target=run, daemon=True).start()
 
     def md_html(text: str) -> str:
-        return md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
+        html = md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
+        # external links open in the system browser (pywebview honours target=_blank)
+        return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', html)
 
     def render(request: Request, name: str, **ctx):
         ctx.update(
@@ -78,12 +83,137 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         )
         return templates.TemplateResponse(request, name, ctx)
 
+    def paper_rows(q: str = "", status: str = ""):
+        sql, params = "SELECT * FROM papers WHERE status != 'ignored'", []
+        if status:
+            sql += " AND status=?"
+            params.append(status)
+        if q.strip():
+            like = f"%{q.strip()}%"
+            sql += " AND (title LIKE ? OR authors_json LIKE ? OR journal LIKE ? OR doi LIKE ? OR first_author LIKE ?)"
+            params += [like] * 5
+        rows = registry.query(sql + " ORDER BY id DESC LIMIT 2000", tuple(params))
+        labels: dict[int, list] = {}
+        for r in registry.query(
+                "SELECT pf.paper_id, f.name_zh, f.axis FROM paper_fields pf JOIN fields f ON f.id=pf.field_id "
+                "WHERE pf.status='accepted' ORDER BY pf.is_primary DESC, pf.confidence DESC"):
+            labels.setdefault(r["paper_id"], []).append(r)
+        return rows, labels
+
+    def pdf_file(row) -> Path | None:
+        if row["kb_path"] and row["kb_path"].count("/") >= 2:
+            p = library.pdf_path(config.knowledge_dir, row["kb_path"])
+            if p.exists():
+                return p
+        for f in registry.paper_file_paths(row["id"]):
+            if Path(f).exists():
+                return Path(f)
+        return None
+
+    def paper_panel_ctx(paper_id: int) -> dict | None:
+        row = registry.get_paper(paper_id)
+        if row is None:
+            return None
+        body_html, notes_text = "", None
+        if row["kb_path"]:
+            path = config.knowledge_dir / row["kb_path"]
+            if path.exists():
+                body = _split_front(path.read_text("utf-8"))[1]
+                body = re.sub(r"^#\s.*\n", "", body.lstrip("\n"), count=1)  # title shown in the header
+                body = re.sub(r"^##\s+(我的笔记|My notes)\s*\n(.*\n)*?(?=^##\s|\Z)", "", body, flags=re.M)
+                body_html = md_html(body)
+            if row["kb_path"].count("/") >= 2:
+                np_ = library.notes_path(config.knowledge_dir, row["kb_path"])
+                notes_text = np_.read_text("utf-8") if np_.exists() else ""
+        return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+                "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
+                "dois": registry.paper_dois(paper_id),
+                "events": registry.query("SELECT * FROM events WHERE paper_id=? ORDER BY id DESC LIMIT 20", (paper_id,))}
+
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, status: str | None = None):
-        papers = registry.list_papers(status=status or None, limit=1000)
+    def index(request: Request, status: str = "", q: str = "", id: int | None = None):
+        papers, labels = paper_rows(q, status)
         bulk = pipeline.estimate() if pipeline.hold and pipeline.pending_count() else None
-        return render(request, "index.html", papers=papers, counts=registry.status_counts(), status=status,
-                      bulk=bulk, pending_n=pipeline.pending_count())
+        selected = id if id is not None else (papers[0]["id"] if papers else None)
+        return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(),
+                      status=status, q=q, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
+                      **((paper_panel_ctx(selected) or {}) if selected else {}))
+
+    @app.get("/papers/list", response_class=HTMLResponse)
+    def papers_list(request: Request, status: str = "", q: str = "", selected: int | None = None):
+        papers, labels = paper_rows(q, status)
+        return templates.TemplateResponse(request, "_paper_list.html",
+                                          {"papers": papers, "labels": labels, "selected": selected})
+
+    @app.get("/api/state")
+    def api_state():
+        return {"pending": pipeline.pending_count(), "busy": bool(busy) or pipeline._lock.locked(),
+                "papers": registry.one("SELECT count(*) AS n FROM papers")["n"],
+                "last_event": registry.one("SELECT max(id) AS m FROM events")["m"] or 0,
+                "review": _review_count(registry, pipeline.new_field_threshold)}
+
+    @app.get("/paper/{paper_id}/panel", response_class=HTMLResponse)
+    def paper_panel(request: Request, paper_id: int):
+        ctx = paper_panel_ctx(paper_id)
+        if ctx is None:
+            raise HTTPException(404)
+        return templates.TemplateResponse(request, "_paper_panel.html", {**ctx, "csrf": csrf_token})
+
+    @app.get("/paper/{paper_id}/pdf")
+    def paper_pdf(paper_id: int):
+        row = registry.get_paper(paper_id)
+        f = pdf_file(row) if row else None
+        if f is None:
+            raise HTTPException(404)
+        return FileResponse(f, media_type="application/pdf", content_disposition_type="inline", filename=f.name)
+
+    @app.post("/paper/{paper_id}/notes")
+    async def paper_notes(paper_id: int, request: Request):
+        body = await request.json()
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        row = registry.get_paper(paper_id)
+        if row is None or not row["kb_path"] or row["kb_path"].count("/") < 2:
+            raise HTTPException(404)
+        from ..kb_writer import atomic_write
+
+        atomic_write(library.notes_path(config.knowledge_dir, row["kb_path"]),
+                     str(body.get("text", "")).replace("\r\n", "\n"))
+        return {"ok": True}
+
+    @app.post("/paper/{paper_id}/reveal")
+    async def paper_reveal(paper_id: int, request: Request):
+        body = await request.json()
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        row = registry.get_paper(paper_id)
+        if row is None:
+            raise HTTPException(404)
+        target = pdf_file(row) or (config.knowledge_dir / row["kb_path"] if row["kb_path"] else None)
+        if target is None:
+            raise HTTPException(404)
+        _reveal(target)
+        return {"ok": True}
+
+    @app.post("/api/import")
+    async def api_import(request: Request):
+        """PDFs dropped onto the window or chosen with the import button."""
+        form = await request.form()
+        _check_csrf(str(form.get("csrf", "")), csrf_token)
+        items = form.getlist("files")
+        saved = []
+        for item in items:
+            if not hasattr(item, "filename") or not (item.filename or "").lower().endswith(".pdf"):
+                continue
+            dest = _unique(config.imported_dir / _safe_name(item.filename))
+            tmp = dest.with_name(dest.name + ".part")  # the watcher ignores .part files
+            with open(tmp, "wb") as fh:
+                while chunk := await item.read(1 << 20):
+                    fh.write(chunk)
+            os.replace(tmp, dest)
+            saved.append(dest)
+        if saved:
+            registry.log("info", f"Imported {len(saved)} PDF(s) into the library")
+            background("import", lambda: [pipeline.handle_path(p) for p in saved])
+        return {"ok": True, "count": len(saved), "skipped": len(items) - len(saved)}
 
     @app.post("/bulk/start")
     def bulk_start(csrf: str = Form(...)):
@@ -115,23 +245,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       recent=recent, max_day=max_day, per_paper=(total / papers_done) if papers_done else 0,
                       eff=config.effective_llm(), est10=pipeline.estimate(10))
 
-    @app.get("/paper/{paper_id}", response_class=HTMLResponse)
-    def paper(request: Request, paper_id: int):
-        row = registry.get_paper(paper_id)
-        if row is None:
+    @app.get("/paper/{paper_id}")
+    def paper(paper_id: int):
+        if registry.get_paper(paper_id) is None:
             raise HTTPException(404)
-        front, body_html = {}, ""
-        if row["kb_path"]:
-            path = config.knowledge_dir / row["kb_path"]
-            if path.exists():
-                front, body = _split_front(path.read_text("utf-8"))
-                body_html = md_html(body)
-        return render(
-            request, "paper.html", p=row, front=front, body_html=body_html,
-            labels=registry.paper_field_rows(paper_id),
-            files=registry.paper_file_paths(paper_id), dois=registry.paper_dois(paper_id),
-            events=registry.query("SELECT * FROM events WHERE paper_id=? ORDER BY id DESC LIMIT 50", (paper_id,)),
-        )
+        return RedirectResponse(f"/?id={paper_id}", status_code=307)
 
     @app.post("/paper/{paper_id}/retry")
     def retry(paper_id: int, csrf: str = Form(...)):
@@ -140,7 +258,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             raise HTTPException(404)
         registry.update_paper(paper_id, status="new")
         threading.Thread(target=pipeline.process_pending, daemon=True).start()
-        return RedirectResponse(f"/paper/{paper_id}", status_code=303)
+        return RedirectResponse(f"/?id={paper_id}", status_code=303)
 
     # ------------------------------------------------------------ knowledge map
     @app.get("/map", response_class=HTMLResponse)
@@ -398,6 +516,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         background("classify", pipeline.classify_papers, mode)
         return RedirectResponse("/taxonomy?started=1", status_code=303)
 
+    @app.post("/api/app/show")
+    def app_show():
+        """A second launch of the desktop app asks this instance to show its window."""
+        fn = getattr(app.state, "show_window", None)
+        if fn is None:
+            return {"ok": False}
+        fn()
+        return {"ok": True}
+
     @app.post("/shutdown")
     def shutdown(csrf: str = Form(...)):
         """Quit button for the packaged app (no terminal to press Ctrl+C in).
@@ -536,6 +663,33 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return await run_in_threadpool(check_connection, eff)
 
     return app
+
+
+def _safe_name(name: str) -> str:
+    name = Path(name).name
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name).strip(" .") or "paper.pdf"
+    return name if name.lower().endswith(".pdf") else name + ".pdf"
+
+
+def _unique(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stem, n = path.stem, 2
+    while path.exists():
+        path = path.with_name(f"{stem} ({n}).pdf")
+        n += 1
+    return path
+
+
+def _reveal(path: Path) -> None:
+    import subprocess
+    import sys
+
+    if sys.platform == "darwin":
+        subprocess.Popen(["/usr/bin/open", "-R", str(path)])
+    elif os.name == "nt":
+        subprocess.Popen(["explorer", "/select,", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path.parent)])
 
 
 def _review_count(registry: Registry, threshold: int = 3) -> int:

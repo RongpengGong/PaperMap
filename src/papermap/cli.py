@@ -113,7 +113,12 @@ def _load(args: argparse.Namespace):
     cfg.ensure_dirs()
     _file_logging(cfg.logs_dir)
     reg = Registry(cfg.db_path)
-    return cfg, reg, Pipeline(cfg, reg)
+    pipe = Pipeline(cfg, reg)
+    try:
+        pipe.migrate_library()
+    except Exception:  # noqa: BLE001 - never block startup on the migration
+        logging.getLogger(__name__).exception("library migration failed")
+    return cfg, reg, pipe
 
 
 def _file_logging(log_dir: Path) -> None:
@@ -221,15 +226,27 @@ def cmd_app(args: argparse.Namespace) -> int:
     cfg = cfgmod.load(path)
     if _already_running(cfg):
         if not getattr(args, "background", False):
-            from .tray import open_url
+            import httpx
 
-            open_url(_web_url(cfg))
+            try:
+                shown = httpx.post(_web_url(cfg, "/api/app/show"), timeout=3).json().get("ok")
+            except (httpx.HTTPError, ValueError):
+                shown = False
+            if not shown:
+                from .tray import open_url
+
+                open_url(_web_url(cfg))
         print("PaperMap is already running.")
         return 0
     args.config = str(path)
     start_page = "/settings?welcome=1" if first_run else "/"
 
-    from . import tray
+    from . import desktop, tray
+
+    if not getattr(args, "no_window", False) and desktop.available():
+        cfg, reg, pipe = _load(args)
+        pipe.migrate_library()
+        return desktop.run(cfg, reg, pipe, background=getattr(args, "background", False), start_page=start_page)
 
     if getattr(args, "no_tray", False) or not tray.available():
         args.no_web = False
@@ -458,6 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("app", help="desktop mode: first-run setup, run with a menu-bar icon, open the browser")
     p.add_argument("--background", action="store_true", help="do not open the browser (used at login)")
     p.add_argument("--no-tray", action="store_true", help="no menu-bar/tray icon")
+    p.add_argument("--no-window", action="store_true", help="browser UI instead of the native window")
     p.set_defaults(func=cmd_app)
     p = sub.add_parser("status", help="show library summary")
     p.add_argument("--limit", type=int, default=30)
@@ -481,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
         args.func = cmd_app
         args.background = False
         args.no_tray = False
+        args.no_window = False
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

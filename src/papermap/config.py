@@ -182,8 +182,22 @@ class Config:
 
     # -- convenience accessors -------------------------------------------
     @property
-    def inbox_dirs(self) -> list[Path]:
+    def imported_dir(self) -> Path:
+        """PDFs dragged into the app wait here until they are filed."""
+        return self.data_dir / "imported"
+
+    @property
+    def watched_inboxes(self) -> list[Path]:
+        """Folders the user chose (auto-import folders)."""
         return [_expand(p) for p in self.raw.get("inbox_dirs") or []]
+
+    @property
+    def inbox_dirs(self) -> list[Path]:
+        """Everything that is scanned: the user's folders plus the app's import folder."""
+        dirs = self.watched_inboxes
+        if self.imported_dir not in dirs:
+            dirs.append(self.imported_dir)
+        return dirs
 
     @property
     def data_dir(self) -> Path:
@@ -242,6 +256,7 @@ class Config:
         return self.effective_llm()["api_key"]
 
     def ensure_dirs(self) -> None:
+        self.imported_dir.mkdir(parents=True, exist_ok=True)
         for sub in ("papers", "fields", "handbooks", "concepts", "_pending"):
             (self.knowledge_dir / sub).mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)

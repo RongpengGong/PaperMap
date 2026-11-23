@@ -1,17 +1,54 @@
+{%- macro icon(name) -%}
+<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{%- if name == 'papers' %}<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>
+{%- elif name == 'map' %}<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="17" r="3"/><path d="M8 8.5l2.5 6M16.5 7.5l-3 7M8.5 7l7.5-.8"/>
+{%- elif name == 'fields' %}<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+{%- elif name == 'handbooks' %}<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M9 7h6"/>
+{%- elif name == 'concepts' %}<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>
+{%- elif name == 'review' %}<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>
+{%- elif name == 'costs' %}<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>
+{%- elif name == 'taxonomy' %}<path d="M4 6h16M4 12h10M4 18h6"/>
+{%- elif name == 'events' %}<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>
+{%- elif name == 'settings' %}<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+{%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
+{%- endif %}</svg>
+{%- endmacro -%}
+{%- set path = request.url.path -%}
+{%- set nav = [
+  ('/', 'papers', '论文'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
+  ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/review', 'review', '待审核'),
+] -%}
+{%- set nav2 = [('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
+{%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}PaperMap{% endblock %}</title><link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css">{% block head %}{% endblock %}</head>
-<body>
-<header>
-  <a class="brand" href="/">PaperMap</a>
-  <nav><a href="/">论文</a><a href="/map">知识地图</a><a href="/fields">学科</a><a href="/handbooks">手册</a><a href="/concepts">工具</a>
-  <a href="/review">待审核{% if review_count %} <span class="badge">{{ review_count }}</span>{% endif %}</a>
-  <a href="/taxonomy">分类表</a><a href="/costs">费用</a><a href="/events">活动日志</a><a href="/settings">设置</a></nav>
-  <a class="right" href="/costs">本月 LLM 花费 ${{ "%.4f"|format(month_cost) }}{% if budget %} / ${{ "%.2f"|format(budget) }}{% endif %}</a>
-</header>
-<main>
-{% if not key_set %}<div class="notice">尚未设置 LLM API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key（或设置环境变量）后才会生成。</div>{% endif %}
+<title>{% block title %}PaperMap{% endblock %}</title>
+<link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
+<body class="app" data-csrf="{{ csrf }}">
+<aside class="sidebar">
+  <div class="brand"><img src="/static/icon.png" alt=""><span>PaperMap</span></div>
+  <button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>导入 PDF</span></button>
+  <input type="file" id="import_input" accept="application/pdf,.pdf" multiple hidden>
+  <nav class="nav">
+    {% for href, ic, label in nav %}
+    <a class="{{ is_active(href) }}" href="{{ href }}">{{ icon(ic) }}<span>{{ label }}</span>{% if ic == 'review' and review_count %}<b class="badge">{{ review_count }}</b>{% endif %}</a>
+    {% endfor %}
+  </nav>
+  <nav class="nav nav-bottom">
+    {% for href, ic, label in nav2 %}
+    <a class="{{ is_active(href) }}" href="{{ href }}">{{ icon(ic) }}<span>{{ label }}</span></a>
+    {% endfor %}
+    <a class="cost-line" href="/costs">本月 ${{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>
+  </nav>
+</aside>
+<main class="content {% block content_class %}{% endblock %}">
+{% if not key_set %}<div class="notice">尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key 后才会生成。</div>{% endif %}
 {% if budget_ratio >= 1 %}<div class="notice">本月 LLM 预算已用完，新论文的处理已暂停。到 <a href="/settings">设置</a> 提高预算后会自动继续。</div>
 {% elif budget_ratio >= 0.8 %}<div class="notice">本月 LLM 预算已用掉 {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
 {% block content %}{% endblock %}
-</main></body></html>
+</main>
+<div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>松开以导入 PDF</p><span>会复制进你的文献库，原文件不动</span></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js?v={{ static_v }}"></script>
+{% block scripts %}{% endblock %}
+</body></html>
