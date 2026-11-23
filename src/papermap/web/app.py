@@ -81,9 +81,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', html)
 
     def render(request: Request, name: str, **ctx):
+        is_subscription = config.effective_llm().get("billing") == "subscription"
         ctx.update(
             request=request,
-            key_set=bool(config.api_key()),
+            key_set=config.model_ready(),
+            account_provider=config.llm.get("provider", "deepseek"),
+            is_subscription=is_subscription,
             month_cost=registry.month_cost(),
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
@@ -93,7 +96,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                                    "(SELECT paper_id FROM paper_collections)")["n"],
             all_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored'")["n"],
             budget_ratio=(registry.month_cost() / float(config.llm.get("monthly_budget_usd") or 0))
-            if float(config.llm.get("monthly_budget_usd") or 0) else 0,
+            if float(config.llm.get("monthly_budget_usd") or 0) and not is_subscription else 0,
             busy=bool(busy),
         )
         return templates.TemplateResponse(request, name, ctx)
@@ -1299,11 +1302,13 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         for pid in PRESETS:
             st = store.get(pid) or {}
             f = {k: str(form.get(f"p_{pid}_{k}", "")).strip() for k in ("key", "model", "in", "hit", "out", "clear")}
-            if f["clear"]:
+            if pid in ("chatgpt_plan", "claude_cli"):
+                st.pop("api_key", None)
+            elif f["clear"]:
                 st.pop("api_key", None)
             elif f["key"]:
                 st["api_key"] = f["key"]
-            if f["model"]:
+            if f["model"] or (pid == "chatgpt_plan" and f"p_{pid}_model" in form):
                 st["model"] = f["model"]
             for k, name in (("in", "price_input_per_1m"), ("hit", "price_cache_hit_per_1m"), ("out", "price_output_per_1m")):
                 if f"p_{pid}_{k}" in form:
@@ -1349,7 +1354,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             path.chmod(0o600)
         except OSError:
             pass
-        pipeline.llm._client = None  # pick up new provider / key
+        pipeline.llm.reset_client()
         threading.Thread(target=pipeline.process_pending, daemon=True).start()
         return RedirectResponse("/settings?saved=1", status_code=303)
 
@@ -1361,9 +1366,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
         if llm["provider"] in PRESETS:
             st = llm.setdefault("presets", {}).setdefault(llm["provider"], {})
-            if str(body.get("model", "")).strip():
+            if str(body.get("model", "")).strip() or (llm["provider"] == "chatgpt_plan" and "model" in body):
                 st["model"] = str(body["model"]).strip()
-            if str(body.get("api_key", "")).strip():
+            if llm["provider"] in ("chatgpt_plan", "claude_cli"):
+                st.pop("api_key", None)
+            elif str(body.get("api_key", "")).strip():
                 st["api_key"] = str(body["api_key"]).strip()
         elif llm["provider"] == "custom":
             c = llm.setdefault("custom", {})
@@ -1377,7 +1384,62 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 llm["model"] = body["model"]
             if str(body.get("api_key", "")).strip():
                 llm["api_key"] = str(body["api_key"]).strip()
-        return effective_llm(llm)
+        return effective_llm(llm, data_dir=config.data_dir)
+
+    async def _account_action(request: Request, provider: str, action: str):
+        body = await request.json()
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        if provider not in ("chatgpt_plan", "claude_cli"):
+            raise HTTPException(404)
+        if action == "cancel" and provider != "chatgpt_plan":
+            raise HTTPException(404)
+        try:
+            client = _account_client(provider, config.data_dir)
+            method = "start" if action == "login" and provider == "chatgpt_plan" else action
+            if method == "start":
+                data = await run_in_threadpool(client.start, consent=bool(body.get("consent")))
+            elif method == "status" and provider == "claude_cli" and body.get("refresh"):
+                data = await run_in_threadpool(client.status, refresh=True)
+            else:
+                data = await run_in_threadpool(getattr(client, method))
+            if action == "cancel":
+                data = {**await run_in_threadpool(client.status), "message": "已取消登录等待。"}
+            # Never pass through credentials returned by an auth implementation.
+            allowed = ("ready", "available", "authenticated", "message", "status", "auth_method",
+                       "subscription_type", "billing", "models", "url", "expires_at", "pending",
+                       "connected", "email", "error", "error_code", "needs_consent")
+            result = {k: data[k] for k in allowed if k in data}
+            result["ok"] = bool(data.get("ok", True))
+            if provider == "chatgpt_plan" and data.get("error_code") in ("scope_missing", "access_denied"):
+                result["needs_consent"] = True
+            if action == "logout":
+                pipeline.llm.reset_client()
+            return result
+        except Exception as exc:  # noqa: BLE001
+            if provider == "chatgpt_plan":
+                from ..chatgpt_auth import ChatGPTAuthError
+
+                if isinstance(exc, ChatGPTAuthError):
+                    return {"ok": False, "error": str(exc), "message": str(exc), "error_code": exc.code,
+                            "needs_consent": exc.code in ("scope_missing", "access_denied"), "pending": exc.code == "login_pending"}
+            registry.log("warning", f"{provider} {action} failed ({type(exc).__name__})")
+            return {"ok": False, "message": f"连接操作失败（{type(exc).__name__}），请重试或查看活动日志"}
+
+    @app.post("/api/accounts/{provider}/status")
+    async def account_status(provider: str, request: Request):
+        return await _account_action(request, provider, "status")
+
+    @app.post("/api/accounts/{provider}/login")
+    async def account_login(provider: str, request: Request):
+        return await _account_action(request, provider, "login")
+
+    @app.post("/api/accounts/{provider}/logout")
+    async def account_logout(provider: str, request: Request):
+        return await _account_action(request, provider, "logout")
+
+    @app.post("/api/accounts/{provider}/cancel")
+    async def account_cancel(provider: str, request: Request):
+        return await _account_action(request, provider, "cancel")
 
     @app.post("/api/knowledge/move")
     async def api_knowledge_move(request: Request):
@@ -1433,6 +1495,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return await run_in_threadpool(check_connection, eff)
 
     return app
+
+
+def _account_client(provider: str, data_dir: Path):
+    if provider == "chatgpt_plan":
+        from ..chatgpt_auth import get_auth
+
+        return get_auth(data_dir)
+    from ..claude_cli import get_cli
+
+    return get_cli(data_dir)
 
 
 def _flat_tree(tree: list[dict]) -> list[dict]:

@@ -38,7 +38,9 @@ papermap                                  # 首次运行会自动创建配置并
 
 ## 第一次使用（3 分钟）
 
-1. **填 API Key**：设置页 →「模型服务」：
+1. **连接模型**：打开「设置 → 模型服务」，选择一种方式：
+   - **ChatGPT 订阅**：点击「Continue with ChatGPT」，在系统浏览器里授权 PaperMap 使用套餐。返回设置页，获取账号可用模型，选定模型并保存。适用资格和额度见 [OpenAI 说明](https://developers.openai.com/siwc/quickstart)。换电脑时重新授权。
+   - **Claude 订阅**：先安装[官方 Claude Code](https://code.claude.com/docs/en/quickstart)。选择「Claude 订阅（Claude Code）」，用本机官方程序登录个人订阅，检查状态后保存。论文文本由 Claude Code 发送给 Anthropic；套餐及额外用量以账号设置为准。
    - 选 **DeepSeek 官方**：只要粘贴 Key（在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建），选模型即可。
    - 或选 **自定义**：填 Base URL、API Key、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API）和模型名。点「获取模型列表」可以直接选。适合中转服务、其他厂商或本地模型。
    - 点「**测试连接**」，看到 ✓ 再保存。
@@ -101,7 +103,7 @@ PaperMap/
     └── _pending/      待定的新学科
 ```
 
-**备份 / 换电脑**：把整个 `PaperMap` 文件夹拷走即可。设置里可以打开「用 git 自动记录知识库的每次改动」，任何一次改动都能回滚（需要电脑上装了 git）。
+**备份 / 换电脑**：备份知识库和状态数据库。配置文件可能包含 API Key。换机时跳过保存 ChatGPT 登录凭据的 `chatgpt/` 目录，在新设备上重新登录。设置里可以打开「用 git 自动记录知识库的每次改动」，任何一次改动都能回滚（需要电脑上装了 git）。
 
 ---
 

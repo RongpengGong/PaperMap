@@ -64,7 +64,7 @@
   </nav>
 </aside>
 <main class="content {% block content_class %}{% endblock %}">
-{% if not key_set %}<div class="notice">尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key 后才会生成。</div>{% endif %}
+{% if not key_set %}<div class="notice">{% if account_provider in ('chatgpt_plan', 'claude_cli') %}模型订阅尚未连接：请到 <a href="/settings">设置</a> 完成官方登录并检查连接，新论文会先识别和登记。{% else %}尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key 后才会生成。{% endif %}</div>{% endif %}
 {% if budget_ratio >= 1 %}<div class="notice">本月 LLM 预算已用完，新论文的处理已暂停。到 <a href="/settings">设置</a> 提高预算后会自动继续。</div>
 {% elif budget_ratio >= 0.8 %}<div class="notice">本月 LLM 预算已用掉 {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
 {% block content %}{% endblock %}

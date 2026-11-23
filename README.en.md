@@ -22,7 +22,7 @@ Everything is plain Markdown that opens in [Obsidian](https://obsidian.md), but 
 
 ## First use
 
-1. **API key** – Settings → Model service: choose *DeepSeek official* and paste a key from <https://platform.deepseek.com/api_keys>, or *Custom* with Base URL, key, protocol (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API) and model name. Click **Test connection**, then save.
+1. **Connect a model** in Settings → Model service. For a ChatGPT plan, select **Continue with ChatGPT**, authorize plan usage in the system browser, fetch the available models, select one and save. For a Claude subscription, install [Claude Code](https://code.claude.com/docs/en/quickstart) and use its own account login from Settings. PaperMap sends the paper text through the selected service. See [ChatGPT plan eligibility](https://developers.openai.com/siwc/quickstart). For API access, choose *DeepSeek official* and paste a key from <https://platform.deepseek.com/api_keys>, or *Custom* with Base URL, key, protocol (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API) and model name. Click **Test connection**, then save.
 2. **Inbox folder** – default `~/PaperMap/inbox`. You can point it at Zotero's storage folder (`~/Zotero/storage`) – PaperMap only reads, never moves or renames files – or your downloads folder. Several folders are allowed.
 3. **Add PDFs** – sub-folders are scanned too. Large batches (5+ papers by default) wait for you to confirm a cost estimate on the home page; interrupted runs resume where they stopped.
 
@@ -38,7 +38,7 @@ Your own notes ("Relevance to me" in cards, "My notes" in field pages and handbo
 
 ## Where data lives
 
-`~/PaperMap/` – `config.yaml`, `papermap.db`, optional `taxonomy.yaml`, `logs/`, and `knowledge/` (papers, fields, handbooks, concepts, _pending) which you can open as an Obsidian vault. Copy the whole folder to back up or move. Optional git versioning of `knowledge/` is in Settings.
+`~/PaperMap/` – `config.yaml`, `papermap.db`, optional `taxonomy.yaml`, `logs/`, and `knowledge/` (papers, fields, handbooks, concepts, _pending) which you can open as an Obsidian vault. Back up the knowledge folder and database. The configuration may contain API keys. When moving to a new device, exclude the ChatGPT credential folder (`chatgpt/`) and sign in again. Optional git versioning of `knowledge/` is in Settings.
 
 ## Development
 

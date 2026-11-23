@@ -50,11 +50,24 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 # forbid use outside their listed coding tools (GLM Coding Plan, Alibaba Cloud
 # Coding Plan) or point app integrations to the pay-as-you-go platform (Kimi
 # Code) are offered through those providers' pay-as-you-go APIs instead.
-# Consumer subscriptions reached by OAuth login (ChatGPT, Claude Pro/Max,
-# Google Antigravity) are deliberately not supported: that breaks their terms.
+# Browser sign-in providers use their own authorized client, not a stored API key.
 # Prices: USD per 1M tokens; an empty models dict means "type or fetch the
 # model name, fill in the price yourself".
 PRESETS: dict[str, dict[str, Any]] = {
+    "chatgpt_plan": {
+        "label": "ChatGPT 订阅", "group": "subscription",
+        "base_url": "https://api.openai.com/v1", "protocol": "responses",
+        "docs_url": "https://developers.openai.com/siwc/token-sharing-open-source",
+        "models": {}, "default_model": "", "json_mode": False, "no_temperature": True,
+        "note": "在系统浏览器授权 PaperMap 使用套餐，再获取账号可用的模型。",
+    },
+    "claude_cli": {
+        "label": "Claude 订阅（Claude Code）", "group": "subscription",
+        "base_url": "", "protocol": "claude_cli",
+        "docs_url": "https://code.claude.com/docs/en/authentication",
+        "models": {}, "default_model": "sonnet", "json_mode": False, "no_temperature": True,
+        "note": "使用本机官方 Claude Code 登录的订阅账号。实际用量以 Claude 账号记录为准。",
+    },
     "minimax_mplan": {
         "label": "MiniMax M Plan", "group": "subscription",
         "base_url": "https://api.minimax.cn/v1", "protocol": "openai",
@@ -155,7 +168,7 @@ def is_peak(schedule: str, when=None) -> bool:
     return t.weekday() < 5 and any(a <= t.hour < b for a, b in windows)
 
 
-def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
+def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[str, Any]:
     """Resolve the provider choice into concrete connection settings."""
     provider = llm.get("provider") or "deepseek"
     if provider in PROVIDERS:
@@ -185,9 +198,11 @@ def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
             return float(v) if v not in (None, "") else float(fallback or 0)
         p_in = 0.0 if sub else num("price_input_per_1m", price.get("in"))
         return {
+            "data_dir": str(data_dir or _expand(DEFAULT_DATA_DIR)),
             "provider": provider, "preset_label": pre["label"], "base_url": pre["base_url"],
             "protocol": pre["protocol"], "model": model,
-            "api_key": (st.get("api_key") or "").strip(), "api_key_env": "", "key_from_env": False,
+            "api_key": "" if provider in ("chatgpt_plan", "claude_cli") else (st.get("api_key") or "").strip(),
+            "api_key_env": "", "key_from_env": False,
             "extra_body": pre.get("extra_body") or {},
             "price_input_per_1m": p_in,
             "price_cache_hit_per_1m": 0.0 if sub else num("price_cache_hit_per_1m", price.get("hit", p_in)),
@@ -378,7 +393,19 @@ class Config:
         return self.raw["web"]
 
     def effective_llm(self) -> dict[str, Any]:
-        return effective_llm(self.llm)
+        return effective_llm(self.llm, data_dir=self.data_dir)
+
+    def model_ready(self) -> bool:
+        eff = self.effective_llm()
+        if eff["provider"] == "chatgpt_plan":
+            from .chatgpt_auth import get_auth
+
+            return bool(eff["model"] and get_auth(self.data_dir).status()["ready"])
+        if eff["provider"] == "claude_cli":
+            from .claude_cli import get_cli
+
+            return bool(get_cli(self.data_dir).status()["ready"])
+        return bool(eff["api_key"])
 
     def load_taxonomy(self):
         from . import taxonomy

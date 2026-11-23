@@ -370,7 +370,7 @@ class Translator:
         except Exception as exc:  # noqa: BLE001
             self.failures += 1
             fb = self.config.raw["translation"].get("fallback_to_main", True)
-            if kind != "main" and fb and self.config.api_key():
+            if kind != "main" and fb and self.config.model_ready():
                 log.warning("translation service failed (%s); falling back to main model", exc)
                 note = f"部分段落 {self.service.get('name')} 没有响应，改用主模型翻译"
                 if note not in self.notes:

@@ -136,9 +136,9 @@ def _file_logging(log_dir: Path) -> None:
 
 
 def _key_hint(cfg) -> None:
-    if not cfg.api_key():
-        print("⚠ No LLM API key set: new papers are detected and registered, but cards wait "
-              "until you add a key on the web Settings page (papermap serve).")
+    if not cfg.model_ready():
+        print("⚠ Model connection is not ready: new papers are detected and registered, but cards wait "
+              "until you connect your model in Settings (papermap serve).")
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -158,7 +158,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     # Phase 2: LLM step, with a cost check for large batches
     pending = reg.query("SELECT id, title FROM papers WHERE status IN ('new','extracting') ORDER BY id")
-    if pending and cfg.api_key():
+    if pending and cfg.model_ready():
         est = pipe.estimate(len(pending))
         if len(pending) >= int(cfg.raw.get("bulk_confirm_threshold", 5)) and not args.yes:
             print(f"\n{len(pending)} papers need the LLM: ~{est['tokens_in'] / 1e6:.2f}M input + "

@@ -2,7 +2,8 @@
 {% block title %}费用 - PaperMap{% endblock %}
 {% block content %}
 <h2>费用</h2>
-{% if eff.billing == 'subscription' %}<div class="notice ok">当前用的是包月套餐（{{ eff.preset_label or eff.model }}）：调用不按 token 计费，下面的美元金额只统计按量计费的调用。套餐剩余额度请到服务商后台查看。</div>{% endif %}
+{% if eff.billing == 'subscription' %}<div class="notice ok">当前用的是包月套餐（{{ eff.preset_label or eff.model }}）：本地单列套餐用量，下面的美元金额只统计按量 API 调用。实际额度与费用以服务商为准。</div>{% endif %}
+{% if eff.provider == 'chatgpt_plan' %}<p>当前 ChatGPT 账号的套餐或余额用于 PaperMap。<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">管理 ChatGPT 用量</a></p>{% endif %}
 <p class="muted">本地估算，按你在设置里填的价格计算{% if eff.peak_schedule == 'deepseek' %}（高峰时段 ×2）{% endif %}{% if eff.price_multiplier != 1 %}，倍率 {{ eff.price_multiplier }}{% endif %}；以服务商账单为准。</p>
 <div class="stats">
   <div class="stat"><span class="muted">本月</span><strong>${{ "%.4f"|format(month_cost) }}</strong>{% if budget %}<span class="muted">预算 ${{ "%.2f"|format(budget) }}</span>
