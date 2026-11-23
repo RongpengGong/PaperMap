@@ -5,6 +5,7 @@
 {% if created %}<div class="notice ok">新学科已建立并写入分类表。{% if hb_started %}学习手册正在后台生成，稍后刷新本页。{% endif %}</div>{% elif cons_started %}<div class="notice ok">正在后台整合（约半分钟），稍后刷新本页。</div>{% elif hb_started %}<div class="notice ok">学习手册正在后台生成（约半分钟），稍后刷新本页。</div>{% endif %}
 <div class="row" style="margin-bottom:12px">
   {% if has_handbook %}<a class="button" href="/handbook/{{ f.slug }}">📘 打开学习手册</a>{% endif %}
+  {% if n_papers >= 2 %}<a class="ghost-btn" href="/compare?field={{ f.slug }}">对比本学科论文</a>{% endif %}
   {% if n_papers >= 2 %}<form method="post" action="/field/{{ f.slug }}/consolidate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="让模型对比本学科的论文，重写概述、进展小结和争议（每条都带出处）">立即整合</button></form>{% endif %}
   {% if n_papers %}<form method="post" action="/handbook/{{ f.slug }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ '重新生成学习手册' if has_handbook else '生成学习手册' }}</button></form>{% endif %}
 </div>

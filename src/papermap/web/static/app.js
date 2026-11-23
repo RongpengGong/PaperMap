@@ -396,6 +396,7 @@
       } }));
       items.push({ text: "＋ 新建分组并加入…", run: () => newGroup(null, ids) });
       items.push("-", { text: "导出参考文献…", run: () => exportMenu(e.clientX, e.clientY, ids) });
+      if (ids.length > 1) items.push({ text: `对比所选 ${ids.length} 篇论文`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
       if (/^\d+$/.test(cur || "")) {
         items.push("-", { text: "从当前分组移除", run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });
       }

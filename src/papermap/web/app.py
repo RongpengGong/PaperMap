@@ -369,6 +369,63 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "search.html", q=q, kind=kind, groups=groups, total=total, kinds=srch.KINDS,
                       terms=srch.query_terms(q), indexed=state)
 
+    # ------------------------------------------------------------- comparison
+    def compare_ids(ids: str, field: str, c: str) -> tuple[list[int], str]:
+        if ids.strip():
+            pids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+            return pids, f"{len(pids)} 篇论文对比"
+        if field:
+            f = registry.field_by_slug(field)
+            if f is None:
+                raise HTTPException(404)
+            return [r["paper_id"] for r in registry.field_paper_rows(f["id"])], f"{f['name_zh']} · 论文对比"
+        if c.isdigit():
+            papers, _ = paper_rows("", "done", c)
+            g = registry.one("SELECT name FROM collections WHERE id=?", (int(c),))
+            return [r["id"] for r in papers], f"{g['name'] if g else '分组'} · 论文对比"
+        return [], "论文对比"
+
+    @app.get("/compare", response_class=HTMLResponse)
+    def compare_page(request: Request, ids: str = "", field: str = "", c: str = ""):
+        from .. import compare as cmp
+
+        pids, title = compare_ids(ids, field, c)
+        items = cmp.rows(registry, pids)
+        return render(request, "compare.html", items=items, title=title, columns=cmp.COLUMNS,
+                      query=f"ids={ids}&field={field}&c={c}")
+
+    @app.get("/compare.{fmt}")
+    def compare_export(fmt: str, ids: str = "", field: str = "", c: str = ""):
+        from fastapi.responses import Response
+
+        from .. import compare as cmp
+
+        pids, title = compare_ids(ids, field, c)
+        items = cmp.rows(registry, pids)
+        if fmt == "md":
+            return Response(cmp.to_markdown(items, title), media_type="text/markdown; charset=utf-8",
+                            headers={"Content-Disposition": 'attachment; filename="comparison.md"'})
+        if fmt == "csv":
+            return Response(cmp.to_csv(items), media_type="text/csv; charset=utf-8",
+                            headers={"Content-Disposition": 'attachment; filename="comparison.csv"'})
+        raise HTTPException(404)
+
+    @app.post("/api/compare/summary")
+    async def compare_summary(request: Request):
+        from .. import compare as cmp
+
+        body = await json_body(request)
+        pids, title = compare_ids(str(body.get("ids", "")), str(body.get("field", "")), str(body.get("c", "")))
+        items = cmp.rows(registry, pids)
+        if len(items) < 2:
+            return {"ok": False, "message": "至少需要两篇已处理的论文"}
+        try:
+            text, cost = await run_in_threadpool(cmp.summarize, config, pipeline.llm, items)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        rel = cmp.save(config.knowledge_dir, items, title, text)
+        return {"ok": True, "html": md_html(text), "saved": rel, "cost": cost}
+
     # --------------------------------------------------------- data resources
     @app.get("/resources", response_class=HTMLResponse)
     def resources_page(request: Request, kind: str = "", role: str = "", scope: str = ""):

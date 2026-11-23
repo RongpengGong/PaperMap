@@ -126,7 +126,9 @@ class FakeCompletions:
     def create(self, **kwargs):
         system = kwargs["messages"][0]["content"]
         self.last_system = system
-        if "search keywords for a full-text index" in system:
+        if "You compare a small set of papers" in system:
+            content = "两篇都用了 Visium [P1][P2]。"
+        elif "search keywords for a full-text index" in system:
             content = json.dumps({"keywords": ["fibroblast", "Visium", "肝癌"]})
         elif "QUESTION:" in (kwargs["messages"][-1]["content"] if kwargs["messages"] else ""):
             content = "成纤维细胞位于小生境中 [S1][S2]。编造的句子 [S99]。"
