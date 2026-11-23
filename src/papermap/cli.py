@@ -120,6 +120,9 @@ def _load(args: argparse.Namespace):
         logging.getLogger(__name__).exception("library migration failed")
     if getattr(args, "func", None) in (cmd_run, cmd_serve, cmd_app):
         threading.Thread(target=pipe.background_maintenance, name="maintenance", daemon=True).start()
+        from . import backup
+
+        threading.Thread(target=backup.run_scheduler, args=(cfg, reg), name="backup", daemon=True).start()
     return cfg, reg, pipe
 
 

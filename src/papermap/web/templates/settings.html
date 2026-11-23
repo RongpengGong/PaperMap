@@ -236,6 +236,30 @@
   <p class="muted small">用 iCloud 时，建议在访达里对这个文件夹选「始终保留在此设备上」，否则不常用的 PDF 可能被移到云端，打开时要先下载。</p>
 </section>
 
+<section class="settings-panel" data-settings-panel="backup" aria-label="备份与恢复" {% if settings_section != 'backup' %}hidden{% endif %}>
+  <input type="hidden" name="backup_form" value="1">
+  <p class="muted small">备份只包含<strong>数据库和设置</strong>：阅读状态、星标、分组、批注、证据摘录、研究问题、提问记录、分类结果，以及 config.yaml 和你改过的分类表。卡片、笔记和 PDF 副本在知识库文件夹（<code>{{ kb_dir }}</code>）里，<strong>不在备份里</strong>；要整库迁移或备份它们，请用「知识库位置」或直接拷贝整个文件夹。ChatGPT 等订阅的登录凭据不备份，恢复后需要重新登录。</p>
+  <p><label class="inline"><input type="checkbox" name="backup_enabled" value="1" {{ 'checked' if backup_cfg.enabled }}> 每天自动备份（PaperMap 开着时检查；关机几天后再打开会马上补一份）</label></p>
+  <div class="row">
+    <label class="grow">保留最近几份自动备份<input type="number" min="1" max="365" name="backup_keep" value="{{ backup_cfg.keep }}"></label>
+    <label class="grow">备份位置（留空 = 数据文件夹里的 backups）<input type="text" id="backup_dir" name="backup_dir" value="{{ backup_cfg.dir }}" placeholder="{{ data_dir }}/backups"></label>
+    <button type="button" class="secondary" data-pick-folder="backup_dir" data-pick-replace>选择文件夹…</button>
+  </div>
+  <p class="muted small">备份里有 config.yaml，其中可能包含 API Key；放到云盘或移动硬盘前请留意。当前位置：<code>{{ backup_dir }}</code></p>
+  <div class="row"><button type="button" id="backup_now">立即备份</button><button type="button" class="ghost-btn" id="backup_check">检查知识库能否对上</button><span id="backup_status" class="muted small" role="status"></span></div>
+  <table class="backup-table">
+    <tr><th>时间</th><th>类型</th><th>内容</th><th>大小</th><th></th></tr>
+    {% for b in backups %}<tr>
+      <td>{{ b.when.astimezone().strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ {'auto':'自动','manual':'手动','before-restore':'恢复前'}.get(b.kind, b.kind) }}</td>
+      <td class="muted small">{% if b.meta.broken %}<span class="err-text">文件损坏</span>{% else %}{{ b.meta.counts.papers }} 篇论文 · {{ b.meta.counts.evidence_entries }} 条摘录 · {{ b.meta.counts.annotations }} 条批注{% endif %}</td>
+      <td class="muted small">{{ '%.1f'|format(b.size / 1048576) }} MB</td>
+      <td>{% if not b.meta.broken %}<button type="button" class="ghost-btn" data-restore="{{ b.name }}">恢复</button>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="5" class="muted">还没有备份。</td></tr>{% endfor %}
+  </table>
+  <div id="backup_report" class="notice" hidden></div>
+</section>
+
 <section class="settings-panel" data-settings-panel="taxonomy" aria-label="学科与版本" {% if settings_section != 'taxonomy' %}hidden{% endif %}>
   <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
   <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">

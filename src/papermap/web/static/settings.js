@@ -346,6 +346,43 @@
     e.target.disabled = false;
   });
 
+  // backups
+  const bStatus = document.getElementById("backup_status");
+  function showReport(r) {
+    const box = document.getElementById("backup_report");
+    if (!box) return;
+    const lines = [`共 ${r.papers} 篇论文：卡片找到 ${r.cards} 篇，PDF 找到 ${r.pdfs} 篇，笔记找到 ${r.notes} 篇。`,
+      `证据摘录 ${r.evidence} 条：能回到原句 ${r.evidence_ok} 条` +
+      (r.evidence_changed ? `，PDF 已变化 ${r.evidence_changed} 条（需要核对）` : "") +
+      (r.evidence_missing ? `，PDF 找不到 ${r.evidence_missing} 条` : "") + "。"];
+    if (r.missing.length) lines.push("缺卡片或 PDF 的论文：" + r.missing.slice(0, 20).map(m =>
+      `${m.label}（${!m.card ? "无卡片" : ""}${!m.card && !m.pdf ? "、" : ""}${!m.pdf ? "无 PDF" : ""}）`).join("；") +
+      (r.missing.length > 20 ? ` 等 ${r.missing.length} 篇` : ""));
+    box.textContent = lines.join("\n"); box.style.whiteSpace = "pre-line"; box.hidden = false;
+    box.className = "notice " + (r.missing.length || r.evidence_missing || r.evidence_changed ? "warn" : "ok");
+  }
+  const bNow = document.getElementById("backup_now");
+  bNow && bNow.addEventListener("click", async () => {
+    bNow.disabled = true; bStatus.textContent = "正在备份…";
+    const r = await window.pmApi("/api/backup/create");
+    bNow.disabled = false;
+    if (r.ok) { bStatus.textContent = "已保存 " + r.name; setTimeout(() => location.reload(), 700); } else bStatus.textContent = "";
+  });
+  const bCheck = document.getElementById("backup_check");
+  bCheck && bCheck.addEventListener("click", async () => {
+    bStatus.textContent = "正在检查…";
+    const r = await (await fetch("/api/backup/check")).json();
+    bStatus.textContent = ""; if (r.ok) showReport(r.report);
+  });
+  document.querySelectorAll("[data-restore]").forEach(btn => btn.addEventListener("click", async () => {
+    const yes = await window.pmDialog(`用这份备份替换当前的数据库和设置？\n\n知识库文件夹（卡片、笔记、PDF）不会改动。恢复前会自动再备份一次当前状态，可以随时撤销。`, { okText: "恢复", danger: true });
+    if (!yes) return;
+    bStatus.textContent = "正在恢复…";
+    const r = await window.pmApi("/api/backup/restore", { name: btn.dataset.restore });
+    bStatus.textContent = r.ok ? `已恢复。撤销用备份：${r.undo}。建议重启 PaperMap。` : "";
+    if (r.ok) showReport(r.report);
+  }));
+
   // knowledge base location
   async function moveKb(body) {
     const pre = await window.pmApi("/api/knowledge/move", body);

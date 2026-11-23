@@ -271,6 +271,7 @@ DEFAULTS: dict[str, Any] = {
     "inbox_dirs": [],
     "data_dir": DEFAULT_DATA_DIR,
     "knowledge_dir": "",  # empty = <data_dir>/knowledge
+    "backup": {"enabled": True, "keep": 14, "dir": "", "every_hours": 24},  # database + settings
     "exclude": {
         "dir_names": ["_private", "drafts"],
         "filename_patterns": ["*draft*", "*_SI.pdf", "*supplement*"],

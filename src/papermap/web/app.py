@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
+from .. import backup as backup_mod
 from .. import kb_git, library, reading_progress
 from .. import ocr
 from .. import reader as reader_mod
@@ -37,7 +38,8 @@ LANGS = ("zh", "en", "bilingual")
 SETTINGS_GROUPS = (
     ("AI 服务", (("models", "模型与账号", "settings"), ("translation", "翻译", "handbooks"))),
     ("文献库", (("import", "导入与文件夹", "inbox"), ("processing", "论文处理", "papers"),
-                ("library", "知识库位置", "folder"), ("taxonomy", "学科与版本", "fields"))),
+                ("library", "知识库位置", "folder"), ("backup", "备份与恢复", "folder"),
+                ("taxonomy", "学科与版本", "fields"))),
     ("应用", (("extensions", "插件与接口", "skills"), ("application", "后台运行", "events"))),
 )
 SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROUPS for item in items}
@@ -1347,6 +1349,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             git_available=kb_git.available(), welcome=welcome,
             kb_dir=str(config.knowledge_dir), kb_default=(config.knowledge_dir == config.data_dir / "knowledge"),
             data_dir=str(config.data_dir),
+            backups=backup_mod.list_backups(config)[:30], backup_cfg=backup_mod.settings(config),
+            backup_dir=str(backup_mod.backup_dir(config)),
             tr={**config.raw["translation"], "services": tr_services}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
             claude_model_options=claude_model_options(),
@@ -1425,6 +1429,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw["new_field_threshold"] = max(1, new_field_threshold)
         raw.setdefault("embedding", {})["model"] = embedding_model.strip()
         raw["knowledge_git"] = bool(knowledge_git)
+        form_b = await request.form()
+        if form_b.get("backup_form"):
+            b = raw.setdefault("backup", {})
+            b["enabled"] = bool(form_b.get("backup_enabled"))
+            try:
+                b["keep"] = max(1, min(365, int(str(form_b.get("backup_keep") or 14))))
+            except ValueError:
+                b["keep"] = 14
+            b["dir"] = str(form_b.get("backup_dir") or "").strip()
         llm = raw["llm"]
         llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") or provider == llm.get("provider") else "deepseek"
         store = llm.setdefault("presets", {})
@@ -1583,6 +1596,35 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/api/accounts/{provider}/cancel")
     async def account_cancel(provider: str, request: Request):
         return await _account_action(request, provider, "cancel")
+
+    @app.post("/api/backup/create")
+    async def api_backup_create(body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        try:
+            path = await run_in_threadpool(backup_mod.create, config, registry, "manual")
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"备份失败：{exc}"}
+        registry.log("info", f"Backup saved: {path.name}")
+        return {"ok": True, "name": path.name}
+
+    @app.post("/api/backup/restore")
+    async def api_backup_restore(body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        running = registry.one("SELECT count(*) AS n FROM jobs WHERE status IN ('queued','running')")["n"]
+        if running or busy:
+            return {"ok": False, "message": "还有翻译、解读或批量任务在运行，请等它们完成后再恢复"}
+        try:
+            res = await run_in_threadpool(backup_mod.restore, config, registry, str(body.get("name", "")),
+                                          pipeline._lock)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": str(exc)}
+        pipeline.llm._client = None
+        report = await run_in_threadpool(backup_mod.check_library, config, registry)
+        return {"ok": True, **res, "report": report}
+
+    @app.get("/api/backup/check")
+    async def api_backup_check():
+        return {"ok": True, "report": await run_in_threadpool(backup_mod.check_library, config, registry)}
 
     @app.post("/api/knowledge/move")
     async def api_knowledge_move(request: Request):

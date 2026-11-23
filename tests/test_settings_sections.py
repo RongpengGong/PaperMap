@@ -14,7 +14,7 @@ from papermap.web.app import create_app
 
 from .conftest import FakeMetadata
 
-SECTIONS = ("models", "processing", "translation", "import", "library", "taxonomy", "extensions", "application")
+SECTIONS = ("models", "processing", "translation", "import", "library", "backup", "taxonomy", "extensions", "application")
 _VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 
 
