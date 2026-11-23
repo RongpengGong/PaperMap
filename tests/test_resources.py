@@ -29,7 +29,7 @@ def test_resources_page_and_csv(config, registry, pdfs, tmp_path):
     assert [r["accession"] for r in rows] == ["GSE200001"] and rows[0]["role"] == "generated"
     c = TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765")
     page = c.get("/resources").text
-    assert "GSE200001" in page and "本研究产生" in page and "/reader/1?page=1&q=GSE200001" in page
+    assert "GSE200001" in page and "本研究产生" in page and "fibroblast niches in liver cancer" in page and "/reader/1?page=1&q=GSE200001" in page
     csv = c.get("/resources.csv?kind=geo").text
     assert csv.startswith("﻿paper,") and "GSE200001" in csv
     assert "GSE200001" not in c.get("/resources?kind=ega").text

@@ -347,3 +347,5 @@ a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .lb-side { flex:0 0 38%; overflow-y:auto; padding:14px 18px; border-left:1px solid var(--line); }
 .tag-chip { font-size:11.5px; padding:0 7px; border-radius:10px; background:var(--side); color:var(--muted); }
 .tag-chip:hover { color:var(--accent); text-decoration:none; }
+.res-table td.res-title { min-width:220px; max-width:340px; } .res-table td.res-title a { color:var(--fg); }
+.res-table td.res-title a { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }

@@ -20,17 +20,18 @@
 </form>
 <p class="muted small">{{ items|length }} 条</p>
 <table class="res-table">
-  <tr><th>论文</th><th>来源</th><th>登录号 / 链接</th><th>用途</th><th>上下文</th></tr>
+  <tr><th>论文</th><th>题目</th><th>来源</th><th>登录号 / 链接</th><th>用途</th><th>上下文</th></tr>
   {% for r in items %}
   <tr>
     <td><a href="/?id={{ r.paper_id }}">{{ r.first_author or '?' }} {{ r.year or '' }}</a><br><span class="muted small">{{ r.journal or '' }}</span></td>
+    <td class="res-title"><a href="/?id={{ r.paper_id }}" title="{{ r.title }}">{{ r.title or '' }}</a></td>
     <td class="small">{{ r.label }}</td>
     <td><a target="_blank" rel="noopener" href="{{ r.url }}"><code>{{ r.accession }}</code></a></td>
     <td><span class="role-chip role-{{ r.role or 'none' }}">{{ roles[r.role] }}</span></td>
     <td class="small muted">{{ r.context[:220] }}{% if r.context|length > 220 %}…{% endif %} <a href="/reader/{{ r.paper_id }}?page={{ (r.page or 0) + 1 }}&q={{ r.accession|urlencode }}">p.{{ (r.page or 0) + 1 }}</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="muted">没有找到。新论文处理完后会自动提取；已有论文在启动时后台补齐。</td></tr>
+  <tr><td colspan="6" class="muted">没有找到。新论文处理完后会自动提取；已有论文在启动时后台补齐。</td></tr>
   {% endfor %}
 </table>
 {% endblock %}
