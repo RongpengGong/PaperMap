@@ -221,8 +221,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     cfg, reg, pipe = _load(args)
     if not getattr(args, "no_web", False) and _already_running(cfg):
-        print(f"Port {cfg.web['port']} is already in use - is PaperMap already running? ({_web_url(cfg)})")
-        return 1
+        # exit 0 so launchd/systemd do not restart-loop when another instance runs
+        print(f"PaperMap is already running at {_web_url(cfg)} - not starting a second copy.")
+        return 0
     print(PRIVACY_NOTICE)
     _key_hint(cfg)
     watcher = Watcher(cfg, pipe)
