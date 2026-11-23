@@ -157,6 +157,10 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
         transparent=app.state.native_glass, vibrancy=app.state.native_glass,
     )
     _state["window"] = window
+    if sys.platform == "darwin":
+        from .mac_titlebar import apply_titlebar
+
+        window.events.before_show += apply_titlebar
 
     def on_closing():
         if _state["quitting"]:
