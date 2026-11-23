@@ -168,6 +168,24 @@ def is_peak(schedule: str, when=None) -> bool:
     return t.weekday() < 5 and any(a <= t.hour < b for a, b in windows)
 
 
+def normalize_reasoning_effort(value: Any) -> str:
+    """Keep provider-defined effort values, using an empty value for its default.
+
+    Do not enumerate levels here: models can publish new values before a
+    PaperMap update. In particular, ``ultra``, ``max`` and ``xhigh`` are distinct.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ConfigError("Reasoning effort must be a string")
+    value = value.strip()
+    if value in ("", "default"):
+        return ""
+    if len(value) > 128 or any(c.isspace() or not c.isprintable() for c in value):
+        raise ConfigError("Reasoning effort must be a single printable value without spaces")
+    return value
+
+
 def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[str, Any]:
     """Resolve the provider choice into concrete connection settings."""
     provider = llm.get("provider") or "deepseek"
@@ -211,6 +229,7 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[
             "billing": "subscription" if sub else "token",
             "json_mode": pre.get("json_mode", True), "no_temperature": pre.get("no_temperature", False),
             "min_max_tokens": int(pre.get("min_max_tokens") or 0),
+            "reasoning_effort": normalize_reasoning_effort(st.get("reasoning_effort")) if provider in ("chatgpt_plan", "claude_cli") else "",
         }
     c = llm.get("custom") or {}
     env = (c.get("api_key_env") or "").strip()

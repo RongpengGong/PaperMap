@@ -18,10 +18,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from ..config import PRESETS, PROTOCOLS, PROVIDERS, Config, effective_llm
+from ..config import PRESETS, PROTOCOLS, PROVIDERS, Config, ConfigError, effective_llm, normalize_reasoning_effort
 from .. import kb_git, library
 from .. import reader as reader_mod
-from ..llm import check_connection, list_models
+from ..llm import check_connection, list_chatgpt_model_options, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry, now_iso
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
@@ -1225,6 +1225,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings(request: Request, saved: int = 0, welcome: int = 0):
+        from ..claude_cli import model_options as claude_model_options
+
         llm = config.llm
         eff = config.effective_llm()
         custom = llm.get("custom") or {}
@@ -1243,6 +1245,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             data_dir=str(config.data_dir),
             tr=config.raw["translation"], bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
+            claude_model_options=claude_model_options(),
         )
 
     @app.post("/settings")
@@ -1280,6 +1283,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         knowledge_git: str = Form(""),
     ):
         _check_csrf(csrf, csrf_token)
+        form = await request.form()
+        reasoning_values = {}
+        for pid in ("chatgpt_plan", "claude_cli"):
+            field = f"p_{pid}_reasoning_effort"
+            if field in form:
+                try:
+                    reasoning_values[pid] = normalize_reasoning_effort(form[field])
+                except ConfigError as exc:
+                    raise HTTPException(422, str(exc)) from exc
         raw = config.raw
         from ..translate import BILIBILI_MODELS
 
@@ -1297,7 +1309,6 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw["knowledge_git"] = bool(knowledge_git)
         llm = raw["llm"]
         llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
-        form = await request.form()
         store = llm.setdefault("presets", {})
         for pid in PRESETS:
             st = store.get(pid) or {}
@@ -1310,6 +1321,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 st["api_key"] = f["key"]
             if f["model"] or (pid == "chatgpt_plan" and f"p_{pid}_model" in form):
                 st["model"] = f["model"]
+            if pid in reasoning_values:
+                st["reasoning_effort"] = reasoning_values[pid]
             for k, name in (("in", "price_input_per_1m"), ("hit", "price_cache_hit_per_1m"), ("out", "price_output_per_1m")):
                 if f"p_{pid}_{k}" in form:
                     try:
@@ -1368,6 +1381,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             st = llm.setdefault("presets", {}).setdefault(llm["provider"], {})
             if str(body.get("model", "")).strip() or (llm["provider"] == "chatgpt_plan" and "model" in body):
                 st["model"] = str(body["model"]).strip()
+            if llm["provider"] in ("chatgpt_plan", "claude_cli") and "reasoning_effort" in body:
+                try:
+                    st["reasoning_effort"] = normalize_reasoning_effort(body["reasoning_effort"])
+                except ConfigError as exc:
+                    raise HTTPException(422, str(exc)) from exc
             if llm["provider"] in ("chatgpt_plan", "claude_cli"):
                 st.pop("api_key", None)
             elif str(body.get("api_key", "")).strip():
@@ -1484,7 +1502,17 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def api_models(request: Request):
         eff = _form_llm(await request.json())
         try:
+            if eff["provider"] == "chatgpt_plan":
+                options = await run_in_threadpool(list_chatgpt_model_options, eff)
+                return {"ok": True, "models": [o["id"] for o in options], "model_options": options}
             models = await run_in_threadpool(list_models, eff)
+            if eff["provider"] == "claude_cli":
+                from ..claude_cli import model_option, model_options
+
+                options = model_options()
+                if eff["model"] and eff["model"] not in {o["id"] for o in options}:
+                    options.append(model_option(eff["model"]))
+                return {"ok": True, "models": models, "model_options": options}
             return {"ok": True, "models": models}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}

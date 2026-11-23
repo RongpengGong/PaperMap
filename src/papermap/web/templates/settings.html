@@ -82,8 +82,18 @@
     <div class="row">
       <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
         value="{{ st.model or p.default_model }}" placeholder="点右边按钮获取，或直接填写">
+      {% if pid in ('chatgpt_plan', 'claude_cli') %}
+      <label class="inline" for="p_{{ pid }}_reasoning_effort">推理强度</label>
+      <select class="ghost-select" id="p_{{ pid }}_reasoning_effort" data-role="reasoning-effort" aria-describedby="{{ pid }}_reasoning_hint">
+        <option value="">默认（模型决定）</option>
+        {% if st.reasoning_effort %}<option value="{{ st.reasoning_effort }}" selected disabled>{{ st.reasoning_effort }}（已保存，待确认）</option>{% endif %}
+      </select>
+      <input type="hidden" name="p_{{ pid }}_reasoning_effort" data-role="reasoning-value" value="{{ st.reasoning_effort or '' }}">
+      {% endif %}
       <button type="button" class="secondary" data-fetch-models>获取模型列表</button>
     </div>
+    {% if pid in ('chatgpt_plan', 'claude_cli') %}<p class="muted small" id="{{ pid }}_reasoning_hint" data-reasoning-hint role="status" aria-live="polite">{% if pid == 'chatgpt_plan' %}连接后会自动获取所选模型支持的推理强度{% else %}按官方 Claude Code 的模型能力显示可选强度{% endif %}；默认由模型决定。</p>{% endif %}
+    {% if pid == 'claude_cli' %}<script type="application/json" data-claude-model-options>{{ claude_model_options|tojson }}</script>{% endif %}
     <datalist id="p_{{ pid }}_models">{% for mid, m in p.models.items() %}<option value="{{ mid }}">{{ m.label }}</option>{% endfor %}</datalist>
     {% if p.group == 'api' %}
     <details {{ 'open' if not p.models and not st.price_input_per_1m }}>

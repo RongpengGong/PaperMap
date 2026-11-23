@@ -32,9 +32,41 @@ from typing import Any
 
 
 MODELS = [{"id": name, "label": name.title()} for name in ("sonnet", "opus", "haiku")]
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+# First-party alias resolution and effort table: code.claude.com/docs/en/model-config.
+_ALIAS_MODELS = {"sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5",
+                 "fable": "claude-fable-5-2"}
+_FULL_EFFORT_MODELS = {
+    "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5",
+    "claude-opus-4-8", "claude-opus-4-7",
+}
 INSTALL_URL = "https://code.claude.com/docs/en/setup"
 _STATUS_TTL = 5.0
 _SAFE_ARGS = ["--safe-mode", "--setting-sources", ""]
+
+
+def model_option(model_id: str) -> dict:
+    """Describe the effort levels for the selected first-party Claude Code model."""
+    name = model_id.lower().removesuffix("[1m]")
+    if name == "best":
+        name = "opus"
+    if name in _ALIAS_MODELS:
+        name = os.getenv(f"ANTHROPIC_DEFAULT_{name.upper()}_MODEL") or _ALIAS_MODELS[name]
+    name = re.sub(r"-\d{8}$", "", name.lower().removesuffix("[1m]"))
+    if name in _FULL_EFFORT_MODELS or re.fullmatch(r"claude-fable-\d+(?:-\d+)?", name):
+        levels = EFFORT_LEVELS
+    elif name in ("claude-sonnet-4-6", "claude-opus-4-6"):
+        levels = ("low", "medium", "high", "max")
+    else:
+        levels = ()
+    return {"id": model_id, "label": model_id.title() if model_id in _ALIAS_MODELS else model_id,
+            "reasoning_efforts": list(levels), "reasoning_efforts_known": bool(levels) or name in {
+                "claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5", "claude-sonnet-4", "claude-opus-4",
+            }, "default_reasoning_effort": ""}
+
+
+def model_options() -> list[dict]:
+    return [model_option(model["id"]) for model in MODELS]
 
 
 def find_claude(executable: str | None = None) -> str | None:
@@ -183,7 +215,7 @@ class ClaudeCliClient:
         return {"ok": ok, "message": "已退出官方 Claude Code 登录（本机 CLI 共用此登录）。" if ok else "退出失败，请在终端运行 claude auth logout。"}
 
     def create(self, model: str, messages: list[dict], max_tokens: int = 4096,
-               response_format: dict | None = None, **_: Any) -> Any:
+               response_format: dict | None = None, reasoning_effort: str = "", **_: Any) -> Any:
         from .llm import LLMError, LLMNotConfigured
 
         # Structured image input uses the documented SDKUserMessage protocol:
@@ -220,6 +252,11 @@ class ClaudeCliClient:
             raise LLMError("Claude Code 请求没有文本内容。")
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:+\[\]-]{0,150}", model):
             raise LLMError("Claude Code 模型名无效；可使用 sonnet、opus、haiku 或官方完整模型名。")
+        if reasoning_effort:
+            option = model_option(model)
+            if (reasoning_effort not in EFFORT_LEVELS or
+                    (option["reasoning_efforts_known"] and reasoning_effort not in option["reasoning_efforts"])):
+                raise LLMError("此 Claude 模型不支持所选推理强度，请重新选择或使用模型默认值。")
         state = self.status(refresh=True)
         if not state["ready"]:
             raise LLMNotConfigured(state["message"])
@@ -241,6 +278,11 @@ class ClaudeCliClient:
         if images:
             args.append("--verbose")
         env = dict(os.environ)
+        if reasoning_effort:
+            args.extend(["--effort", reasoning_effort])
+            # The inherited effort preference outranks --effort. Apply the user's
+            # explicit choice to this child only. The CLI still enforces policy caps.
+            env.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
         env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(max(1, int(max_tokens)))
         try:
             proc = self._run(args, prompt=prompt, timeout=self.timeout_s, env=env)

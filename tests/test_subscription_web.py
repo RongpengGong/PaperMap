@@ -145,6 +145,9 @@ def test_models_and_connection_use_unsaved_subscription_model(subscription_clien
         return {"ok": True, "message": "connected", "latency_ms": 2}
 
     monkeypatch.setattr("papermap.web.app.list_models", fake_models)
+    monkeypatch.setattr("papermap.web.app.list_chatgpt_model_options", lambda eff: [
+        {"id": m, "label": m, "reasoning_efforts": [], "reasoning_efforts_known": False,
+         "default_reasoning_effort": ""} for m in fake_models(eff)])
     monkeypatch.setattr("papermap.web.app.check_connection", fake_test)
     body = {"csrf": token, "provider": provider, "model": "unsaved-model"}
     assert client.post("/api/llm/models", json=body).json()["models"] == ["model-a", "model-b"]
@@ -168,6 +171,9 @@ def test_subscription_ignores_submitted_and_legacy_keys(subscription_client, con
     assert "autofilled-key" not in config.path.read_text()
     seen = []
     monkeypatch.setattr("papermap.web.app.list_models", lambda eff: seen.append(eff) or ["chosen"])
+    monkeypatch.setattr("papermap.web.app.list_chatgpt_model_options", lambda eff: seen.append(eff) or [
+        {"id": "chosen", "label": "chosen", "reasoning_efforts": [], "reasoning_efforts_known": False,
+         "default_reasoning_effort": ""}])
     assert client.post("/api/llm/models", json={
         "csrf": token, "provider": provider, "model": "chosen", "api_key": "injected-key",
     }).json()["ok"]
@@ -194,3 +200,205 @@ def test_account_error_does_not_expose_exception_secrets(subscription_client, mo
     response = client.post("/api/accounts/chatgpt_plan/status", json={"csrf": token})
     assert not response.json()["ok"]
     assert "sensitive-token" not in response.text
+
+
+def test_reasoning_choices_save_restore_and_clear_independently(subscription_client, config):
+    client, token = subscription_client
+    response = client.post("/settings", data={"csrf": token, "provider": "chatgpt_plan",
+        "p_chatgpt_plan_model": "model-a", "p_chatgpt_plan_reasoning_effort": "ultra",
+        "p_claude_cli_model": "opus", "p_claude_cli_reasoning_effort": "max"}, follow_redirects=False)
+    assert response.status_code == 303
+    saved = config.llm["presets"]
+    assert saved["chatgpt_plan"]["reasoning_effort"] == "ultra"
+    assert saved["claude_cli"]["reasoning_effort"] == "max"
+    html = client.get("/settings").text
+    for provider, value in (("chatgpt_plan", "ultra"), ("claude_cli", "max")):
+        assert f'id="p_{provider}_reasoning_effort"' in html
+        assert f'name="p_{provider}_reasoning_effort" data-role="reasoning-value" value="{value}"' in html
+    assert 'data-claude-model-options' in html
+    assert "默认（模型决定）" in html
+    # Saving another provider without these fields preserves both choices.
+    client.post("/settings", data={"csrf": token, "provider": "custom"})
+    assert saved["chatgpt_plan"]["reasoning_effort"] == "ultra" and saved["claude_cli"]["reasoning_effort"] == "max"
+    client.post("/settings", data={"csrf": token, "provider": "claude_cli", "p_claude_cli_reasoning_effort": "default"})
+    assert config.llm["presets"]["claude_cli"]["reasoning_effort"] == ""
+    assert config.llm["presets"]["chatgpt_plan"]["reasoning_effort"] == "ultra"
+
+
+@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
+def test_unsaved_reasoning_and_default_reach_connection_test(subscription_client, config, monkeypatch, provider):
+    client, token = subscription_client
+    config.llm.setdefault("presets", {})[provider] = {"model": "old", "reasoning_effort": "high"}
+    seen = []
+    monkeypatch.setattr("papermap.web.app.check_connection", lambda eff: seen.append(eff) or {"ok": True})
+    for effort in ("ultra", ""):
+        assert client.post("/api/llm/test", json={"csrf": token, "provider": provider,
+            "model": "new", "reasoning_effort": effort}).json()["ok"]
+        assert seen[-1]["model"] == "new" and seen[-1]["reasoning_effort"] == effort
+    assert config.llm["presets"][provider] == {"model": "old", "reasoning_effort": "high"}
+
+
+def test_chatgpt_models_return_capabilities_without_changing_selection(subscription_client, config, monkeypatch):
+    client, token = subscription_client
+    capabilities = [{"id": "model-a", "label": "Sol", "reasoning_efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                     "default_reasoning_effort": "medium", "reasoning_efforts_known": True},
+                    {"id": "model-b", "label": "Astra", "reasoning_efforts": [],
+                     "default_reasoning_effort": "", "reasoning_efforts_known": False}]
+    seen = []
+    monkeypatch.setattr("papermap.web.app.list_chatgpt_model_options", lambda eff: seen.append(eff) or capabilities)
+    data = client.post("/api/llm/models", json={"csrf": token, "provider": "chatgpt_plan",
+        "model": "model-a", "reasoning_effort": "ultra"}).json()
+    assert data["models"] == ["model-a", "model-b"] and data["model_options"] == capabilities
+    assert seen[0]["reasoning_effort"] == "ultra"
+    assert config.llm["provider"] == "deepseek"
+    def offline(eff):
+        raise OSError("offline")
+    monkeypatch.setattr("papermap.web.app.list_chatgpt_model_options", offline)
+    assert not client.post("/api/llm/models", json={"csrf": token, "provider": "chatgpt_plan"}).json()["ok"]
+
+
+def test_claude_full_model_capabilities_keep_alias_model_list(subscription_client):
+    client, token = subscription_client
+    data = client.post("/api/llm/models", json={"csrf": token, "provider": "claude_cli", "model": "claude-opus-5-5"}).json()
+    assert data["ok"] and "opus" in data["models"] and "claude-opus-5-5" not in data["models"]
+    full = next(m for m in data["model_options"] if m["id"] == "claude-opus-5-5")
+    assert full["reasoning_efforts_known"] and "max" in full["reasoning_efforts"]
+
+
+@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
+def test_invalid_reasoning_never_mutates_saved_settings(subscription_client, config, monkeypatch, provider):
+    import copy
+
+    client, token = subscription_client
+    before = copy.deepcopy(config.raw)
+    response = client.post("/settings", data={"csrf": token, "provider": provider,
+        f"p_{provider}_reasoning_effort": "bad\nvalue", "output_language": "en"})
+    assert response.status_code == 422 and config.raw == before
+    assert client.get("/settings").status_code == 200
+    monkeypatch.setattr("papermap.web.app.check_connection", lambda eff: pytest.fail("invalid value reached inference"))
+    response = client.post("/api/llm/test", json={"csrf": token, "provider": provider, "reasoning_effort": ["high"]})
+    assert response.status_code == 422 and config.raw == before
+
+
+def test_settings_script_model_effort_changes_and_async_races():
+    """Exercise real settings JS with a small DOM/HTTP fixture, without a browser account."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node is only needed for this optional browser-script contract test")
+    script = r'''
+const fs = require("node:fs"), vm = require("node:vm"), assert = require("node:assert/strict");
+class Element {
+  constructor(value = "", dataset = {}) { this.value = value; this.dataset = dataset; this.listeners = {}; this.children = []; this.textContent = ""; this.classList = {toggle(){}}; }
+  addEventListener(name, cb) { (this.listeners[name] ||= []).push(cb); }
+  async emit(name) { await Promise.all((this.listeners[name] || []).map(cb => cb({target:this}))); }
+  appendChild(el) { this.children.push(el); return el; }
+  replaceChildren(...els) { this.children = els; }
+  get options() { return this.children; }
+  removeAttribute(key) { delete this[key]; }
+  focus() {}
+  closest() { return this.pane; }
+}
+const ids = {}, panes = {}, radios = [], account = {}, starts = [], cancels = [], statuses = [], logouts = [], fetchers = [];
+for (const name of ["csrf","test_result","test_conn","fetch_models","custom_model","custom_base_url","custom_api_key","custom_protocol","official_api_key","official_model"]) ids[name] = new Element();
+ids.csrf.value = "test-csrf";
+const caps = [
+  {id:"gpt-a", label:"Sol", reasoning_efforts:["low","medium","high","xhigh","max","ultra"], default_reasoning_effort:"medium", reasoning_efforts_known:true},
+  {id:"gpt-b", label:"Other", reasoning_efforts:["low","high"], default_reasoning_effort:"high", reasoning_efforts_known:true},
+];
+const aliases = [
+  {id:"opus",label:"Opus",reasoning_efforts:["low","medium","high","xhigh","max"], reasoning_efforts_known:true,default_reasoning_effort:""},
+  {id:"haiku",label:"Haiku",reasoning_efforts:[],reasoning_efforts_known:true,default_reasoning_effort:""},
+];
+for (const p of ["chatgpt_plan","claude_cli","custom","deepseek"]) {
+  const radio = new Element(p); radio.checked = p === "custom"; radios.push(radio);
+  const pane = panes[p] = new Element("", {pane:p});
+  const parts = pane.parts = {model:new Element(p === "chatgpt_plan" ? "gpt-a" : p === "claude_cli" ? "opus" : "other"), datalist:new Element()};
+  if (p === "chatgpt_plan" || p === "claude_cli") {
+    parts["reasoning-effort"] = new Element(); parts["reasoning-value"] = new Element(p === "chatgpt_plan" ? "ultra" : "max"); parts.hint = new Element();
+    parts.bootstrap = new Element(); parts.bootstrap.textContent = JSON.stringify(aliases);
+    for (const [kind, all, data] of [["result",null,"accountResult"],["url",null,"accountUrl"],["start",starts,"accountStart"],["cancel",cancels,"accountCancel"],["status",statuses,"accountStatus"],["logout",logouts,"accountLogout"]]) {
+      const el = new Element("", {[data]:p}); account[p+":"+kind] = el; if (all) all.push(el);
+    }
+  }
+  parts.fetch = new Element("", {fetchModels:""}); parts.fetch.pane = pane; if (!["custom","deepseek"].includes(p)) fetchers.push(parts.fetch);
+  pane.querySelector = sel => {
+    const match = sel.match(/data-role="([^"]+)"/); if (match) return parts[match[1]] || null;
+    if (sel === "datalist") return parts.datalist;
+    if (sel === "[data-reasoning-hint]") return parts.hint;
+    if (sel === "[data-claude-model-options]") return parts.bootstrap;
+    if (sel === "[data-fetch-models]") return parts.fetch;
+    return null;
+  };
+}
+const form = ids.settings = new Element();
+form.querySelector = sel => {
+  if (sel === 'input[name="provider"]:checked') return radios.find(r=>r.checked);
+  let m = sel.match(/\.pane\[data-pane="([^"]+)"\]/); if (m) return panes[m[1]];
+  m = sel.match(/\[data-account-(result|url|start|cancel|status|logout)="([^"]+)"\]/); if (m) return account[m[2]+":"+m[1]];
+  return null;
+};
+form.querySelectorAll = sel => ({'input[name="provider"]':radios,".pane":Object.values(panes),".choice":[],"[data-account-start]":starts,"[data-account-cancel]":cancels,"[data-account-status]":statuses,"[data-account-logout]":logouts,"[data-fetch-models]":fetchers}[sel] || []);
+const requests = []; let mode = "normal", release;
+function reply(data) { return {ok:true,json:async()=>data}; }
+async function fetch(url, opts) {
+  const body = JSON.parse(opts.body); requests.push({url,body});
+  if (url.endsWith("/status")) return reply({ok:true,ready:true});
+  if (url.endsWith("/login")) return reply({ok:true,pending:true});
+  if (url.endsWith("/logout")) return reply({ok:true,ready:false});
+  if (url === "/api/llm/test") return reply({ok:true,message:"connected",latency_ms:1});
+  if (url === "/api/llm/models") {
+    if (body.provider === "claude_cli") return reply({ok:true,models:["opus","haiku"],model_options:[...aliases,{id:body.model,label:body.model,reasoning_efforts:["low","high","max"],reasoning_efforts_known:true}]});
+    if (mode === "hold") return new Promise(resolve=>{release=data=>resolve(reply(data));});
+    if (mode === "offline") throw new Error("offline");
+    return reply({ok:true,models:caps.map(x=>x.id),model_options:mode === "missing" ? [] : caps});
+  }
+  throw new Error("Unexpected request " + url);
+}
+const context = {document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[]},
+  fetch,window:{pmDialog:async()=>true,pmToast(){}},setTimeout:()=>1,clearTimeout(){},console};
+vm.runInNewContext(fs.readFileSync(process.argv[1],"utf8"),context);
+const flush = async()=>{for(let i=0;i<12;i++) await new Promise(resolve=>setImmediate(resolve));};
+async function choose(p) { radios.forEach(r=>r.checked=r.value===p); await radios.find(r=>r.value===p).emit("change"); await flush(); }
+const values = select=>select.children.map(x=>x.value);
+(async()=>{
+  const gp=panes.chatgpt_plan.parts, cp=panes.claude_cli.parts;
+  assert.equal(requests.length,0,"custom startup must not inspect subscription accounts");
+  await choose("chatgpt_plan");
+  assert.deepEqual(values(gp["reasoning-effort"]),["","low","medium","high","xhigh","max","ultra"]);
+  assert.equal(gp["reasoning-effort"].value,"ultra","saved selection restored after automatic model discovery");
+  gp.model.value="gpt-b"; await gp.model.emit("input");
+  assert.deepEqual(values(gp["reasoning-effort"]),["","low","high"]);
+  gp["reasoning-effort"].value="high"; await gp["reasoning-effort"].emit("change");
+  await ids.test_conn.emit("click");
+  assert.equal(requests.at(-1).body.model,"gpt-b"); assert.equal(requests.at(-1).body.reasoning_effort,"high");
+  gp.model.value="gpt-a"; await gp.model.emit("input"); assert.equal(gp["reasoning-value"].value,"ultra");
+  mode="missing"; await gp.fetch.emit("click");
+  assert.equal(gp["reasoning-value"].value,"ultra"); assert.equal(gp["reasoning-effort"].children.at(-1).disabled,true);
+  gp["reasoning-effort"].value=""; await gp["reasoning-effort"].emit("change"); assert.equal(gp["reasoning-value"].value,"");
+  mode="normal"; await gp.fetch.emit("click");
+  gp["reasoning-effort"].value="ultra"; await gp["reasoning-effort"].emit("change");
+  mode="offline"; await gp.fetch.emit("click"); assert.equal(gp["reasoning-value"].value,"ultra");
+  mode="hold"; const old=gp.fetch.emit("click"); await flush();
+  await choose("claude_cli");
+  assert.equal(cp["reasoning-value"].value,"max");
+  cp.model.value="haiku"; await cp.model.emit("input"); assert.deepEqual(values(cp["reasoning-effort"]),[""]);
+  cp.model.value="opus"; await cp.model.emit("input"); assert.equal(cp["reasoning-value"].value,"max");
+  cp["reasoning-effort"].value="high"; await cp["reasoning-effort"].emit("change"); await ids.test_conn.emit("click");
+  assert.equal(requests.at(-1).body.provider,"claude_cli"); assert.equal(requests.at(-1).body.reasoning_effort,"high");
+  release({ok:true,models:["late-model"],model_options:[]}); await old;
+  assert(!gp.datalist.children.some(x=>x.value==="late-model"),"other provider's late response must be ignored");
+  mode="normal"; await choose("chatgpt_plan");
+  mode="hold"; const beforeLogin=gp.fetch.emit("click"); await flush();
+  await account["chatgpt_plan:start"].emit("click");
+  release({ok:true,models:["pre-authorization-model"],model_options:[]}); await beforeLogin;
+  assert(!gp.datalist.children.some(x=>x.value==="pre-authorization-model"),"pre-login response must not replace authorized capabilities");
+  console.log("settings effort behavior and races passed");
+})().catch(err=>{console.error(err);process.exitCode=1;});
+'''
+    source = Path(__file__).parents[1] / "src" / "papermap" / "web" / "static" / "settings.js"
+    result = subprocess.run([node, "-e", script, str(source)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr

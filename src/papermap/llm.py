@@ -110,6 +110,8 @@ class LLMClient:
             kwargs["temperature"] = 0.3
         if eff.get("extra_body"):
             kwargs["extra_body"] = eff["extra_body"]
+        if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+            kwargs["reasoning_effort"] = eff["reasoning_effort"]
         resp = client.chat.completions.create(**kwargs)
         raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
         usage = getattr(resp, "usage", None)
@@ -151,6 +153,8 @@ class LLMClient:
             extra = eff.get("extra_body")
             if extra:
                 kwargs["extra_body"] = extra
+            if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+                kwargs["reasoning_effort"] = eff["reasoning_effort"]
             resp = client.chat.completions.create(**kwargs)
             raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
             pt, ct, cost = self._cost(getattr(resp, "usage", None), eff=eff)
@@ -428,6 +432,17 @@ def _error_text(resp: httpx.Response) -> str:
         return resp.text[:300]
 
 
+def list_chatgpt_model_options(eff: dict[str, Any], timeout_s: float = 20) -> list[dict[str, Any]]:
+    """Account-specific model names and authoritative effort capabilities.
+
+    ``reasoning_efforts_known=False`` distinguishes missing metadata from a
+    model explicitly publishing an empty list of selectable reasoning levels.
+    """
+    if eff.get("provider") != "chatgpt_plan":
+        raise LLMNotConfigured("请先选择 ChatGPT 订阅登录。")
+    return _chatgpt_plan_client(eff, timeout_s).model_options()
+
+
 def list_models(eff: dict[str, Any], timeout_s: float = 20) -> list[str]:
     """Ask the endpoint which models it offers."""
     if eff.get("provider") == "chatgpt_plan":
@@ -466,6 +481,8 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
         }
         if eff.get("extra_body"):
             kwargs["extra_body"] = eff["extra_body"]
+        if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+            kwargs["reasoning_effort"] = eff["reasoning_effort"]
         resp = client.chat.completions.create(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         usage = getattr(resp, "usage", None)

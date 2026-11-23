@@ -114,6 +114,38 @@ def test_inference_refreshes_identity_after_a_cached_ready_status(monkeypatch):
     assert len(calls) == 1
 
 
+def test_reasoning_catalog_respects_pinned_models(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")
+    choices = {m["id"]: m["reasoning_efforts"] for m in cc.model_options()}
+    assert choices["sonnet"] == ["low", "medium", "high", "max"]
+    assert cc.model_option("claude-opus-5-5[1m]")["reasoning_efforts"] == list(cc.EFFORT_LEVELS)
+    assert cc.model_option("claude-haiku-4-5-20251001")["reasoning_efforts"] == []
+    assert not cc.model_option("future-model")["reasoning_efforts_known"]
+
+
+def test_explicit_claude_effort_reaches_child_and_default_inherits(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_EFFORT_LEVEL", "low")
+    calls = mock_cli(monkeypatch)
+    cli = cc.get_cli()
+    request = {"model": "claude-opus-5-5", "messages": [{"role": "user", "content": "hello"}]}
+    cli.create(**request, reasoning_effort="max")
+    flags, opts = calls[-1]
+    assert flags[flags.index("--effort") + 1] == "max"
+    assert "CLAUDE_CODE_EFFORT_LEVEL" not in opts["env"]
+    cli.create(**request)
+    flags, opts = calls[-1]
+    assert "--effort" not in flags and opts["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "low"
+    assert cc.os.environ["CLAUDE_CODE_EFFORT_LEVEL"] == "low"
+
+
+@pytest.mark.parametrize("model,effort", [("claude-opus-4-6", "xhigh"), ("claude-opus-5-5", "ultra")])
+def test_unsupported_claude_effort_does_not_run_cli(monkeypatch, model, effort):
+    calls = mock_cli(monkeypatch)
+    with pytest.raises(LLMError, match="推理强度"):
+        cc.get_cli().create(model=model, messages=[{"role": "user", "content": "paper"}], reasoning_effort=effort)
+    assert not calls
+
+
 def test_text_json_context_and_tokens_pass_through_stdin_only(monkeypatch):
     calls = mock_cli(monkeypatch)
     cli = cc.ClaudeCliClient(timeout_s=42)

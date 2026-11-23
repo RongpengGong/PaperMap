@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import copy
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -9,10 +12,45 @@ from types import SimpleNamespace
 import httpx
 
 from .chatgpt_auth import ChatGPTAuthError
+from .config import ConfigError, normalize_reasoning_effort
 from .llm import BudgetExceeded, LLMHTTPError, LLMNotConfigured, _ResponsesClient
 
 API = "https://api.openai.com/v1"
 LIMIT_ERRORS = {"subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable"}
+_EFFORT_KEYS = ("supported_reasoning_levels", "supported_reasoning_efforts", "supportedReasoningEfforts", "reasoning_efforts")
+_DEFAULT_EFFORT_KEYS = ("default_reasoning_level", "default_reasoning_effort", "defaultReasoningEffort")
+
+
+def _catalog_effort(value: object) -> str:
+    try:
+        return normalize_reasoning_effort(value)
+    except ConfigError:
+        return ""
+
+
+def model_option(row: dict) -> dict:
+    """Normalize official model-catalog metadata without guessing capabilities.
+
+    Codex's ModelInfo uses supported_reasoning_levels[{effort,...}]. The
+    app-server representation uses supportedReasoningEfforts[{reasoningEffort}].
+    Future provider-defined effort strings must survive unchanged.
+    """
+    raw = next((row[k] for k in _EFFORT_KEYS if k in row and row[k] is not None), None)
+    efforts = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                item = item.get("effort", item.get("reasoning_effort", item.get("reasoningEffort")))
+            effort = _catalog_effort(item)
+            if effort and effort not in efforts:
+                efforts.append(effort)
+    default = next((_catalog_effort(row[k]) for k in _DEFAULT_EFFORT_KEYS if row.get(k) is not None), "")
+    label = row.get("display_name") or row.get("displayName")
+    return {
+        "id": row["slug"], "label": label if isinstance(label, str) and label else row["slug"],
+        "reasoning_efforts": efforts, "default_reasoning_effort": default,
+        "reasoning_efforts_known": isinstance(raw, list) and (not raw or bool(efforts)),
+    }
 
 
 def _events(lines: Iterator[str]) -> Iterator[dict]:
@@ -49,6 +87,12 @@ class ChatGPTPlanClient:
         self.timeout_s = timeout_s
         self.transport = transport
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+        self._catalog: list[dict] | None = None
+        self._catalog_at = 0.0
+        self._catalog_account = None
+        self._catalog_retry_at = 0.0
+        self._catalog_failed_account = None
+        self._catalog_lock = threading.RLock()
 
     @contextmanager
     def _request(self, method: str, path: str, body=None):
@@ -77,19 +121,80 @@ class ChatGPTPlanClient:
         except httpx.HTTPError as exc:
             raise LLMHTTPError(0, "无法连接 ChatGPT，或响应流已中断。") from exc
 
-    def model_ids(self) -> list[str]:
-        with self._request("GET", "/models") as response:
-            response.read()
-            return [m["slug"] for m in response.json().get("models", [])
-                    if m.get("visibility") == "list" and m.get("slug")]
+    def _account_id(self):
+        status = getattr(self.auth, "status", None)
+        return status().get("client_id") if callable(status) else None
 
-    def create(self, *, model: str, messages: list[dict], **_):
+    def model_options(self, *, force_refresh: bool = False) -> list[dict]:
+        account = self._account_id()
+        with self._catalog_lock:
+            if (not force_refresh and self._catalog is not None and account == self._catalog_account
+                    and time.monotonic() - self._catalog_at < 300):
+                return copy.deepcopy(self._catalog)
+            with self._request("GET", "/models") as response:
+                response.read()
+                try:
+                    rows = response.json().get("models", [])
+                except (ValueError, AttributeError) as exc:
+                    raise LLMHTTPError(0, "ChatGPT 模型目录无法解析，请重新获取。") from exc
+                if not isinstance(rows, list):
+                    raise LLMHTTPError(0, "ChatGPT 模型目录格式不正确，请重新获取。")
+                options, seen = [], set()
+                for row in rows:
+                    if (not isinstance(row, dict) or row.get("visibility") != "list"
+                            or not isinstance(row.get("slug"), str) or not row["slug"] or row["slug"] in seen):
+                        continue
+                    seen.add(row["slug"])
+                    options.append(model_option(row))
+            self._catalog = options
+            self._catalog_at, self._catalog_account = time.monotonic(), account
+            self._catalog_retry_at = 0.0
+            return copy.deepcopy(options)
+
+    def model_ids(self) -> list[str]:
+        return [row["id"] for row in self.model_options()]
+
+    def _reasoning_effort(self, model: str, value: object) -> str:
+        try:
+            effort = normalize_reasoning_effort(value)
+        except ConfigError as exc:
+            raise LLMHTTPError(400, "ChatGPT 推理强度格式无效，请重新选择。") from exc
+        if not effort:
+            return ""  # Old settings and model-default selection never add a field.
+        account = self._account_id()
+        with self._catalog_lock:
+            # An unavailable model-list endpoint must not be requested again
+            # for every paragraph, paper or JSON-repair attempt in a batch.
+            if account == self._catalog_failed_account and time.monotonic() < self._catalog_retry_at:
+                options = self._catalog if self._catalog_account == account else []
+            else:
+                try:
+                    options = self.model_options()
+                except LLMHTTPError as exc:
+                    if exc.status_code not in (0, 500, 502, 503, 504):
+                        raise
+                    self._catalog_failed_account = account
+                    self._catalog_retry_at = time.monotonic() + 30
+                    # Retain known restrictions for this account when a cached
+                    # listing has expired. With no capability metadata, preserve
+                    # the exact explicit value for the inference server to check.
+                    options = self._catalog if self._catalog_account == account else []
+            options = options or []
+        option = next((row for row in options if row["id"] == model), None)
+        if option and option["reasoning_efforts_known"] and effort not in option["reasoning_efforts"]:
+            raise LLMHTTPError(400, "该 ChatGPT 模型不支持所选推理强度，请获取模型列表后重新选择。")
+        return effort
+
+    def create(self, *, model: str, messages: list[dict], reasoning_effort: str | None = None, **_):
         if not model:
             raise LLMNotConfigured("请在设置中获取并选择 ChatGPT 模型。")
         instructions = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
         turns = [dict(role=m["role"], content=_ResponsesClient.input_content(m["content"]))
                  for m in messages if m["role"] != "system"]
         body = {"model": model, "input": turns, "store": False, "stream": True}
+        effort = self._reasoning_effort(model, reasoning_effort)
+        if effort:
+            body["reasoning"] = {"effort": effort}
         if instructions:
             body["instructions"] = instructions
         parts = []
