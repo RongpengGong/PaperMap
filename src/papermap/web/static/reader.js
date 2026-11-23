@@ -10,6 +10,7 @@
   document.querySelectorAll(".dot-btn").forEach(b => COLORS[b.dataset.color] = getComputedStyle(b).getPropertyValue("--c").trim());
 
   let info = null, zoom = 1, fitWidth = 800, anns = [];
+  if (document.body.classList.contains("bare")) root.classList.add("side-hidden");
   const pageEls = [];
   const measure = document.createElement("canvas").getContext("2d");
 
@@ -21,7 +22,7 @@
   // ------------------------------------------------------------ layout
   const ps = i => (fitWidth * zoom) / info.pages[i].w;   // CSS px per PDF point
   function computeFit() {
-    const avail = pagesEl.clientWidth - 48;
+    const avail = pagesEl.clientWidth - (document.body.classList.contains("bare") ? 28 : 48);
     const maxW = Math.max(...info.pages.map(p => p.w));
     fitWidth = Math.max(300, Math.min(avail, 1100)) * (info.pages[0].w / maxW);
   }

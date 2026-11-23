@@ -69,8 +69,17 @@
     list.querySelectorAll(".paper-row").forEach(a => a.classList.toggle("selected", a.dataset.id == id));
     const r = await fetch(`/paper/${id}/panel`);
     if (!r.ok) return;
-    detail.innerHTML = await r.text();
-    detail.scrollTop = 0;
+    const html = await r.text();
+    const old = detail.querySelector(".panel");
+    if (old && old.dataset.paper == id && old.querySelector(".pdf-col iframe[src]")) {
+      // same paper refreshed (e.g. a job finished): keep the PDF where the reader is
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const typing = document.activeElement && document.activeElement.classList.contains("notes");
+      old.querySelector(".panel-head").replaceWith(doc.querySelector(".panel-head"));
+      if (!typing) old.querySelector(".side-col").replaceWith(doc.querySelector(".side-col"));
+    } else {
+      detail.innerHTML = html;
+    }
     initPanel();
     if (push) history.replaceState(null, "", "/?" + new URLSearchParams({ ...Object.fromEntries(listParams()), id }));
   }
@@ -103,15 +112,56 @@
   }
 
   // ----------------------------------------------------------------- panel
+  const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+  if (pref("pm_list_collapsed") === "1") document.body.classList.add("list-collapsed");
+
   function initPanel() {
     const panel = document.querySelector(".panel"); if (!panel) return;
     const id = panel.dataset.paper;
-    panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+    // right-hand tabs; the last one used is remembered across papers
+    const showTab = name => {
+      const tab = panel.querySelector(`.tab[data-tab="${name}"]`) || panel.querySelector(".tab");
+      if (!tab) return;
       panel.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
       panel.querySelectorAll(".tab-body").forEach(b => b.hidden = b.dataset.body !== tab.dataset.tab);
-      const frame = panel.querySelector(`[data-body="${tab.dataset.tab}"] iframe[data-src]`);
-      if (frame && !frame.src) frame.src = frame.dataset.src;
-    }));
+    };
+    panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { showTab(tab.dataset.tab); pref("pm_side_tab", tab.dataset.tab); }));
+    showTab(pref("pm_side_tab") || "card");
+    // PDF column
+    const split = panel.querySelector(".panel-split");
+    const w = pref("pm_split"); if (split && w) split.style.setProperty("--pdf-w", w);
+    const frame = panel.querySelector(".pdf-col iframe");
+    const pdfBtn = panel.querySelector('[data-action="toggle-pdf"]');
+    const applyPdf = () => {
+      const hidden = pref("pm_pdf_hidden") === "1";
+      panel.classList.toggle("pdf-hidden", hidden);
+      if (pdfBtn) pdfBtn.textContent = hidden ? "对照显示 PDF" : "隐藏 PDF";
+      if (frame && !hidden && !frame.src) frame.src = frame.dataset.src;
+    };
+    applyPdf();
+    pdfBtn && pdfBtn.addEventListener("click", () => { pref("pm_pdf_hidden", pref("pm_pdf_hidden") === "1" ? "0" : "1"); applyPdf(); });
+    const listBtn = panel.querySelector('[data-action="toggle-list"]');
+    listBtn && listBtn.addEventListener("click", () => {
+      const c = document.body.classList.toggle("list-collapsed"); pref("pm_list_collapsed", c ? "1" : "0");
+    });
+    const handle = panel.querySelector(".split-handle");
+    if (handle && !handle.dataset.bound) {
+      handle.dataset.bound = "1";
+      handle.addEventListener("pointerdown", e => {
+        e.preventDefault(); handle.classList.add("dragging"); document.body.classList.add("splitting");
+        const box = split.getBoundingClientRect();
+        const move = ev => {
+          const pct = Math.max(30, Math.min(78, ((ev.clientX - box.left) / box.width) * 100));
+          split.style.setProperty("--pdf-w", pct.toFixed(1) + "%");
+        };
+        const up = () => {
+          document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+          handle.classList.remove("dragging"); document.body.classList.remove("splitting");
+          pref("pm_split", split.style.getPropertyValue("--pdf-w"));
+        };
+        document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+      });
+    }
     const reveal = panel.querySelector('[data-action="reveal"]');
     reveal && reveal.addEventListener("click", () =>
       fetch(`/paper/${id}/reveal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf }) }));

@@ -156,7 +156,7 @@ def test_import_upload_panel_pdf_notes(config, registry, pdfs):
     assert "paper-row selected" in home and "我的笔记" in home
     assert c.get(f"/paper/{row['id']}/pdf").content == data
     panel = c.get(f"/paper/{row['id']}/panel").text
-    assert "Finding two" in panel and 'data-tab="pdf"' in panel
+    assert "Finding two" in panel and 'class="pdf-col"' in panel and 'split-handle' in panel
     assert c.post(f"/paper/{row['id']}/notes", json={"csrf": tok, "text": "hello\r\nworld"}).json()["ok"]
     from papermap import library
     assert library.notes_path(config.knowledge_dir, row["kb_path"]).read_text() == "hello\nworld"

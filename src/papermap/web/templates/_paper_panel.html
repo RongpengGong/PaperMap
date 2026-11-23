@@ -1,54 +1,68 @@
 {% set names = {'new':'等待处理','extracting':'处理中…','doi_unverified':'DOI 待确认','skipped_supplement':'补充材料（已跳过）','error':'出错','done':'已完成'} %}
-<article class="panel" data-paper="{{ p.id }}">
+<article class="panel {{ 'has-pdf' if has_pdf }}" data-paper="{{ p.id }}">
   <header class="panel-head">
-    <h1>{{ p.title or "(无标题)" }}</h1>
+    <div class="title-row">
+      <button type="button" class="icon-btn list-toggle" data-action="toggle-list" title="收起 / 展开论文列表">⟨</button>
+      <h1 title="{{ p.title }}">{{ p.title or "(无标题)" }}</h1>
+    </div>
     <p class="meta">
       {{ p.first_author or '' }}{% if p.year %} {{ p.year }}{% endif %}{% if p.journal %} · <em>{{ p.journal }}</em>{% endif %}
       {% if p.doi %} · <a target="_blank" rel="noopener" href="https://doi.org/{{ p.doi }}">{{ p.doi }}</a>{% elif p.doi_candidate %} · <span class="warn-text">候选 DOI {{ p.doi_candidate }}</span>{% endif %}
       {% if p.status != 'done' %} · <span class="st {{ p.status }}">{{ names.get(p.status, p.status) }}</span>{% endif %}
     </p>
     {% if p.status_detail and p.status != 'done' %}<p class="muted small">{{ p.status_detail }}</p>{% endif %}
-    {% for j in active_jobs %}<p class="job-line"><span class="spinner"></span>{{ '正在翻译' if j.kind == 'translate' else '正在用技能解读' }}{% if j.total %}（{{ j.progress }}/{{ j.total }}）{% else %}…{% endif %}<span class="muted small">可以继续做别的，完成后会自动出现在标签里</span></p>{% endfor %}
+    {% for j in active_jobs %}<p class="job-line"><span class="spinner"></span>{{ '正在翻译' if j.kind == 'translate' else '正在用技能解读' }}{% if j.total %}（{{ j.progress }}/{{ j.total }}）{% else %}…{% endif %}<span class="muted small">可以继续做别的，完成后会自动出现在右边的标签里</span></p>{% endfor %}
     {% for j in failed_jobs %}<p class="job-line err-text small">{{ '翻译' if j.kind == 'translate' else '技能解读' }}失败：{{ j.message }}</p>{% endfor %}
-    {% if plabels %}<div class="labels">{% for l in plabels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ l.name_zh }}<small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} · 待审核{% endif %}{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small></a>{% endfor %}</div>{% endif %}
-    <div class="groups">
-      <span class="muted small">分组</span>
-      {% for g in pcollections %}<span class="group-chip">{{ g.path }}<button type="button" data-remove-group="{{ g.id }}" title="从这个分组移出">×</button></span>{% endfor %}
-      {% if all_collections %}
-      <select data-add-group title="加入分组">
-        <option value="">＋ 加入分组…</option>
-        {% set mine = pcollections|map(attribute='id')|list %}
-        {% for g in all_collections if g.id not in mine %}<option value="{{ g.id }}">{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}
-      </select>
-      {% else %}<span class="muted small">（左侧「＋ 新建分组」后可以把论文拖进去）</span>{% endif %}
+    <div class="chips-row">
+      {% for l in plabels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ l.name_zh }}<small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} · 待审核{% endif %}{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small></a>{% endfor %}
+      <span class="groups">
+        <span class="muted small">分组</span>
+        {% for g in pcollections %}<span class="group-chip">{{ g.path }}<button type="button" data-remove-group="{{ g.id }}" title="从这个分组移出">×</button></span>{% endfor %}
+        {% if all_collections %}
+        <select data-add-group title="加入分组">
+          <option value="">＋ 加入分组…</option>
+          {% set mine = pcollections|map(attribute='id')|list %}
+          {% for g in all_collections if g.id not in mine %}<option value="{{ g.id }}">{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}
+        </select>
+        {% endif %}
+      </span>
     </div>
+    <div class="action-row">
+      {% if p.status == 'done' and has_pdf %}
+      <select class="ghost-select" data-translate title="全文翻译（段落对照）">
+        <option value="">{{ '重新翻译' if translation else '翻译全文' }}…</option>
+        {% for svc in tr_services %}<option value="{{ svc.id }}" data-kind="{{ svc.kind }}">{{ svc.name }}{% if svc.id == tr_default %}（默认）{% endif %}</option>{% endfor %}
+      </select>
+      {% if skills_ok %}
+      <select class="ghost-select" data-skill title="用技能解读这篇论文">
+        <option value="">用技能解读…</option>
+        {% for sk in skills_ok %}<option value="{{ sk.id }}">{{ sk.label }}{% if sk.id == default_skill %}（默认）{% endif %}</option>{% endfor %}
+      </select>
+      {% endif %}
+      {% endif %}
+      {% if p.status in ('new', 'error') %}<form method="post" action="/paper/{{ p.id }}/retry" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost-btn">重新处理</button></form>{% endif %}
+      <span class="grow"></span>
+      {% if has_pdf %}
+      <button class="ghost-btn" data-action="toggle-pdf" type="button" title="在右侧对照显示 PDF">隐藏 PDF</button>
+      <a class="ghost-btn" href="/reader/{{ p.id }}" title="在整个窗口里阅读">全屏阅读</a>
+      <button class="ghost-btn" data-action="reveal" type="button" title="在访达 / 资源管理器中显示">在文件夹中显示</button>
+      {% endif %}
+    </div>
+  </header>
+  <div class="panel-split">
+    {% if has_pdf %}
+    <section class="pdf-col"><iframe data-src="/reader/{{ p.id }}?embed=1" title="PDF 阅读器"></iframe></section>
+    <div class="split-handle" title="拖动调整宽度"></div>
+    {% endif %}
+    <section class="side-col">
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="card" type="button">卡片</button>
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">我的笔记</button>{% endif %}
       {% if translation %}<button class="tab" data-tab="translation" type="button">译文对照</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
-      {% if has_pdf %}<button class="tab" data-tab="pdf" type="button">阅读</button>{% endif %}
       <button class="tab" data-tab="info" type="button">文件与日志</button>
-      <span class="grow"></span>
-      {% if p.status == 'done' and has_pdf %}
-      <span class="actions">
-        <select class="ghost-select" data-translate title="全文翻译（段落对照）">
-          <option value="">{{ '重新翻译' if translation else '翻译全文' }}…</option>
-          {% for svc in tr_services %}<option value="{{ svc.id }}" data-kind="{{ svc.kind }}">{{ svc.name }}{% if svc.id == tr_default %}（默认）{% endif %}</option>{% endfor %}
-        </select>
-        {% if skills_ok %}
-        <select class="ghost-select" data-skill title="用技能解读这篇论文">
-          <option value="">用技能解读…</option>
-          {% for sk in skills_ok %}<option value="{{ sk.id }}">{{ sk.label }}{% if sk.id == default_skill %}（默认）{% endif %}</option>{% endfor %}
-        </select>
-        {% endif %}
-      </span>
-      {% endif %}
-      {% if has_pdf %}<a class="ghost-btn" href="/reader/{{ p.id }}" title="在整个窗口里阅读">全屏阅读</a>
-      <button class="ghost-btn" data-action="reveal" type="button" title="在访达 / 资源管理器中显示">在文件夹中显示</button>{% endif %}
-      {% if p.status in ('new', 'error') %}<form method="post" action="/paper/{{ p.id }}/retry" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost-btn">重新处理</button></form>{% endif %}
     </div>
-  </header>
+    <div class="side-scroll">
   <div class="tab-body" data-body="card">
     {% if body_html %}<div class="md">{{ body_html|safe }}</div>
     {% else %}<p class="muted pad">{% if p.status in ('new','extracting') %}正在生成卡片…{% elif p.status == 'doi_unverified' %}DOI 没有通过校验，请到「待审核」确认。{% else %}还没有卡片。{% endif %}</p>{% endif %}
@@ -72,11 +86,13 @@
   </div>
   {% endif %}
   {% for o in skill_outputs %}<div class="tab-body" data-body="skill-{{ o.id }}" hidden><div class="md">{{ o.html|safe }}</div></div>{% endfor %}
-  {% if has_pdf %}<div class="tab-body pdf-body" data-body="pdf" hidden><iframe data-src="/reader/{{ p.id }}?embed=1" title="PDF 阅读器"></iframe></div>{% endif %}
   <div class="tab-body" data-body="info" hidden>
     <h3>文件</h3><ul class="files">{% for f in files %}<li><code>{{ f }}</code></li>{% endfor %}</ul>
     {% if dois %}<h3>DOI</h3><ul>{% for d in dois %}<li><code>{{ d.doi }}</code> ({{ d.kind }})</li>{% endfor %}</ul>{% endif %}
     {% if p.kb_path %}<p class="muted small">卡片：<code>{{ p.kb_path }}</code> · 模型 {{ p.model or '' }} · {{ p.prompt_version or '' }}</p>{% endif %}
     <h3>日志</h3><ul class="log">{% for e in events %}<li class="muted">{{ e.created_at[:16].replace('T',' ') }} · {{ e.message }}</li>{% endfor %}</ul>
+  </div>
+    </div>
+    </section>
   </div>
 </article>
