@@ -3,6 +3,11 @@
 import AppKit as A
 import objc
 
+from .themes import titlebar_colors
+
+THEME = {"palette": "blue", "mode": "system"}
+_TINTS = []
+
 
 class PaperMapTitlebarMaterial(A.NSVisualEffectView):
     def hitTest_(self, point):
@@ -16,15 +21,12 @@ class PaperMapTitlebarTint(A.NSView):
             [A.NSAppearanceNameAqua, A.NSAppearanceNameDarkAqua]
         ) == A.NSAppearanceNameDarkAqua
         color = A.NSColor.colorWithSRGBRed_green_blue_alpha_
+        lt, rt, sd = titlebar_colors(THEME["palette"], dark, THEME["mode"] == "black")
         if A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceTransparency():
-            solid = color(.141, .239, .345, 1) if dark else color(.745, .843, .941, 1)
-            solid.setFill()
+            color(*sd).setFill()
             A.NSRectFill(rect)
             return
-        if dark:
-            left, right = color(.165, .306, .439, .68), color(.102, .239, .384, .64)
-        else:
-            left, right = color(.675, .839, .965, .56), color(.510, .733, .925, .51)
+        left, right = color(*lt), color(*rt)
         gradient = A.NSGradient.alloc().initWithStartingColor_endingColor_(left, right)
         gradient.drawInRect_angle_(self.bounds(), 0)
 
@@ -66,6 +68,8 @@ def apply_titlebar(window):
     tint.setAutoresizingMask_(resize)
     tint.setAccessibilityElement_(False)
     material.addSubview_(tint)
+    _TINTS.append(tint)
+    set_appearance(native)
     bar.addSubview_positioned_relativeTo_(material, A.NSWindowBelow, anchor)
     # Tint the container while retaining AppKit's native title-bar double-click action.
     # pywebview initially gives this container an opaque window background.
@@ -77,3 +81,19 @@ def apply_titlebar(window):
         tint, "refreshTint:", A.NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, None
     )
     window.events.closed += lambda: center.removeObserver_(tint)
+
+
+def set_appearance(native) -> None:
+    """Force light/dark window chrome when the user picked one (None = follow macOS)."""
+    mode = THEME["mode"]
+    name = {"light": A.NSAppearanceNameAqua, "dark": A.NSAppearanceNameDarkAqua,
+            "black": A.NSAppearanceNameDarkAqua}.get(mode)
+    native.setAppearance_(A.NSAppearance.appearanceNamed_(name) if name else None)
+
+
+def apply_theme(window, palette: str, mode: str) -> None:
+    """Live theme change from Settings (call on the main thread)."""
+    THEME.update(palette=palette, mode=mode)
+    set_appearance(window.native)
+    for tint in _TINTS:
+        tint.setNeedsDisplay_(True)

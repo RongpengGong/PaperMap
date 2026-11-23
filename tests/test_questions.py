@@ -61,3 +61,23 @@ def test_model_proposes_user_confirms(config, registry):
     assert c.post("/api/fields/spatial-transcriptomics/suggest-questions", json={"csrf": tok}).json()["created"] == 0
     assert comp.questions_calls == 2
     assert c.post(f"/api/evidence/questions/{q['id']}/status", json={"csrf": tok, "status": "x"}).status_code == 400
+
+
+def test_theme_saved_and_applied_to_every_page(config, registry):
+    from papermap import themes
+
+    c, _, _ = web(config, registry)
+    page = c.get("/settings?section=appearance").text
+    assert 'data-palette="blue"' in page and "樱花粉" in page and "纯黑" in page
+    tok = _token(c)
+    assert c.post("/api/appearance", json={"csrf": tok, "palette": "pink", "mode": "black"}).json()["ok"]
+    assert config.raw["appearance"] == {"palette": "pink", "mode": "black"}
+    assert 'data-palette="pink" data-appearance="black"' in c.get("/").text
+    c.post("/api/appearance", json={"csrf": tok, "palette": "neon", "mode": "?"})
+    assert config.raw["appearance"] == {"palette": "blue", "mode": "system"}  # unknown values fall back
+    css = themes.css()
+    assert '[data-palette="pink"]' in css and '[data-appearance="black"][data-palette]' in css
+    assert '[data-palette="blue"]' not in css  # blue keeps the hand-tuned original
+    assert (c.get("/static/themes.css").text == css)  # committed file is up to date
+    assert themes.titlebar_colors("blue", False)[0] == (.675, .839, .965, .56)
+    assert themes.titlebar_colors("pink", True, black=True)[2] == (0.02, 0.02, 0.02, 1)

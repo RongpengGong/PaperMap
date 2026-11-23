@@ -47,6 +47,24 @@ class JsApi:
         Path(path).write_text(text, "utf-8")
         return path
 
+    def set_theme(self, palette: str, mode: str) -> bool:
+        """Retint the native title bar / force the window appearance to match the page."""
+        if sys.platform != "darwin" or _state["window"] is None:
+            return False
+        from .themes import normalize
+
+        t = normalize({"palette": palette, "mode": mode})
+        try:
+            from PyObjCTools import AppHelper
+
+            from .mac_titlebar import apply_theme
+
+            AppHelper.callAfter(apply_theme, _state["window"], t["palette"], t["mode"])
+        except Exception:  # noqa: BLE001 - cosmetic only
+            log.exception("could not apply theme to the window")
+            return False
+        return True
+
     def pick_folder(self) -> str | None:
         import webview
 
@@ -158,7 +176,11 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
     )
     _state["window"] = window
     if sys.platform == "darwin":
+        from . import mac_titlebar
         from .mac_titlebar import apply_titlebar
+        from .themes import normalize
+
+        mac_titlebar.THEME.update(normalize(cfg.raw.get("appearance")))
 
         window.events.before_show += apply_titlebar
 

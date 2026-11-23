@@ -284,6 +284,23 @@
 
 </form>
 {% include "_extensions.html" %}
+<section class="settings-panel" data-settings-panel="appearance" aria-label="外观" {% if settings_section != 'appearance' %}hidden{% endif %}>
+  <p class="muted small">点一下立即生效，并自动保存。</p>
+  <h3>配色</h3>
+  <div class="theme-grid" role="radiogroup" aria-label="配色">
+    {% for pid, p in palettes.items() %}
+    <button type="button" class="theme-swatch {{ 'on' if theme.palette == pid }}" data-palette-pick="{{ pid }}" role="radio" aria-checked="{{ 'true' if theme.palette == pid else 'false' }}">
+      <i style="background:{{ swatches[pid] }}"></i><span>{{ p[0] }}{% if pid == 'blue' %}<small class="muted">（默认）</small>{% endif %}</span>
+    </button>
+    {% endfor %}
+  </div>
+  <h3>外观</h3>
+  <div class="seg theme-modes" role="radiogroup" aria-label="外观">
+    {% for mid, label in appearances.items() %}<button type="button" class="{{ 'on' if theme.mode == mid }}" data-mode-pick="{{ mid }}" role="radio" aria-checked="{{ 'true' if theme.mode == mid else 'false' }}">{{ label }}</button>{% endfor %}
+  </div>
+  <p class="muted small">「跟随系统」会随 macOS 的浅色 / 深色自动切换；「纯黑」是更暗的夜间模式，适合晚上看文献。</p>
+</section>
+
 <section class="settings-panel" data-settings-panel="application" aria-label="后台运行" {% if settings_section != 'application' %}hidden{% endif %}>
   <h3>退出 PaperMap</h3>
   <p class="muted">关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。</p>

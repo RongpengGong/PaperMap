@@ -40,7 +40,8 @@ SETTINGS_GROUPS = (
     ("文献库", (("import", "导入与文件夹", "inbox"), ("processing", "论文处理", "papers"),
                 ("library", "知识库位置", "folder"), ("backup", "备份与恢复", "folder"),
                 ("taxonomy", "学科与版本", "fields"))),
-    ("应用", (("extensions", "插件与接口", "skills"), ("application", "后台运行", "events"))),
+    ("应用", (("appearance", "外观", "settings"), ("extensions", "插件与接口", "skills"),
+             ("application", "后台运行", "events"))),
 )
 SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROUPS for item in items}
 
@@ -106,8 +107,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     def render(request: Request, name: str, **ctx):
         is_subscription = config.effective_llm().get("billing") == "subscription"
+        from ..themes import normalize as _theme
+
         ctx.update(
             request=request,
+            theme=_theme(config.raw.get("appearance")),
             key_set=config.model_ready(),
             account_provider=config.llm.get("provider", "deepseek"),
             is_subscription=is_subscription,
@@ -1381,6 +1385,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             git_available=kb_git.available(), welcome=welcome,
             kb_dir=str(config.knowledge_dir), kb_default=(config.knowledge_dir == config.data_dir / "knowledge"),
             data_dir=str(config.data_dir),
+            palettes=__import__("papermap.themes", fromlist=["x"]).PALETTES,
+            appearances=__import__("papermap.themes", fromlist=["x"]).APPEARANCES,
+            swatches=__import__("papermap.themes", fromlist=["x"]).SWATCH,
             backups=backup_mod.list_backups(config)[:30], backup_cfg=backup_mod.settings(config),
             backup_dir=str(backup_mod.backup_dir(config)),
             tr={**config.raw["translation"], "services": tr_services}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
@@ -1628,6 +1635,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/api/accounts/{provider}/cancel")
     async def account_cancel(provider: str, request: Request):
         return await _account_action(request, provider, "cancel")
+
+    @app.post("/api/appearance")
+    async def api_appearance(body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        from ..themes import normalize
+
+        config.raw["appearance"] = normalize(body)
+        config.save()
+        return {"ok": True, **config.raw["appearance"]}
 
     @app.post("/api/backup/create")
     async def api_backup_create(body: dict):

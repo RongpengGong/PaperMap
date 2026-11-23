@@ -346,6 +346,18 @@
     e.target.disabled = false;
   });
 
+  // appearance: apply at once, save, retint the native window
+  const root = document.documentElement;
+  async function setTheme(palette, mode) {
+    root.dataset.palette = palette; root.dataset.appearance = mode;
+    document.querySelectorAll("[data-palette-pick]").forEach(b => { const on = b.dataset.palettePick === palette; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
+    document.querySelectorAll("[data-mode-pick]").forEach(b => { const on = b.dataset.modePick === mode; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
+    try { window.pywebview && window.pywebview.api.set_theme && window.pywebview.api.set_theme(palette, mode); } catch (_) {}
+    await window.pmApi("/api/appearance", { palette, mode });
+  }
+  document.querySelectorAll("[data-palette-pick]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.palettePick, root.dataset.appearance || "system")));
+  document.querySelectorAll("[data-mode-pick]").forEach(b => b.addEventListener("click", () => setTheme(root.dataset.palette || "blue", b.dataset.modePick)));
+
   // backups
   const bStatus = document.getElementById("backup_status");
   function showReport(r) {

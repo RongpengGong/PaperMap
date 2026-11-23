@@ -29,10 +29,10 @@
 {%- set nav2 = [('/skills', 'skills', '技能'), ('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
-<html lang="zh" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="zh" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}PaperMap{% endblock %}</title>
-<link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
+<link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}"><link rel="stylesheet" href="/static/themes.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
 <body class="app" data-csrf="{{ csrf }}">
 <a class="skip-link" href="#main_content">跳到内容</a>
 {% if settings_groups is defined %}
