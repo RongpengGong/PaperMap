@@ -67,8 +67,8 @@ def apply_titlebar(window):
     tint.setAccessibilityElement_(False)
     material.addSubview_(tint)
     bar.addSubview_positioned_relativeTo_(material, A.NSWindowBelow, anchor)
-    native.setTitlebarAppearsTransparent_(True)
-    # pywebview sets an explicit opaque background on the title-bar container.
+    # Tint the container while retaining AppKit's native title-bar double-click action.
+    # pywebview initially gives this container an opaque window background.
     if container.respondsToSelector_("setBackgroundColor:"):
         container.setBackgroundColor_(A.NSColor.clearColor())
 
