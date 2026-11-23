@@ -1,23 +1,96 @@
 {% extends "base.html" %}
+{% block title %}设置 - PaperMap{% endblock %}
 {% block content %}
 <h2>设置</h2>
-{% if saved %}<div class="notice" style="border-left-color:#3a9d5d">已保存。入口文件夹的改动需重启 <code>papermap run</code> 生效。</div>{% endif %}
-<form method="post" action="/settings" class="card">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<label>API Key</label>
-<input type="password" name="api_key" autocomplete="off" placeholder="{{ '已设置（来自' ~ key_source ~ '），留空则保持不变' if key_source else '粘贴你的 API Key' }}">
-<p class="muted">只保存在本机配置文件 <code>{{ cfg.path }}</code> 中。环境变量 <code>{{ cfg.llm.api_key_env }}</code> 优先。
-{% if cfg.llm.api_key %}<label style="display:inline;font-weight:400"><input type="checkbox" name="clear_key" value="1"> 删除本地保存的 Key</label>{% endif %}</p>
-<label>API 地址（OpenAI 兼容）</label><input type="text" name="base_url" value="{{ cfg.llm.base_url }}">
-<label>模型名</label><input type="text" name="model" value="{{ cfg.llm.model }}">
-<p class="muted">以服务商官方文档为准（DeepSeek 目前为 deepseek-flash / deepseek-v4-pro）。</p>
-<label>输出语言</label>
-<select name="output_language">{% for l in langs %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ l }}</option>{% endfor %}</select>
-<label>每月预算（美元，0 = 不限）</label><input type="number" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
-<label>入口文件夹（每行一个）</label><textarea name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
-<label>排除的子文件夹名（逗号分隔）</label><input type="text" name="exclude_dirs" value="{{ exclude_dirs }}">
-<label>排除的文件名模式（逗号分隔）</label><input type="text" name="exclude_patterns" value="{{ exclude_patterns }}">
-<label>联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" name="contact_email" value="{{ cfg.metadata.contact_email }}">
-<button type="submit">保存</button>
+{% if saved %}<div class="notice ok">已保存。入口文件夹的改动需要重启 <code>papermap run</code> 才生效。</div>{% endif %}
+<form method="post" action="/settings" id="settings">
+<input type="hidden" name="csrf" id="csrf" value="{{ csrf }}">
+
+<section class="card">
+  <h3>模型服务</h3>
+  <p class="muted">论文文本会发送到这里选择的服务商。Key 只保存在本机配置文件里，页面不会显示已保存的 Key。</p>
+  <div class="choices">
+    {% for pid, p in providers.items() %}
+    <label class="choice">
+      <input type="radio" name="provider" value="{{ pid }}" {{ 'checked' if provider == pid }}>
+      <span><strong>{{ p.label }}</strong><br><span class="muted">按官方文档预设好，只需填 API Key</span></span>
+    </label>
+    {% endfor %}
+    <label class="choice">
+      <input type="radio" name="provider" value="custom" {{ 'checked' if provider == 'custom' }}>
+      <span><strong>自定义</strong><br><span class="muted">任意 OpenAI / Anthropic 兼容服务、中转或本地模型</span></span>
+    </label>
+  </div>
+
+  {% set ds = providers.deepseek %}
+  <div class="pane" data-pane="deepseek">
+    <label for="official_api_key">API Key</label>
+    <input type="password" id="official_api_key" name="official_api_key" autocomplete="off"
+      placeholder="{% if official_key_state == 'env' %}已从环境变量 {{ ds.api_key_env }} 读取{% elif official_key_state == 'local' %}已保存，留空表示不修改{% else %}sk-...{% endif %}">
+    <p class="muted">还没有 Key？到 <a href="{{ ds.key_url }}" target="_blank" rel="noopener">DeepSeek 开放平台</a> 创建。
+    {% if official_key_state == 'local' %}<label class="inline"><input type="checkbox" name="clear_official_key" value="1"> 删除已保存的 Key</label>{% endif %}</p>
+    <label for="official_model">模型</label>
+    <select id="official_model" name="official_model">
+      {% for mid, m in ds.models.items() %}<option value="{{ mid }}" {{ 'selected' if cfg.llm.model == mid }}>{{ m.label }}</option>{% endfor %}
+    </select>
+    <dl class="kv muted">
+      <dt>Base URL</dt><dd><code>{{ ds.base_url }}</code></dd>
+      <dt>协议</dt><dd>{{ protocols[ds.protocol] }}</dd>
+      <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按高峰价估算花费）</dd>
+    </dl>
+  </div>
+
+  <div class="pane" data-pane="custom">
+    <label for="custom_base_url">Base URL</label>
+    <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="https://api.example.com/v1">
+    <label for="custom_api_key">API Key</label>
+    <input type="password" id="custom_api_key" name="custom_api_key" autocomplete="off"
+      placeholder="{{ '已保存，留空表示不修改' if custom_key_state else 'sk-...' }}">
+    {% if custom_key_state %}<p class="muted"><label class="inline"><input type="checkbox" name="clear_custom_key" value="1"> 删除已保存的 Key</label></p>{% endif %}
+    <label for="custom_protocol">API 协议</label>
+    <select id="custom_protocol" name="custom_protocol">
+      {% for k, v in protocols.items() %}<option value="{{ k }}" {{ 'selected' if (custom.protocol or 'openai') == k }}>{{ v }}</option>{% endfor %}
+    </select>
+    <label for="custom_model">模型名</label>
+    <div class="row">
+      <input type="text" id="custom_model" name="custom_model" list="model_list" value="{{ custom.model or '' }}" placeholder="例如 gpt-4o-mini、qwen-plus">
+      <button type="button" class="secondary" id="fetch_models">获取模型列表</button>
+    </div>
+    <datalist id="model_list"></datalist>
+    <details>
+      <summary class="muted">价格（可选，用于本地估算花费和预算）</summary>
+      <div class="row">
+        <label class="grow">输入 $/百万 token<input type="number" step="0.001" min="0" name="custom_price_in" value="{{ custom.price_input_per_1m or 0 }}"></label>
+        <label class="grow">输出 $/百万 token<input type="number" step="0.001" min="0" name="custom_price_out" value="{{ custom.price_output_per_1m or 0 }}"></label>
+      </div>
+    </details>
+  </div>
+
+  <div class="row test-row">
+    <button type="button" class="secondary" id="test_conn">测试连接</button>
+    <span id="test_result" class="muted" role="status"></span>
+  </div>
+</section>
+
+<section class="card">
+  <h3>处理选项</h3>
+  <label for="output_language">卡片语言</label>
+  <select id="output_language" name="output_language">
+    {% for l, name in [('zh','中文'),('en','English'),('bilingual','中文 + 英文术语')] %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ name }}</option>{% endfor %}
+  </select>
+  <label for="budget">每月预算（美元，0 = 不限）</label>
+  <input type="number" id="budget" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
+</section>
+
+<section class="card">
+  <h3>文件夹</h3>
+  <label for="inbox_dirs">入口文件夹（每行一个）</label><textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
+  <label for="exclude_dirs">永不处理的子文件夹名（逗号分隔）</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
+  <label for="exclude_patterns">永不处理的文件名模式（逗号分隔）</label><input type="text" id="exclude_patterns" name="exclude_patterns" value="{{ exclude_patterns }}">
+  <label for="contact_email">联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
+</section>
+
+<button type="submit">保存设置</button>
 </form>
+<script src="/static/settings.js"></script>
 {% endblock %}

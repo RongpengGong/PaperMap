@@ -20,3 +20,20 @@ form label { display:block; margin:14px 0 4px; font-weight:600; font-size:14px; 
 input[type=text], input[type=password], input[type=number], select, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
 button { margin-top:16px; padding:8px 18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
 code { font-size:13px; }
+section.card { margin-bottom:18px; } section.card h3 { margin-top:0; }
+.notice.ok { border-left-color:#3a9d5d; }
+.choices { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; margin:10px 0 6px; }
+.choice { display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer; font-weight:400 !important; margin:0 !important; }
+.choice.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+.choice input { margin-top:4px; }
+.row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; } .row input { flex:1; min-width:200px; } .row .grow { flex:1; }
+.row button { margin-top:0; }
+button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+button:disabled { opacity:.5; cursor:wait; }
+label.inline { display:inline; font-weight:400; margin:0; }
+.test-row { margin-top:18px; align-items:center; }
+.ok-text { color:#3a9d5d; } .err-text { color:var(--warn); }
+dl.kv { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:14px 0 0; } dl.kv dt { font-weight:600; } dl.kv dd { margin:0; }
+details { margin-top:12px; } summary { cursor:pointer; }
+[hidden] { display:none !important; }
+@media (max-width: 600px) { main { padding:16px; } header { flex-wrap:wrap; gap:12px; padding:12px 16px; } }

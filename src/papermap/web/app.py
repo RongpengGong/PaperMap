@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 import re
 import secrets
 import threading
@@ -14,8 +16,10 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
-from ..config import Config
+from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
+from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry
 
@@ -90,16 +94,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings(request: Request, saved: int = 0):
-        key_source = ""
-        env = config.llm.get("api_key_env") or ""
-        import os
-
-        if env and os.environ.get(env):
-            key_source = f"environment variable {env}"
-        elif config.llm.get("api_key"):
-            key_source = "local config file"
+        llm = config.llm
+        eff = config.effective_llm()
+        custom = llm.get("custom") or {}
+        official_env = PROVIDERS["deepseek"]["api_key_env"]
         return render(
-            request, "settings.html", cfg=config, saved=saved, key_source=key_source, langs=LANGS,
+            request, "settings.html", cfg=config, saved=saved, langs=LANGS,
+            providers=PROVIDERS, protocols=PROTOCOLS, provider=llm.get("provider", "deepseek"),
+            eff=eff, custom=custom,
+            official_key_state=("env" if os.environ.get(official_env) else "local" if llm.get("api_key") else ""),
+            custom_key_state="local" if custom.get("api_key") else "",
             inbox_text="\n".join(str(p) for p in config.raw.get("inbox_dirs") or []),
             exclude_dirs=", ".join(config.exclude_dir_names),
             exclude_patterns=", ".join(config.exclude_patterns),
@@ -108,10 +112,17 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/settings")
     def save_settings(
         csrf: str = Form(...),
-        api_key: str = Form(""),
-        clear_key: str = Form(""),
-        base_url: str = Form(...),
-        model: str = Form(...),
+        provider: str = Form("deepseek"),
+        official_api_key: str = Form(""),
+        official_model: str = Form(""),
+        clear_official_key: str = Form(""),
+        custom_base_url: str = Form(""),
+        custom_api_key: str = Form(""),
+        clear_custom_key: str = Form(""),
+        custom_protocol: str = Form("openai"),
+        custom_model: str = Form(""),
+        custom_price_in: float = Form(0),
+        custom_price_out: float = Form(0),
         output_language: str = Form("zh"),
         monthly_budget_usd: float = Form(5),
         inbox_dirs: str = Form(""),
@@ -121,13 +132,25 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     ):
         _check_csrf(csrf, csrf_token)
         raw = config.raw
-        if clear_key:
-            raw["llm"]["api_key"] = ""
-        elif api_key.strip():
-            raw["llm"]["api_key"] = api_key.strip()
-        raw["llm"]["base_url"] = base_url.strip()
-        raw["llm"]["model"] = model.strip()
-        raw["llm"]["monthly_budget_usd"] = max(0.0, monthly_budget_usd)
+        llm = raw["llm"]
+        llm["provider"] = provider if provider in (*PROVIDERS, "custom") else "deepseek"
+        if official_model in PROVIDERS["deepseek"]["models"]:
+            llm["model"] = official_model
+        if clear_official_key:
+            llm["api_key"] = ""
+        elif official_api_key.strip():
+            llm["api_key"] = official_api_key.strip()
+        c = llm.setdefault("custom", {})
+        c["base_url"] = custom_base_url.strip()
+        c["protocol"] = custom_protocol if custom_protocol in PROTOCOLS else "openai"
+        c["model"] = custom_model.strip()
+        c["price_input_per_1m"] = max(0.0, custom_price_in)
+        c["price_output_per_1m"] = max(0.0, custom_price_out)
+        if clear_custom_key:
+            c["api_key"] = ""
+        elif custom_api_key.strip():
+            c["api_key"] = custom_api_key.strip()
+        llm["monthly_budget_usd"] = max(0.0, monthly_budget_usd)
         if output_language in LANGS:
             raw["output_language"] = output_language
         raw["inbox_dirs"] = [ln.strip() for ln in inbox_dirs.splitlines() if ln.strip()]
@@ -140,9 +163,43 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             path.chmod(0o600)
         except OSError:
             pass
-        pipeline.llm._client = None  # pick up new key / endpoint
+        pipeline.llm._client = None  # pick up new provider / key
         threading.Thread(target=pipeline.process_pending, daemon=True).start()
         return RedirectResponse("/settings?saved=1", status_code=303)
+
+    def _form_llm(body: dict) -> dict:
+        """Effective LLM settings from the (unsaved) form; blank key = stored key."""
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        llm = copy.deepcopy(config.llm)
+        provider = body.get("provider", "deepseek")
+        llm["provider"] = provider if provider in (*PROVIDERS, "custom") else "deepseek"
+        if llm["provider"] == "custom":
+            c = llm.setdefault("custom", {})
+            c["base_url"] = str(body.get("base_url", "")).strip()
+            c["protocol"] = body.get("protocol") if body.get("protocol") in PROTOCOLS else "openai"
+            c["model"] = str(body.get("model", "")).strip()
+            if str(body.get("api_key", "")).strip():
+                c["api_key"] = str(body["api_key"]).strip()
+        else:
+            if body.get("model") in PROVIDERS[llm["provider"]]["models"]:
+                llm["model"] = body["model"]
+            if str(body.get("api_key", "")).strip():
+                llm["api_key"] = str(body["api_key"]).strip()
+        return effective_llm(llm)
+
+    @app.post("/api/llm/models")
+    async def api_models(request: Request):
+        eff = _form_llm(await request.json())
+        try:
+            models = await run_in_threadpool(list_models, eff)
+            return {"ok": True, "models": models}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
+    @app.post("/api/llm/test")
+    async def api_test(request: Request):
+        eff = _form_llm(await request.json())
+        return await run_in_threadpool(check_connection, eff)
 
     return app
 

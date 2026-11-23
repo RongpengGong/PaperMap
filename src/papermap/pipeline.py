@@ -376,6 +376,10 @@ def _first_author(meta: dict) -> str | None:
 
 
 def _is_transient_llm_error(exc: Exception) -> bool:
+    from .llm import LLMHTTPError
+
+    if isinstance(exc, LLMHTTPError):
+        return exc.status_code in (0, 401, 402, 429) or exc.status_code >= 500
     try:
         import openai
     except ImportError:  # pragma: no cover

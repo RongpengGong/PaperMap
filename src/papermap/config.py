@@ -13,6 +13,62 @@ import yaml
 DEFAULT_DATA_DIR = "~/PaperMap"
 CONFIG_ENV = "PAPERMAP_CONFIG"
 
+PROTOCOLS = {"openai": "OpenAI 兼容 (Chat Completions)", "anthropic": "Anthropic 兼容 (Messages)"}
+
+# Official provider presets. Values follow the provider's official docs
+# (DeepSeek: api-docs.deepseek.com, checked 2026-11). Prices are USD per 1M
+# tokens at peak rate, used only for the local cost estimate / budget.
+PROVIDERS: dict[str, dict[str, Any]] = {
+    "deepseek": {
+        "label": "DeepSeek 官方",
+        "base_url": "https://api.deepseek.com",
+        "protocol": "openai",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "key_url": "https://platform.deepseek.com/api_keys",
+        "docs_url": "https://api-docs.deepseek.com/quick_start/pricing",
+        # Thinking mode is on by default; structured extraction does not need it.
+        "extra_body": {"thinking": {"type": "disabled"}},
+        "models": {
+            "deepseek-flash": {"label": "deepseek-flash（快、便宜，推荐）", "in": 0.3, "hit": 0.006, "out": 1.2},
+            "deepseek-v4-pro": {"label": "deepseek-v4-pro（更强、更贵）", "in": 1.32, "hit": 0.044, "out": 3.96},
+        },
+        "default_model": "deepseek-flash",
+    },
+}
+
+
+def effective_llm(llm: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the provider choice into concrete connection settings."""
+    provider = llm.get("provider") or "deepseek"
+    if provider in PROVIDERS:
+        pre = PROVIDERS[provider]
+        model = llm.get("model") or pre["default_model"]
+        price = pre["models"].get(model) or pre["models"][pre["default_model"]]
+        env = pre["api_key_env"]
+        key = os.environ.get(env, "").strip() or (llm.get("api_key") or "").strip()
+        return {
+            "provider": provider, "base_url": pre["base_url"], "protocol": pre["protocol"],
+            "model": model, "api_key": key, "api_key_env": env,
+            "key_from_env": bool(os.environ.get(env, "").strip()),
+            "extra_body": pre["extra_body"],
+            "price_input_per_1m": price["in"], "price_cache_hit_per_1m": price["hit"],
+            "price_output_per_1m": price["out"],
+        }
+    c = llm.get("custom") or {}
+    env = (c.get("api_key_env") or "").strip()
+    env_key = os.environ.get(env, "").strip() if env else ""
+    return {
+        "provider": "custom", "base_url": (c.get("base_url") or "").strip(),
+        "protocol": c.get("protocol") if c.get("protocol") in PROTOCOLS else "openai",
+        "model": (c.get("model") or "").strip(), "api_key": env_key or (c.get("api_key") or "").strip(),
+        "api_key_env": env, "key_from_env": bool(env_key),
+        "extra_body": c.get("extra_body") or {},
+        "price_input_per_1m": float(c.get("price_input_per_1m") or 0),
+        "price_cache_hit_per_1m": float(c.get("price_input_per_1m") or 0),
+        "price_output_per_1m": float(c.get("price_output_per_1m") or 0),
+    }
+
+
 DEFAULTS: dict[str, Any] = {
     "inbox_dirs": [],
     "data_dir": DEFAULT_DATA_DIR,
@@ -21,19 +77,23 @@ DEFAULTS: dict[str, Any] = {
         "filename_patterns": ["*draft*", "*_SI.pdf", "*supplement*"],
     },
     "llm": {
-        "base_url": "https://api.deepseek.com",
-        "api_key_env": "DEEPSEEK_API_KEY",
-        "api_key": "",  # optional; written by the web settings page, stays local
+        # "deepseek" = official preset (only key + model to choose);
+        # "custom" = any OpenAI- or Anthropic-compatible endpoint.
+        "provider": "deepseek",
         "model": "deepseek-flash",
-        # Extra request body; DeepSeek enables "thinking" by default, which is
-        # slower and costlier and not needed for structured extraction.
-        "extra_body": {"thinking": {"type": "disabled"}},
+        "api_key": "",  # official key, stored locally; env var wins if set
+        "custom": {
+            "base_url": "",
+            "api_key": "",
+            "api_key_env": "",
+            "protocol": "openai",  # openai | anthropic
+            "model": "",
+            "extra_body": {},
+            "price_input_per_1m": 0,
+            "price_output_per_1m": 0,
+        },
         "max_input_chars": 60000,
         "monthly_budget_usd": 5,
-        # USD per 1M tokens, used only for the local cost estimate.
-        "price_input_per_1m": 0.3,
-        "price_cache_hit_per_1m": 0.006,
-        "price_output_per_1m": 1.2,
         "timeout_s": 180,
     },
     "output_language": "zh",
@@ -118,12 +178,12 @@ class Config:
     def web(self) -> dict[str, Any]:
         return self.raw["web"]
 
+    def effective_llm(self) -> dict[str, Any]:
+        return effective_llm(self.llm)
+
     def api_key(self) -> str:
         """Environment variable wins over the locally stored key."""
-        env_name = self.llm.get("api_key_env") or ""
-        if env_name and os.environ.get(env_name):
-            return os.environ[env_name].strip()
-        return (self.llm.get("api_key") or "").strip()
+        return self.effective_llm()["api_key"]
 
     def ensure_dirs(self) -> None:
         for sub in ("papers", "fields", "handbooks", "concepts", "_pending"):
@@ -135,6 +195,8 @@ class Config:
             raise ConfigError("output_language must be zh, en or bilingual")
         if not isinstance(self.raw.get("inbox_dirs"), list):
             raise ConfigError("inbox_dirs must be a list of folders")
+        if self.llm.get("provider", "deepseek") not in (*PROVIDERS, "custom"):
+            raise ConfigError(f"llm.provider must be one of {', '.join([*PROVIDERS, 'custom'])}")
         host = self.web.get("host")
         if host not in ("127.0.0.1", "localhost", "::1"):
             raise ConfigError("web.host must be a loopback address (127.0.0.1)")
@@ -156,7 +218,25 @@ def default_config_path() -> Path:
     return _expand(DEFAULT_DATA_DIR) / "config.yaml"
 
 
+def _migrate(data: dict[str, Any]) -> dict[str, Any]:
+    llm = (data or {}).get("llm") or {}
+    if "provider" not in llm and llm.get("base_url"):
+        if "deepseek.com" not in llm["base_url"]:
+            llm["provider"] = "custom"
+            llm["custom"] = {"base_url": llm.pop("base_url"), "api_key": llm.pop("api_key", ""),
+                             "api_key_env": llm.pop("api_key_env", ""), "model": llm.pop("model", ""),
+                             "protocol": "openai"}
+        else:
+            llm.pop("base_url")
+            llm.pop("api_key_env", None)
+    for legacy in ("base_url", "api_key_env", "extra_body", "price_input_per_1m",
+                   "price_cache_hit_per_1m", "price_output_per_1m"):
+        llm.pop(legacy, None)
+    return data
+
+
 def from_dict(data: dict[str, Any], path: Path | None = None) -> Config:
+    data = _migrate(data or {})
     cfg = Config(raw=_deep_merge(DEFAULTS, data or {}), path=path)
     cfg.validate()
     return cfg

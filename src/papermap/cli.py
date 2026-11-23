@@ -42,19 +42,32 @@ def cmd_init(args: argparse.Namespace) -> int:
     lang = _ask("Card language: zh / en / bilingual", "zh")
     while lang not in ("zh", "en", "bilingual"):
         lang = _ask("Please type zh, en or bilingual", "zh")
-    base_url = _ask("LLM API base URL (OpenAI-compatible)", "https://api.deepseek.com")
-    model = _ask("LLM model name (check your provider's docs)", "deepseek-flash")
-    key_env = _ask("Environment variable holding the API key", "DEEPSEEK_API_KEY")
-    print("You can leave the key empty and set it later (environment variable or web Settings page).")
-    api_key = getpass.getpass("API key to store in the local config file (input hidden, Enter to skip): ").strip()
+    print("\nLLM provider:\n  1) DeepSeek official (just paste your API key)\n  2) Custom (any OpenAI/Anthropic-compatible endpoint)")
+    choice = _ask("Choose 1 or 2", "1")
+    llm: dict = {}
+    print("You can leave the key empty and set it later on the web Settings page.")
+    if choice == "2":
+        llm["provider"] = "custom"
+        llm["custom"] = {
+            "base_url": _ask("Base URL", ""),
+            "protocol": "anthropic" if _ask("API protocol: openai / anthropic", "openai").startswith("a") else "openai",
+            "model": _ask("Model name", ""),
+            "api_key": getpass.getpass("API key (input hidden, Enter to skip): ").strip(),
+        }
+        api_key = llm["custom"]["api_key"]
+    else:
+        pre = cfgmod.PROVIDERS["deepseek"]
+        llm["provider"] = "deepseek"
+        llm["model"] = _ask(f"Model ({' / '.join(pre['models'])})", pre["default_model"])
+        api_key = getpass.getpass(f"API key from {pre['key_url']} (input hidden, Enter to skip): ").strip()
+        llm["api_key"] = api_key
     email = _ask("Contact e-mail for Crossref/OpenAlex polite pool (optional)", "")
     budget = _ask("Monthly LLM budget in USD (0 = unlimited)", "5")
 
     raw = {
         "inbox_dirs": [inbox],
         "data_dir": data_dir,
-        "llm": {"base_url": base_url, "api_key_env": key_env, "api_key": api_key,
-                "model": model, "monthly_budget_usd": float(budget or 0)},
+        "llm": {**llm, "monthly_budget_usd": float(budget or 0)},
         "output_language": lang,
         "metadata": {"contact_email": email},
     }
@@ -87,9 +100,8 @@ def _load(args: argparse.Namespace):
 
 def _key_hint(cfg) -> None:
     if not cfg.api_key():
-        env = cfg.llm.get("api_key_env") or "DEEPSEEK_API_KEY"
-        print(f"⚠ No LLM API key set: new papers are detected and registered, but cards wait "
-              f"until you set {env} or add a key on the Settings page.")
+        print("⚠ No LLM API key set: new papers are detected and registered, but cards wait "
+              "until you add a key on the web Settings page (papermap serve).")
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
