@@ -9,6 +9,17 @@
     </p>
     {% if p.status_detail and p.status != 'done' %}<p class="muted small">{{ p.status_detail }}</p>{% endif %}
     {% if plabels %}<div class="labels">{% for l in plabels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ l.name_zh }}<small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} · 待审核{% endif %}{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small></a>{% endfor %}</div>{% endif %}
+    <div class="groups">
+      <span class="muted small">分组</span>
+      {% for g in pcollections %}<span class="group-chip">{{ g.path }}<button type="button" data-remove-group="{{ g.id }}" title="从这个分组移出">×</button></span>{% endfor %}
+      {% if all_collections %}
+      <select data-add-group title="加入分组">
+        <option value="">＋ 加入分组…</option>
+        {% set mine = pcollections|map(attribute='id')|list %}
+        {% for g in all_collections if g.id not in mine %}<option value="{{ g.id }}">{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}
+      </select>
+      {% else %}<span class="muted small">（左侧「＋ 新建分组」后可以把论文拖进去）</span>{% endif %}
+    </div>
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="card" type="button">卡片</button>
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">我的笔记</button>{% endif %}

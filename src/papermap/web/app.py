@@ -77,14 +77,24 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
             review_count=_review_count(registry, pipeline.new_field_threshold),
+            collection_tree=registry.collection_tree(),
+            unfiled_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored' AND id NOT IN "
+                                   "(SELECT paper_id FROM paper_collections)")["n"],
+            all_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored'")["n"],
             budget_ratio=(registry.month_cost() / float(config.llm.get("monthly_budget_usd") or 0))
             if float(config.llm.get("monthly_budget_usd") or 0) else 0,
             busy=bool(busy),
         )
         return templates.TemplateResponse(request, name, ctx)
 
-    def paper_rows(q: str = "", status: str = ""):
+    def paper_rows(q: str = "", status: str = "", c: str = ""):
         sql, params = "SELECT * FROM papers WHERE status != 'ignored'", []
+        if c == "none":
+            sql += " AND id NOT IN (SELECT paper_id FROM paper_collections)"
+        elif c.isdigit():  # a group shows its own papers and those of its subgroups
+            ids = registry.collection_descendants(int(c))
+            sql += f" AND id IN (SELECT paper_id FROM paper_collections WHERE collection_id IN ({','.join('?' * len(ids))}))"
+            params += ids
         if status:
             sql += " AND status=?"
             params.append(status)
@@ -127,21 +137,26 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 notes_text = np_.read_text("utf-8") if np_.exists() else ""
         return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
                 "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
+                "pcollections": [{"id": r["id"], "path": registry.collection_path(r["id"])}
+                                 for r in registry.paper_collections(paper_id)],
+                "all_collections": _flat_tree(registry.collection_tree()),
                 "dois": registry.paper_dois(paper_id),
                 "events": registry.query("SELECT * FROM events WHERE paper_id=? ORDER BY id DESC LIMIT 20", (paper_id,))}
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, status: str = "", q: str = "", id: int | None = None):
-        papers, labels = paper_rows(q, status)
+    def index(request: Request, status: str = "", q: str = "", c: str = "", id: int | None = None):
+        papers, labels = paper_rows(q, status, c)
         bulk = pipeline.estimate() if pipeline.hold and pipeline.pending_count() else None
         selected = id if id is not None else (papers[0]["id"] if papers else None)
         return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(),
-                      status=status, q=q, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
+                      status=status, q=q, c=c, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
+                      current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
+                                          if c.isdigit() else None),
                       **((paper_panel_ctx(selected) or {}) if selected else {}))
 
     @app.get("/papers/list", response_class=HTMLResponse)
-    def papers_list(request: Request, status: str = "", q: str = "", selected: int | None = None):
-        papers, labels = paper_rows(q, status)
+    def papers_list(request: Request, status: str = "", q: str = "", c: str = "", selected: int | None = None):
+        papers, labels = paper_rows(q, status, c)
         return templates.TemplateResponse(request, "_paper_list.html",
                                           {"papers": papers, "labels": labels, "selected": selected})
 
@@ -193,11 +208,71 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         _reveal(target)
         return {"ok": True}
 
+    # ------------------------------------------------------------- collections
+    def refresh_cards_later(paper_ids) -> None:
+        ids = list(dict.fromkeys(paper_ids))
+        if ids:
+            background("cards", lambda: [pipeline._refresh_card(i) for i in ids])
+
+    async def json_body(request: Request) -> dict:
+        body = await request.json()
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        return body
+
+    def ids_of(body: dict) -> list[int]:
+        return [int(x) for x in body.get("paper_ids", []) if str(x).isdigit()]
+
+    @app.post("/api/collections")
+    async def collection_create(request: Request):
+        body = await json_body(request)
+        parent = body.get("parent_id")
+        try:
+            cid = registry.create_collection(str(body.get("name", "")), int(parent) if parent else None)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        if ids_of(body):
+            registry.add_to_collection(cid, ids_of(body))
+            refresh_cards_later(ids_of(body))
+        return {"ok": True, "id": cid}
+
+    @app.post("/api/collections/{cid}/{action}")
+    async def collection_action(cid: int, action: str, request: Request):
+        body = await json_body(request)
+        if registry.one("SELECT 1 FROM collections WHERE id=?", (cid,)) is None:
+            raise HTTPException(404)
+        try:
+            if action == "rename":
+                registry.rename_collection(cid, str(body.get("name", "")))
+                refresh_cards_later(r["paper_id"] for r in registry.query(
+                    "SELECT paper_id FROM paper_collections WHERE collection_id IN "
+                    f"({','.join('?' * len(registry.collection_descendants(cid)))})",
+                    tuple(registry.collection_descendants(cid))))
+            elif action == "delete":
+                refresh_cards_later(registry.delete_collection(cid))
+            elif action == "move":
+                parent = body.get("parent_id")
+                registry.move_collection(cid, int(parent) if parent else None)
+            elif action == "add":
+                n = registry.add_to_collection(cid, ids_of(body))
+                refresh_cards_later(ids_of(body))
+                return {"ok": True, "added": n}
+            elif action == "remove":
+                registry.remove_from_collection(cid, ids_of(body))
+                refresh_cards_later(ids_of(body))
+            else:
+                raise HTTPException(404)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
+
     @app.post("/api/import")
     async def api_import(request: Request):
-        """PDFs dropped onto the window or chosen with the import button."""
+        """PDFs dropped onto the window or chosen with the import button.
+        When a group is selected (field 'collection'), imported papers join it."""
         form = await request.form()
         _check_csrf(str(form.get("csrf", "")), csrf_token)
+        coll = str(form.get("collection", "") or "")
+        coll_id = int(coll) if coll.isdigit() and registry.one("SELECT 1 FROM collections WHERE id=?", (int(coll),)) else None
         items = form.getlist("files")
         saved = []
         for item in items:
@@ -212,7 +287,19 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             saved.append(dest)
         if saved:
             registry.log("info", f"Imported {len(saved)} PDF(s) into the library")
-            background("import", lambda: [pipeline.handle_path(p) for p in saved])
+            from ..pdf_extract import sha256_file
+
+            shas = [sha256_file(p) for p in saved]
+
+            def run_import():
+                for p, sha in zip(saved, shas):
+                    pipeline.handle_path(p)
+                    f = registry.file_by_sha(sha)
+                    if coll_id and f is not None and f["paper_id"]:
+                        registry.add_to_collection(coll_id, [f["paper_id"]])
+                        pipeline._refresh_card(f["paper_id"])
+
+            background("import", run_import)
         return {"ok": True, "count": len(saved), "skipped": len(items) - len(saved)}
 
     @app.post("/bulk/start")
@@ -663,6 +750,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return await run_in_threadpool(check_connection, eff)
 
     return app
+
+
+def _flat_tree(tree: list[dict]) -> list[dict]:
+    out = []
+    for node in tree:
+        out.append(node)
+        out += _flat_tree(node["children"])
+    return out
 
 
 def _safe_name(name: str) -> str:

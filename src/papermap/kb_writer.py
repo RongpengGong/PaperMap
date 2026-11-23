@@ -107,6 +107,7 @@ def render_card(
     fields: list[dict] | None = None,
     stem: str | None = None,
     has_pdf: bool = False,
+    collections: list[str] | None = None,
 ) -> str:
     h = HEADINGS["en" if language == "en" else "zh"]
     authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
@@ -121,6 +122,7 @@ def render_card(
         "fields": [f["slug"] for f in fields or [] if f["axis"] == "method" and f["status"] == "accepted"],
         "topics": [f["slug"] for f in fields or [] if f["axis"] == "topic" and f["status"] == "accepted"],
         "tools": card.get("tools", []),
+        "collections": collections or [],
         "pdf": f"{stem}.pdf" if stem and has_pdf else None,
         "notes": f"{stem}.notes.md" if stem else None,
         "file_paths": file_paths,
@@ -227,6 +229,7 @@ def write_card(
     fallback_id: str,
     existing_rel_path: str | None = None,
     fields: list[dict] | None = None,
+    collections: list[str] | None = None,
 ) -> str:
     """Write (or rewrite) a card in the paper's own folder. Returns rel path."""
     if existing_rel_path:
@@ -244,7 +247,7 @@ def write_card(
     text = render_card(
         meta, card, file_paths, all_dois, language,
         user_section=read_user_section(path), added=read_added(path), fields=fields,
-        stem=stem, has_pdf=bool(stem) and (path.parent / f"{stem}.pdf").exists(),
+        stem=stem, has_pdf=bool(stem) and (path.parent / f"{stem}.pdf").exists(), collections=collections,
     )
     atomic_write(path, text)
     return rel

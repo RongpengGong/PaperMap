@@ -87,6 +87,19 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS collections (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id INTEGER REFERENCES collections(id),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS paper_collections (
+    paper_id INTEGER NOT NULL REFERENCES papers(id),
+    collection_id INTEGER NOT NULL REFERENCES collections(id),
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (paper_id, collection_id)
+);
 CREATE TABLE IF NOT EXISTS field_syntheses (
     id INTEGER PRIMARY KEY,
     field_id INTEGER NOT NULL REFERENCES fields(id),
@@ -481,6 +494,101 @@ class Registry:
         cols["updated_at"] = now_iso()
         sets = ", ".join(f"{k}=?" for k in cols)
         self.execute(f"UPDATE pending_fields SET {sets} WHERE id=?", (*cols.values(), pid))
+
+    # -- collections (Zotero-style groups; a paper may be in several) --------
+    def collections(self) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT c.*, (SELECT count(*) FROM paper_collections pc JOIN papers p ON p.id=pc.paper_id "
+            " WHERE pc.collection_id=c.id AND p.status != 'ignored') AS n "
+            "FROM collections c ORDER BY c.sort_order, c.name COLLATE NOCASE")
+
+    def collection_tree(self) -> list[dict]:
+        rows = [dict(r) for r in self.collections()]
+        by_parent: dict[int | None, list[dict]] = {}
+        for r in rows:
+            by_parent.setdefault(r["parent_id"], []).append(r)
+
+        def build(parent, depth):
+            out = []
+            for r in by_parent.get(parent, []):
+                r["depth"] = depth
+                r["children"] = build(r["id"], depth + 1)
+                out.append(r)
+            return out
+
+        return build(None, 0)
+
+    def collection_descendants(self, cid: int) -> list[int]:
+        ids, frontier = [cid], [cid]
+        while frontier:
+            marks = ",".join("?" * len(frontier))
+            frontier = [r["id"] for r in self.query(f"SELECT id FROM collections WHERE parent_id IN ({marks})", tuple(frontier))]
+            ids += frontier
+        return ids
+
+    def create_collection(self, name: str, parent_id: int | None = None) -> int:
+        name = name.strip()[:120]
+        if not name:
+            raise ValueError("name must not be empty")
+        if parent_id is not None and self.one("SELECT 1 FROM collections WHERE id=?", (parent_id,)) is None:
+            raise ValueError("parent collection not found")
+        cur = self.execute("INSERT INTO collections(name, parent_id, created_at) VALUES (?,?,?)",
+                           (name, parent_id, now_iso()))
+        return int(cur.lastrowid)
+
+    def rename_collection(self, cid: int, name: str) -> None:
+        name = name.strip()[:120]
+        if not name:
+            raise ValueError("name must not be empty")
+        self.execute("UPDATE collections SET name=? WHERE id=?", (name, cid))
+
+    def move_collection(self, cid: int, parent_id: int | None) -> None:
+        if parent_id is not None and parent_id in self.collection_descendants(cid):
+            raise ValueError("cannot move a group into itself or its own subgroup")
+        self.execute("UPDATE collections SET parent_id=? WHERE id=?", (parent_id, cid))
+
+    def delete_collection(self, cid: int) -> list[int]:
+        """Delete a group and its subgroups; papers stay in the library. Returns affected paper ids."""
+        ids = self.collection_descendants(cid)
+        marks = ",".join("?" * len(ids))
+        papers = [r["paper_id"] for r in self.query(
+            f"SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN ({marks})", tuple(ids))]
+        with self._lock:
+            self.conn.execute(f"DELETE FROM paper_collections WHERE collection_id IN ({marks})", tuple(ids))
+            self.conn.execute(f"DELETE FROM collections WHERE id IN ({marks})", tuple(ids))
+            self.conn.commit()
+        return papers
+
+    def add_to_collection(self, cid: int, paper_ids: list[int]) -> int:
+        if self.one("SELECT 1 FROM collections WHERE id=?", (cid,)) is None:
+            raise ValueError("collection not found")
+        n = 0
+        with self._lock:
+            for pid in paper_ids:
+                if self.conn.execute("SELECT 1 FROM papers WHERE id=?", (pid,)).fetchone():
+                    n += self.conn.execute(
+                        "INSERT OR IGNORE INTO paper_collections(paper_id, collection_id, added_at) VALUES (?,?,?)",
+                        (pid, cid, now_iso())).rowcount
+            self.conn.commit()
+        return n
+
+    def remove_from_collection(self, cid: int, paper_ids: list[int]) -> None:
+        with self._lock:
+            for pid in paper_ids:
+                self.conn.execute("DELETE FROM paper_collections WHERE paper_id=? AND collection_id=?", (pid, cid))
+            self.conn.commit()
+
+    def paper_collections(self, paper_id: int) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT c.* FROM paper_collections pc JOIN collections c ON c.id=pc.collection_id "
+            "WHERE pc.paper_id=? ORDER BY c.name COLLATE NOCASE", (paper_id,))
+
+    def collection_path(self, cid: int) -> str:
+        parts, cur = [], self.one("SELECT * FROM collections WHERE id=?", (cid,))
+        while cur is not None:
+            parts.append(cur["name"])
+            cur = self.one("SELECT * FROM collections WHERE id=?", (cur["parent_id"],)) if cur["parent_id"] else None
+        return " / ".join(reversed(parts))
 
     def iter_papers_by_status(self, statuses: tuple[str, ...]) -> Iterator[sqlite3.Row]:
         marks = ",".join("?" * len(statuses))

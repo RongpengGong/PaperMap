@@ -19,7 +19,10 @@
       <form method="post" action="/bulk/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>开始处理</button></form>
     </div>
     {% endif %}
-    <div id="paper_list" data-selected="{{ selected or '' }}">{% include "_paper_list.html" %}</div>
+    {% if current_collection or c == 'none' %}
+    <div class="list-title">{{ icon('folder') if current_collection else icon('inbox') }}<span>{{ current_collection.name if current_collection else '未分组' }}</span><i class="muted small">{{ papers|length }} 篇{% if current_collection %} · 导入的 PDF 会自动放进这个分组{% endif %}</i></div>
+    {% endif %}
+    <div id="paper_list" data-selected="{{ selected or '' }}" data-c="{{ c }}">{% include "_paper_list.html" %}</div>
   </section>
   <section class="detail-pane" id="detail">
     {% if p is defined and p %}{% include "_paper_panel.html" %}
