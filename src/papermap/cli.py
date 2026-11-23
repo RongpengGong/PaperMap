@@ -314,6 +314,8 @@ def _serve(cfg, reg, pipe) -> None:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg, reg, pipe = _load(args)
+    if getattr(args, "port", None):
+        cfg.raw["web"]["port"] = args.port
     _serve(cfg, reg, pipe)
     return 0
 
@@ -445,7 +447,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-web", action="store_true", help="do not start the web UI")
     p.add_argument("--open", nargs="?", const="/", default=None, help="open the web UI in the browser")
     p.set_defaults(func=cmd_run)
-    sub.add_parser("serve", help="start the local web UI only").set_defaults(func=cmd_serve)
+    p = sub.add_parser("serve", help="start the local web UI only")
+    p.add_argument("--port", type=int, help="override web.port (e.g. to run next to the app)")
+    p.set_defaults(func=cmd_serve)
     p = sub.add_parser("reprocess", help="re-run LLM extraction for selected papers")
     p.add_argument("--paper-id", type=int, nargs="+")
     p.add_argument("--prompt-version")
