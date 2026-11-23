@@ -2,7 +2,7 @@
 (function () {
   const csrf = document.body.dataset.csrf;
   const toastEl = document.getElementById("toast");
-  const settingsPage = location.pathname === "/settings" || location.pathname === "/zotero";
+  const settingsPage = location.pathname === "/settings" || location.pathname === "/zotero" || location.pathname === "/extensions/guide";
   const sidebar = document.querySelector(".sidebar, .settings-sidebar");
   const sidebarScrollKey = settingsPage ? "papermap.settingsSidebarScroll" : "papermap.sidebarScroll";
   const libraryPages = new Set(["/", "/search", "/qa", "/map", "/fields", "/handbooks", "/concepts",
@@ -429,11 +429,12 @@
   });
 
   // export references
-  async function exportRefs(fmt, query) {
+  async function exportRefs(fmt, query, extension = fmt) {
     const url = `/export.${fmt}?${query}`;
     if (window.pywebview && window.pywebview.api && window.pywebview.api.save_text) {
-      const text = await (await fetch(url)).text();
-      const path = await window.pywebview.api.save_text(`papermap.${fmt}`, text);
+      const response = await fetch(url);
+      if (!response.ok) { toast("导出失败，请检查模板是否仍已启用"); return; }
+      const path = await window.pywebview.api.save_text(`papermap.${extension}`, await response.text());
       if (path) toast("已保存到 " + path);
     } else { location.href = url; }
   }
@@ -441,9 +442,11 @@
     const cur = list ? list.dataset.c || "" : "";
     const scopeQ = ids.length ? `ids=${ids.join(",")}` : (cur ? `c=${cur}` : "");
     const what = ids.length ? `所选 ${ids.length} 篇` : (cur ? "当前分组" : "全部论文");
+    const templates = JSON.parse(document.getElementById("plugin_exports")?.textContent || "[]");
     showMenu(x, y, [{ label: `导出${what}` },
       { text: "BibTeX（.bib）", run: () => exportRefs("bib", scopeQ) },
-      { text: "RIS（EndNote / Zotero）", run: () => exportRefs("ris", scopeQ) }]);
+      { text: "RIS（EndNote / Zotero）", run: () => exportRefs("ris", scopeQ) },
+      ...templates.map(t => ({ text: t.name, run: () => exportRefs(t.id, scopeQ, t.extension) }))]);
   }
   window.pmExportMenu = exportMenu;
   document.addEventListener("click", e => {

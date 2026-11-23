@@ -32,6 +32,10 @@ Papers · Knowledge map (blue = method, orange = topic, grey = paper) · Fields 
 
 Your own notes ("Relevance to me" in cards, "My notes" in field pages and handbooks) are never overwritten.
 
+## Plugins and local API
+
+Open Settings → Application → Plugins and API to install the reading-club export template or Python event inspector. Issue a token there to let local tools query papers, import PDFs and subscribe to events. [Plugin guide and examples (Chinese)](src/papermap/extension_examples/GUIDE.md)
+
 ## Start at login
 
 `papermap autostart install | status | uninstall` (macOS launchd, Windows Task Scheduler, Linux systemd). Then open <http://127.0.0.1:8765>. Quit from the bottom of the Settings page.

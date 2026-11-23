@@ -292,7 +292,9 @@ def parse_numbered(answer: str, ids: list[int]) -> dict[int, str] | None:
 def service_by_id(config: Config, sid: str | None) -> dict:
     tr = config.raw["translation"]
     sid = sid or tr.get("default") or "bilibili"
-    for s in tr.get("services", []):
+    from .plugin_contributions import translation_services
+
+    for s in translation_services(config):
         if s.get("id") == sid:
             return s
     raise TranslationError(f"unknown translation service '{sid}'")
@@ -314,7 +316,12 @@ class Translator:
             return self.service.get("model") or "Index-Translate-35B-A3B"
         if kind == "main":
             return self.config.effective_llm()["model"]
+        if kind == "plugin":
+            return self._provider_settings()["model"]
         return self.service.get("model", "")
+
+    def _provider_settings(self) -> dict:
+        return self.config.resolve_llm({**self.config.llm, "provider": self.service["provider"]})
 
     def _bilibili(self, prompt: str, paper_id: int | None) -> str:
         """Streaming request: the free gateway cuts non-streamed answers at ~30 s."""
@@ -350,13 +357,16 @@ class Translator:
     def _llm(self, prompt: str, paper_id: int | None, kind: str) -> str:
         if kind == "main":
             return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192).raw
+        if kind == "plugin":
+            eff = self._provider_settings()
+            return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192, eff=eff).raw
         s = self.service
         eff = effective_llm({"provider": "custom", "custom": {
             "base_url": s.get("base_url", ""), "api_key": s.get("api_key", ""), "protocol": s.get("protocol", "openai"),
             "model": s.get("model", ""), "price_input_per_1m": s.get("price_input_per_1m", 0),
             "price_output_per_1m": s.get("price_output_per_1m", 0)}})
         return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192,
-                                  eff=eff, client=make_client(eff))
+                                  eff=eff, client=make_client(eff)).raw
 
     def call(self, prompt: str, paper_id: int | None) -> tuple[str, str]:
         """Returns (text, via). Falls back to the main LLM if the service fails."""

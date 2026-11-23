@@ -20,6 +20,7 @@ def main() -> int:
         "--name", "PaperMap", "--noconfirm", "--clean", "--onedir",
         "--paths", str(ROOT / "src"),
         "--collect-data", "papermap",          # templates, static, prompts, taxonomies
+        "--add-data", f"{ROOT / 'src/papermap/extension_examples/event-inspector/handler.py'}:papermap/extension_examples/event-inspector",
         "--collect-submodules", "papermap",
         "--collect-submodules", "uvicorn",     # uvicorn imports loops/protocols dynamically
         "--hidden-import", "watchdog.observers",

@@ -28,7 +28,7 @@ MAX_REFERENCE_CHARS = 60000
 MAX_PAPER_CHARS = 200000
 FALLBACK_DEFAULT = "papermap-close-reading"
 PREFERRED_DEFAULT = "nature-paper-xray"
-SOURCES = {"builtin": "PaperMap 自带", "claude": "Claude 技能目录", "papermap": "我添加的"}
+SOURCES = {"builtin": "PaperMap 自带", "claude": "Claude 技能目录", "papermap": "我添加的", "plugin": "扩展插件"}
 
 
 @dataclass
@@ -78,6 +78,8 @@ def _parse(folder: Path, source: str) -> Skill | None:
 
 
 def _references(sk: Skill) -> list[tuple[str, str]]:
+    if sk.source == "plugin":
+        return []  # The manifest grants access only to its specified prompt file.
     refs, total = [], 0
     files = sorted((sk.path / "references").glob("**/*.md")) if (sk.path / "references").is_dir() else []
     # relative files mentioned in SKILL.md / manifest, e.g. ../nature-shared/core/x.md
@@ -114,6 +116,10 @@ def discover(config: Config) -> dict[str, Skill]:
                 sk = _parse(folder, source)
                 if sk is not None:
                     found[sk.id] = sk
+    from .plugin_contributions import prompt_skills
+
+    for skill in prompt_skills(config):
+        found[skill.id] = skill
     return found
 
 

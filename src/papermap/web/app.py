@@ -8,9 +8,11 @@ import os
 import re
 import secrets
 import threading
+from html import escape
 from pathlib import Path
 
 import markdown as md
+import nh3
 import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -18,7 +20,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from ..config import PRESETS, PROTOCOLS, PROVIDERS, Config, ConfigError, effective_llm, normalize_reasoning_effort
+from ..config import PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
+from ..plugin_contributions import export_templates, export_text, translation_services
+from ..plugins import render_snapshot
 from .. import kb_git, library
 from .. import reader as reader_mod
 from ..llm import check_connection, list_chatgpt_model_options, list_models
@@ -27,19 +31,24 @@ from ..registry import Registry, now_iso
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
 
 HERE = Path(__file__).parent
-ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 LANGS = ("zh", "en", "bilingual")
 SETTINGS_GROUPS = (
     ("AI 服务", (("models", "模型与账号", "settings"), ("translation", "翻译", "handbooks"))),
     ("文献库", (("import", "导入与文件夹", "inbox"), ("processing", "论文处理", "papers"),
                 ("library", "知识库位置", "folder"), ("taxonomy", "学科与版本", "fields"))),
-    ("应用", (("application", "后台运行", "events"),)),
+    ("应用", (("extensions", "插件与接口", "skills"), ("application", "后台运行", "events"))),
 )
 SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROUPS for item in items}
 
 
 def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAPI:
-    app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None)
+    from ..plugin_hooks import PluginHooks
+    from .plugin_admin import EXAMPLES, mount_admin
+    from .plugin_api import mount_api
+
+    hooks = PluginHooks(config, registry)
+    app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None, lifespan=hooks.lifespan)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
@@ -62,13 +71,18 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def local_only(request: Request, call_next):
         # Defend against DNS rebinding and cross-site form posts: this server can
         # change the API endpoint/key, so only same-origin local requests pass.
-        host = (request.headers.get("host") or "").rsplit(":", 1)[0]
+        try:
+            host = request.url.hostname
+        except ValueError:
+            host = None
         if host not in ALLOWED_HOSTS:
             return HTMLResponse("Forbidden host", status_code=403)
-        if request.method == "POST":
-            origin = request.headers.get("origin")
-            if origin and re.sub(r"^https?://", "", origin).rsplit(":", 1)[0] not in ALLOWED_HOSTS:
-                return HTMLResponse("Forbidden origin", status_code=403)
+        origin = request.headers.get("origin")
+        if request.method == "POST" and origin and origin != str(request.base_url).rstrip("/"):
+            return HTMLResponse("Forbidden origin", status_code=403)
+        if request.method == "GET":
+            with render_snapshot():
+                return await call_next(request)
         return await call_next(request)
 
     busy: set[str] = set()  # names of running background jobs
@@ -85,7 +99,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     def md_html(text: str) -> str:
         html = md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
         # external links open in the system browser (pywebview honours target=_blank)
-        return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', html)
+        return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', _clean_markdown_html(html))
 
     def render(request: Request, name: str, **ctx):
         is_subscription = config.effective_llm().get("billing") == "subscription"
@@ -190,7 +204,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 "failed_jobs": [j for j in jobs[:3] if j["status"] == "error"],
                 "skills_ok": [sk for sk in skills.values() if sk.supported],
                 "default_skill": sr.default_skill_id(config, skills),
-                "tr_services": tr_cfg.get("services", []), "tr_default": tr_cfg.get("default", "bilibili"),
+                "tr_services": translation_services(config), "tr_default": tr_cfg.get("default", "bilibili"),
                 "tr_ack": bool(tr_cfg.get("privacy_ack")),
                 "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
                 "ptags": json.loads(row["tags_json"] or "[]"),
@@ -210,6 +224,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rcounts["starred"] = registry.one("SELECT count(*) AS n FROM papers WHERE starred=1")["n"]
         return render(request, "index.html", papers=papers, labels=labels, counts=registry.status_counts(), rcounts=rcounts,
                       status=status, q=q, c=c, bulk=bulk, pending_n=pipeline.pending_count(), selected=selected,
+                      plugin_exports=[{"id": key, "name": item["name"], "extension": item.get("extension", "md")}
+                                      for key, item in export_templates(config).items()],
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
                       **((paper_panel_ctx(selected) or {}) if selected else {}))
@@ -225,7 +241,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         jobs = registry.one("SELECT count(*) AS n, max(updated_at) AS u FROM jobs WHERE status IN ('queued','running')")
         last_job = registry.one("SELECT max(updated_at) AS u FROM jobs")["u"] or ""
         return {"pending": pipeline.pending_count() + (jobs["n"] or 0),
-                "busy": bool(busy) or pipeline._lock.locked() or bool(jobs["n"]),
+                "busy": bool(busy) or hooks.running.is_set() or pipeline._lock.locked() or bool(jobs["n"]),
                 "jobs_version": last_job,
                 "papers": registry.one("SELECT count(*) AS n FROM papers")["n"],
                 "last_event": registry.one("SELECT max(id) AS m FROM events")["m"] or 0,
@@ -302,14 +318,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import citations_export as ce
 
         pids = export_ids(ids, c)
+        extension = fmt
         if fmt == "bib":
             text, media = ce.bibtex(registry, pids), "application/x-bibtex"
         elif fmt == "ris":
             text, media = ce.ris(registry, pids), "application/x-research-info-systems"
+        elif fmt.startswith("ext."):
+            template = export_templates(config).get(fmt)
+            if not template:
+                raise HTTPException(404)
+            extension = template.get("extension", "md")
+            text = export_text(template, (registry.get_paper(pid) for pid in pids))
+            media = "text/plain"
         else:
             raise HTTPException(404)
         return Response(text, media_type=media + "; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="papermap.{fmt}"'})
+                        headers={"Content-Disposition": f'attachment; filename="papermap.{extension}"'})
 
     @app.post("/paper/{paper_id}/reveal")
     async def paper_reveal(paper_id: int, request: Request):
@@ -630,10 +654,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             else:
                 href = f"/?id={src['paper_id']}"
             tip = f"{src['who']}{' p.' + str(src['page'] + 1) if src['page'] is not None else ''} — {src['title']}"
-            return f'<a class="cite" href="{href}" title="{tip}">{n}</a>'
+            return f'<a class="cite" href="{href}" title="{escape(tip, quote=True)}">{n}</a>'
 
         html = md.markdown(answer, extensions=["extra", "sane_lists"])
-        return re.sub(r"\[(S\d+)\]", link, html)
+        return _clean_markdown_html(re.sub(r"\[(S\d+)\]", link, html))
 
     @app.get("/qa", response_class=HTMLResponse)
     def qa_page(request: Request, id: int | None = None):
@@ -779,7 +803,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         body = await json_body(request)
         sid = str(body.get("service") or "")
         tr = config.raw["translation"]
-        svc = next((x for x in tr.get("services", []) if x.get("id") == (sid or tr.get("default"))), None)
+        svc = next((x for x in translation_services(config) if x.get("id") == (sid or tr.get("default"))), None)
         if svc is None:
             return {"ok": False, "message": "找不到这个翻译服务"}
         if svc.get("kind") == "bilibili" and not tr.get("privacy_ack"):
@@ -806,6 +830,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def api_import(request: Request):
         """PDFs dropped onto the window or chosen with the import button.
         When a group is selected (field 'collection'), imported papers join it."""
+        from ..pdf_import import publish_pdf, staged_file
+
         form = await request.form()
         _check_csrf(str(form.get("csrf", "")), csrf_token)
         coll = str(form.get("collection", "") or "")
@@ -815,13 +841,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         for item in items:
             if not hasattr(item, "filename") or not (item.filename or "").lower().endswith(".pdf"):
                 continue
-            dest = _unique(config.imported_dir / _safe_name(item.filename))
-            tmp = dest.with_name(dest.name + ".part")  # the watcher ignores .part files
-            with open(tmp, "wb") as fh:
-                while chunk := await item.read(1 << 20):
-                    fh.write(chunk)
-            os.replace(tmp, dest)
-            saved.append(dest)
+            with staged_file(config.imported_dir) as tmp:
+                with tmp.open("wb") as fh:
+                    while chunk := await item.read(1 << 20):
+                        fh.write(chunk)
+                saved.append(publish_pdf(tmp, item.filename))
         if saved:
             registry.log("info", f"Imported {len(saved)} PDF(s) into the library")
             from ..pdf_extract import sha256_file
@@ -1181,6 +1205,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def tr_service_delete(sid: str, request: Request):
         await json_body(request)
         tr = config.raw["translation"]
+        if sid.startswith("ext."):
+            return {"ok": False, "message": "请在扩展设置里停用所属插件"}
         if sid in ("bilibili", "main"):
             return {"ok": False, "message": "内置服务不能删除"}
         tr["services"] = [x for x in tr.get("services", []) if x.get("id") != sid]
@@ -1244,7 +1270,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(
             request, "settings.html", cfg=config, saved=saved, langs=LANGS,
             providers=PROVIDERS, protocols=PROTOCOLS, provider=llm.get("provider", "deepseek"),
-            eff=eff, custom=custom, presets=PRESETS, preset_state=llm.get("presets") or {},
+            eff=eff, custom=custom, presets=config.model_presets(), preset_state=llm.get("presets") or {},
             official_key_state=("env" if os.environ.get(official_env) else "local" if llm.get("api_key") else ""),
             custom_key_state="local" if custom.get("api_key") else "",
             inbox_text="\n".join(str(p) for p in config.raw.get("inbox_dirs") or []),
@@ -1253,7 +1279,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             git_available=kb_git.available(), welcome=welcome,
             kb_dir=str(config.knowledge_dir), kb_default=(config.knowledge_dir == config.data_dir / "knowledge"),
             data_dir=str(config.data_dir),
-            tr=config.raw["translation"], bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
+            tr={**config.raw["translation"], "services": translation_services(config)}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
             claude_model_options=claude_model_options(),
             settings_section=section, settings_groups=SETTINGS_GROUPS,
@@ -1307,8 +1333,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw = config.raw
         from ..translate import BILIBILI_MODELS
 
+        presets = config.model_presets()
+        if provider.startswith("ext.") and provider not in presets and provider != config.llm.get("provider"):
+            raise HTTPException(409, "模型插件已停用或接口已更新，请刷新设置")
         tr = raw["translation"]
-        if any(x.get("id") == tr_default for x in tr.get("services", [])):
+        if any(x.get("id") == tr_default for x in translation_services(config)):
             tr["default"] = tr_default
         for svc in tr.get("services", []):
             if svc.get("kind") == "bilibili" and tr_bilibili_model in BILIBILI_MODELS:
@@ -1320,9 +1349,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw.setdefault("embedding", {})["model"] = embedding_model.strip()
         raw["knowledge_git"] = bool(knowledge_git)
         llm = raw["llm"]
-        llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
+        llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") or provider == llm.get("provider") else "deepseek"
         store = llm.setdefault("presets", {})
-        for pid in PRESETS:
+        for pid in presets:
             st = store.get(pid) or {}
             f = {k: str(form.get(f"p_{pid}_{k}", "")).strip() for k in ("key", "model", "in", "hit", "out", "clear")}
             if pid in ("chatgpt_plan", "claude_cli"):
@@ -1392,8 +1421,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         _check_csrf(str(body.get("csrf", "")), csrf_token)
         llm = copy.deepcopy(config.llm)
         provider = body.get("provider", "deepseek")
-        llm["provider"] = provider if provider in (*PROVIDERS, *PRESETS, "custom") else "deepseek"
-        if llm["provider"] in PRESETS:
+        presets = config.model_presets()
+        if str(provider).startswith("ext.") and provider not in presets:
+            raise HTTPException(409, "模型插件已停用或接口已更新，请刷新设置")
+        llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") else "deepseek"
+        if llm["provider"] in presets:
             st = llm.setdefault("presets", {}).setdefault(llm["provider"], {})
             if str(body.get("model", "")).strip() or (llm["provider"] == "chatgpt_plan" and "model" in body):
                 st["model"] = str(body["model"]).strip()
@@ -1418,7 +1450,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 llm["model"] = body["model"]
             if str(body.get("api_key", "")).strip():
                 llm["api_key"] = str(body["api_key"]).strip()
-        return effective_llm(llm, data_dir=config.data_dir)
+        return config.resolve_llm(llm)
 
     async def _account_action(request: Request, provider: str, action: str):
         body = await request.json()
@@ -1538,7 +1570,25 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         eff = _form_llm(await request.json())
         return await run_in_threadpool(check_connection, eff)
 
+    @app.get("/extensions/guide", response_class=HTMLResponse)
+    def extensions_guide(request: Request):
+        guide = (EXAMPLES / "GUIDE.md").read_text("utf-8")
+        return render(request, "extensions_guide.html", guide=md_html(guide), settings_groups=SETTINGS_GROUPS,
+                      settings_section="extensions")
+
+    mount_api(app, config, registry, pipeline, background)
+    mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
+
+
+def _clean_markdown_html(html: str) -> str:
+    # Documents, model output and prompt plugins all share the local UI origin.
+    return nh3.clean(html, tags={"p", "br", "hr", "strong", "b", "em", "i", "del", "blockquote", "code", "pre",
+                                 "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "a", "sup", "sub",
+                                 "table", "thead", "tbody", "tr", "td", "th", "dl", "dt", "dd", "abbr", "img"},
+                     attributes={"a": {"href", "title", "class"}, "img": {"src", "alt", "title"},
+                                 "td": {"colspan", "rowspan"}, "th": {"colspan", "rowspan"}},
+                     url_schemes={"http", "https", "mailto"}, link_rel=None)
 
 
 def _account_client(provider: str, data_dir: Path):
@@ -1557,21 +1607,6 @@ def _flat_tree(tree: list[dict]) -> list[dict]:
         out.append(node)
         out += _flat_tree(node["children"])
     return out
-
-
-def _safe_name(name: str) -> str:
-    name = Path(name).name
-    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name).strip(" .") or "paper.pdf"
-    return name if name.lower().endswith(".pdf") else name + ".pdf"
-
-
-def _unique(path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    stem, n = path.stem, 2
-    while path.exists():
-        path = path.with_name(f"{stem} ({n}).pdf")
-        n += 1
-    return path
 
 
 def _reveal(path: Path) -> None:

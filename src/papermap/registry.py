@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from .extension_events import SCHEMA as EXTENSION_SCHEMA
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS papers (
     id INTEGER PRIMARY KEY,
@@ -211,6 +213,7 @@ class Registry:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
         self._migrate()
+        self.conn.executescript(EXTENSION_SCHEMA)
         self.conn.commit()
 
     def _migrate(self) -> None:

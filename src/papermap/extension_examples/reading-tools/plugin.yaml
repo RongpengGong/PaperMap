@@ -1,0 +1,24 @@
+api_version: 1
+id: reading-tools
+name: 读书会导出模板
+version: "1.0"
+description: 把所选论文的卡片整理为读书会 Markdown 提纲。
+contributions:
+  exports:
+    - id: discussion
+      name: 读书会提纲
+      extension: md
+      template: |
+        ## ${title}
+
+        ${first_author} · ${year} · ${journal} · DOI ${doi}
+
+        **研究问题**　${research_question}
+
+        **一句话结论**　${one_sentence}
+
+        **主要发现**　${key_findings}
+
+        **局限**　${limitations}
+
+        **组会讨论**　哪条证据最值得回到原文核对？

@@ -186,7 +186,8 @@ def normalize_reasoning_effort(value: Any) -> str:
     return value
 
 
-def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[str, Any]:
+def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None,
+                  presets: dict | None = None) -> dict[str, Any]:
     """Resolve the provider choice into concrete connection settings."""
     provider = llm.get("provider") or "deepseek"
     if provider in PROVIDERS:
@@ -205,8 +206,9 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[
             "peak_schedule": pre.get("peak_schedule", "none"),
             "billing": "token", "json_mode": True, "no_temperature": False, "min_max_tokens": 0,
         }
-    if provider in PRESETS:
-        pre = PRESETS[provider]
+    presets = PRESETS if presets is None else presets
+    if provider in presets:
+        pre = presets[provider]
         st = (llm.get("presets") or {}).get(provider) or {}
         model = (st.get("model") or pre["default_model"] or "").strip()
         sub = pre["group"] == "subscription"
@@ -231,6 +233,11 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None) -> dict[
             "min_max_tokens": int(pre.get("min_max_tokens") or 0),
             "reasoning_effort": normalize_reasoning_effort(st.get("reasoning_effort")) if provider in ("chatgpt_plan", "claude_cli") else "",
         }
+    if provider.startswith("ext."):
+        # A disabled, removed or changed plugin must never reuse custom credentials.
+        eff = effective_llm({"provider": "custom"})
+        eff["provider"] = provider
+        return eff
     c = llm.get("custom") or {}
     env = (c.get("api_key_env") or "").strip()
     env_key = os.environ.get(env, "").strip() if env else ""
@@ -411,8 +418,18 @@ class Config:
     def web(self) -> dict[str, Any]:
         return self.raw["web"]
 
+    def model_presets(self, only: str | None = None) -> dict:
+        from .plugin_contributions import provider_presets
+
+        return {**PRESETS, **provider_presets(self, only)}
+
+    def resolve_llm(self, llm: dict) -> dict:
+        provider = llm.get("provider") or ""
+        presets = self.model_presets(only=provider.split(".", 2)[1]) if provider.startswith("ext.") else PRESETS
+        return effective_llm(llm, data_dir=self.data_dir, presets=presets)
+
     def effective_llm(self) -> dict[str, Any]:
-        return effective_llm(self.llm, data_dir=self.data_dir)
+        return self.resolve_llm(self.llm)
 
     def model_ready(self) -> bool:
         eff = self.effective_llm()
@@ -450,7 +467,8 @@ class Config:
             raise ConfigError("output_language must be zh, en or bilingual")
         if not isinstance(self.raw.get("inbox_dirs"), list):
             raise ConfigError("inbox_dirs must be a list of folders")
-        if self.llm.get("provider", "deepseek") not in (*PROVIDERS, *PRESETS, "custom"):
+        provider = self.llm.get("provider", "deepseek")
+        if provider not in (*PROVIDERS, *PRESETS, "custom") and not (isinstance(provider, str) and provider.startswith("ext.")):
             raise ConfigError(f"llm.provider must be one of {', '.join([*PROVIDERS, *PRESETS, 'custom'])}")
         host = self.web.get("host")
         if host not in ("127.0.0.1", "localhost", "::1"):

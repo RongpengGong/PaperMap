@@ -68,15 +68,15 @@ def import_files(paths: list[str], imported_dir: Path, handle: Callable[[Path], 
     """Copy PDFs (from a Dock drop / menu) into the app's import folder and process them.
     The user's original files are never moved."""
     from .library import clone_copy
-    from .web.app import _safe_name, _unique
+    from .pdf_import import publish_pdf, staged_file
 
     saved = []
     for p in paths:
         src = Path(p)
         if src.is_file() and src.suffix.lower() == ".pdf":
-            dest = _unique(imported_dir / _safe_name(src.name))
-            clone_copy(src, dest)
-            saved.append(dest)
+            with staged_file(imported_dir) as tmp:
+                clone_copy(src, tmp)
+                saved.append(publish_pdf(tmp, src.name))
     if saved:
         threading.Thread(target=lambda: [handle(x) for x in saved], daemon=True).start()
     return len(saved)

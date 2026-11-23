@@ -16,9 +16,11 @@
 <input type="hidden" name="csrf" id="csrf" value="{{ csrf }}">
 <input type="hidden" name="settings_section" value="{{ settings_section }}">
 <section class="settings-panel" data-settings-panel="models" aria-label="模型与账号" {% if settings_section != 'models' %}hidden{% endif %}>
+  {% set missing_provider = provider.startswith('ext.') and provider not in presets %}
   <div class="settings-model-picker">
     <label for="provider_picker">模型服务</label>
     <select id="provider_picker" name="provider">
+      {% if missing_provider %}<option value="{{ provider }}" selected>之前选择的模型插件不可用</option>{% endif %}
       <optgroup label="包月订阅">
         {% for pid, p in presets.items() if p.group == 'subscription' %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
       </optgroup>
@@ -30,6 +32,7 @@
     </select>
   </div>
   <p class="muted small">论文文本会发送到所选服务商。API Key 仅保存在本机。</p>
+  {% if missing_provider %}<div class="pane" data-pane="{{ provider }}"><p class="notice">请重新启用原插件，或选择其他可用模型。接口地址变更后需重新选择服务并配置密钥。</p><input type="hidden" data-role="model" value=""></div>{% endif %}
   {% set ds = providers.deepseek %}
   <div class="pane" data-pane="deepseek" {% if provider != "deepseek" %}hidden{% endif %}>
     <label for="official_api_key">API Key</label>
@@ -78,7 +81,7 @@
     <label for="p_{{ pid }}_key">API Key</label>
     <input type="password" id="p_{{ pid }}_key" name="p_{{ pid }}_key" data-role="key" autocomplete="off"
       placeholder="{{ '已保存，留空表示不修改' if st.api_key else '粘贴 API Key' }}">
-    <p class="muted">还没有 Key？到 <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} 控制台</a> 创建。
+    <p class="muted">{% if p.key_url %}还没有 Key？到 <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} 控制台</a> 创建。{% else %}这份密钥仅用于上面显示的插件接口。{% endif %}
     {% if st.api_key %}<label class="inline"><input type="checkbox" name="p_{{ pid }}_clear" value="1"> 删除已保存的 Key</label>{% endif %}</p>
     {% endif %}
     <div class="{{ 'subscription-model-row' if subscription else 'row' }}">
@@ -105,7 +108,7 @@
     {% if p.group == 'api' %}
     <details {{ 'open' if not p.models and not st.price_input_per_1m }}>
       <summary class="muted">价格（美元 / 百万 token，用于本地估算和每月预算）</summary>
-      <p class="muted small">{% if p.models %}留空 = 按所选模型的预设价格（{% for mid, m in p.models.items() %}{{ mid }} ${{ m['in'] }} / ${{ m.out }}{{ '；' if not loop.last }}{% endfor %}）。{% else %}请照 <a href="{{ p.docs_url }}" target="_blank" rel="noopener">官方价格页</a> 填写。{% endif %}</p>
+      <p class="muted small">{% if p.models %}留空 = 按所选模型的预设价格（{% for mid, m in p.models.items() %}{{ mid }} ${{ m['in'] }} / ${{ m.out }}{{ '；' if not loop.last }}{% endfor %}）。{% elif p.docs_url %}请照 <a href="{{ p.docs_url }}" target="_blank" rel="noopener">官方价格页</a> 填写。{% else %}按服务商的单价填写。{% endif %}</p>
       <div class="row">
         <label class="grow">输入<input type="number" step="any" min="0" name="p_{{ pid }}_in" value="{{ st.price_input_per_1m if st.price_input_per_1m is not none else '' }}"></label>
         <label class="grow">缓存读取<input type="number" step="any" min="0" name="p_{{ pid }}_hit" value="{{ st.price_cache_hit_per_1m if st.price_cache_hit_per_1m is not none else '' }}" placeholder="留空 = 同输入价"></label>
@@ -118,7 +121,7 @@
       <dt>Base URL</dt><dd><code>{{ p.base_url }}</code></dd>
       <dt>协议</dt><dd>{{ protocols[p.protocol] }}</dd>
       {% endif %}
-      <dt>计费</dt><dd>{% if p.group == 'subscription' %}本地单列套餐用量，实际额度与费用以服务商为准{% else %}按量，<a href="{{ p.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>{% endif %}</dd>
+      <dt>计费</dt><dd>{% if p.group == 'subscription' %}本地单列套餐用量，实际额度与费用以服务商为准{% elif not p.docs_url %}按服务商的实际用量计费{% else %}按量，<a href="{{ p.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>{% endif %}</dd>
     </dl></details>
   </div>
   {% endfor %}
@@ -175,7 +178,7 @@
 <section class="settings-panel" data-settings-panel="translation" aria-label="翻译" {% if settings_section != 'translation' %}hidden{% endif %}>
   <p class="muted small">在论文详情里点「翻译全文…」，生成段落对照的译文，保存在这篇论文的文件夹里。基因名、软件名和分类表里的术语会作为术语表保持原文。</p>
   <label for="tr_default">默认翻译服务</label>
-  <select id="tr_default" name="tr_default">{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
+  <select id="tr_default" name="tr_default">{% if tr.default.startswith('ext.') and tr.default not in tr.services|map(attribute='id')|list %}<option value="{{ tr.default }}" selected>之前选择的翻译插件不可用</option>{% endif %}{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
   <label for="tr_bm">bilibili 模型</label>
   <select id="tr_bm" name="tr_bilibili_model">{% set cur = (tr.services|selectattr('kind', 'equalto', 'bilibili')|first or {}).get('model') %}{% for k, v in bilibili_models.items() %}<option value="{{ k }}" {{ 'selected' if k == cur }}>{{ v }}</option>{% endfor %}</select>
   <p class="muted small">bilibili Index-Translate 由 B 站官方免费提供、无需 Key（将来是否收费未知）。使用时论文正文会发送到 B 站服务器。</p>
@@ -186,7 +189,7 @@
   <details>
     <summary>其他翻译接口（{{ tr.services|selectattr('kind', 'equalto', 'custom')|list|length }} 个自定义）</summary>
     <table class="svc-table"><tr><th>名称</th><th>类型</th><th>模型</th><th></th></tr>
-    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ {'bilibili':'内置','main':'主模型','custom':'自定义'}[svc.kind] }}</td><td><code>{{ svc.model or '（主模型）' }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
+    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ svc.plugin or {'bilibili':'内置','main':'主模型','custom':'自定义','plugin':'插件'}[svc.kind] }}</td><td><code>{{ svc.model or '（主模型）' }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
     </table>
     <div class="add-service" id="add_service">
       <div class="row"><label class="grow">名称<input type="text" data-f="name" placeholder="例如：DeepL 中转"></label><label class="grow">Base URL<input type="text" data-f="base_url" placeholder="https://…/v1"></label></div>
@@ -235,6 +238,7 @@
 </section>
 
 </form>
+{% include "_extensions.html" %}
 <section class="settings-panel" data-settings-panel="application" aria-label="后台运行" {% if settings_section != 'application' %}hidden{% endif %}>
   <h3>退出 PaperMap</h3>
   <p class="muted">关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。</p>
@@ -243,6 +247,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script defer src="/static/extensions.js?v={{ static_v }}"></script>
 <script src="/static/settings-nav.js?v={{ static_v }}"></script>
 <script src="/static/settings.js?v={{ static_v }}"></script>
 {% endblock %}

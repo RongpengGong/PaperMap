@@ -1,0 +1,11 @@
+api_version: 1
+id: event-inspector
+name: Python 事件查看器
+version: "1.0"
+description: 在设置页显示最近一次事件的类型和编号。
+python: handler.py
+permissions:
+  - 读取交给本插件的事件并返回摘要
+events:
+  - paper.ready
+  - field.proposed

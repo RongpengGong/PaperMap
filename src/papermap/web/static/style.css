@@ -550,3 +550,14 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; }
 }
+
+.extensions-panel h2 { margin:0; font-size:15px; }
+.ext-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ext-heading button,.extensions-panel .row button { margin:0; }
+.ext-item,.ext-empty { padding:14px 16px; margin:10px 0; border-radius:9px; background:var(--side); }
+.ext-item p { margin:7px 0; }
+.ext-item .row,.ext-api .row { margin-top:10px; }
+.ext-install,.ext-api { margin:20px 0; padding-top:18px; border-top:1px solid var(--line); }
+.extensions-panel details { margin-top:12px; font-size:12px; }
+.extensions-panel details .row { margin-top:10px; }
+.extensions-panel pre { max-height:200px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }

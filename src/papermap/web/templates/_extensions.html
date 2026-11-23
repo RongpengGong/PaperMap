@@ -1,0 +1,26 @@
+<section class="settings-panel extensions-panel" data-settings-panel="extensions" aria-label="插件与接口" {% if settings_section != 'extensions' %}hidden{% endif %}>
+  <div class="ext-heading"><h2>本机插件</h2><button type="button" class="secondary" data-ext-action="refresh">刷新列表</button></div>
+  <p class="muted small">从文件夹安装，或将插件放进 <code>{{ cfg.data_dir }}/plugins</code> 后刷新。启用后即可使用。</p>
+  <div id="extensions-list" aria-live="polite">正在读取插件…</div>
+  <div class="ext-install">
+    <label for="extension-folder">安装插件文件夹</label>
+    <div class="row"><input type="text" id="extension-folder" placeholder="含 plugin.yaml 的文件夹路径">
+      <button type="button" class="secondary" data-pick-folder="extension-folder" data-pick-replace>选择文件夹…</button>
+      <button type="button" class="secondary" data-ext-action="install">安装</button></div>
+    <details><summary>试用内置示例</summary><div class="row">
+      <button type="button" class="secondary" data-ext-action="example" data-example="reading-tools">读书会导出模板</button>
+      <button type="button" class="secondary" data-ext-action="example" data-example="event-inspector">Python 事件查看器</button>
+    </div></details>
+  </div>
+  <div class="ext-api">
+    <h2>本地 API 与事件</h2>
+    <p class="muted small">授权本机工具查询论文、搜索正文、导入 PDF 或订阅处理事件。当前地址为 <code id="extension-api-url">/api/v1</code>。</p>
+    <div class="row"><button type="button" id="extension-token-create" class="secondary" data-ext-action="token">创建访问令牌</button>
+      <button type="button" id="extension-token-revoke" class="ghost" data-ext-action="revoke" hidden>撤销令牌</button></div>
+    <div id="extension-secret" hidden><label for="extension-token">新令牌（仅显示这一次）</label>
+      <div class="row"><input id="extension-token" readonly type="text" autocomplete="off" spellcheck="false"><button type="button" class="secondary" data-ext-action="copy">复制</button></div></div>
+  </div>
+  <p><a href="/extensions/guide" target="_blank" rel="noopener">插件开发说明与 API 示例 ↗</a></p>
+  <p id="extension-status" class="small" role="status" aria-live="polite"></p>
+  <pre id="extension-output" hidden></pre>
+</section>
