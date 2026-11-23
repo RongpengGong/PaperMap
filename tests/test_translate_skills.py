@@ -54,7 +54,7 @@ def test_translate_paper_with_bilibili_mock(config, registry, pdfs):
         seen.append(body)
         nums = re.findall(r"^\[(\d+)\]", body["messages"][0]["content"], re.M)
         out = "\n\n".join(f"[{n}] 译文{n}" for n in nums) if nums else "单段译文"
-        return httpx.Response(200, json={"choices": [{"message": {"content": out}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+        return httpx.Response(200, text="data: " + json.dumps({"choices": [{"delta": {"content": out}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}) + "\n\ndata: [DONE]\n\n")
 
     out = tr.translate_paper(config, registry, pipe.llm, row["id"], pdf, card, pipe.taxonomy(),
                              transport=_bilibili(handler))
@@ -62,7 +62,7 @@ def test_translate_paper_with_bilibili_mock(config, registry, pdfs):
     assert data["paragraphs"] and all(p["tr"] for p in data["paragraphs"])
     assert data["model"] == "Index-Translate-35B-A3B" and seen[0]["chat_template_kwargs"] == {"enable_thinking": False}
     md = card.with_name(card.stem + ".translation.md").read_text()
-    assert "译文对照" in md and ("> 译文1" in md or "> 单段译文" in md)
+    assert "译文对照" in md and re.search(r"^> (译文\d+|单段译文)", md, re.M)
     assert registry.one("SELECT count(*) AS n FROM llm_calls WHERE purpose='translate'")["n"] == len(seen)
 
 
@@ -70,7 +70,7 @@ def test_misaligned_answer_falls_back_to_single_paragraphs(config, registry, pdf
     pipe, comp = make_pipeline(config, registry)
     pipe.handle_path(pdfs["paper"])
     pdf, card = pipe._paper_files(registry.paper_by_doi(OWN_DOI)["id"])
-    handler = lambda req: httpx.Response(200, json={"choices": [{"message": {"content": "全部混在一起的译文"}}]})
+    handler = lambda req: httpx.Response(200, text="data: " + json.dumps({"choices": [{"delta": {"content": "全部混在一起的译文"}}]}) + "\n\ndata: [DONE]\n\n")
     out = tr.translate_paper(config, registry, pipe.llm, 1, pdf, card, transport=_bilibili(handler))
     assert all(p["tr"] == "全部混在一起的译文" for p in json.loads(out.read_text())["paragraphs"])
 

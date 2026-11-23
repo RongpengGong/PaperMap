@@ -42,8 +42,9 @@ BILIBILI_MODELS = {
 }
 LANG_NAMES = {"zh": "中文", "en": "英文"}
 MODES = {"translate": "翻译", "polish": "润色", "custom": "自定义 prompt"}
-CHUNK_CHARS = 1800
-WORKERS = 3
+CHUNK_CHARS = 3000
+WORKERS = 2
+MAX_SERVICE_FAILURES = 3  # then use the fallback for the rest of the paper
 
 
 class TranslationError(Exception):
@@ -278,6 +279,7 @@ class Translator:
         self.http = httpx.Client(timeout=180, transport=transport,
                                  headers={"User-Agent": f"PaperMap/{__version__}"})
         self.notes: list[str] = []
+        self.failures = 0
 
     @property
     def model(self) -> str:
@@ -289,32 +291,35 @@ class Translator:
         return self.service.get("model", "")
 
     def _bilibili(self, prompt: str, paper_id: int | None) -> str:
+        """Streaming request: the free gateway cuts non-streamed answers at ~30 s."""
         body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "temperature": 0,
-                "max_tokens": min(16384, max(512, len(prompt) * 2)),
-                "chat_template_kwargs": {"enable_thinking": False}}
-        delay = 2.0
-        for attempt in range(4):
+                "max_tokens": min(16384, max(512, len(prompt) * 2)), "stream": True,
+                "stream_options": {"include_usage": True}, "chat_template_kwargs": {"enable_thinking": False}}
+        last: Exception | None = None
+        for attempt in range(2):
             try:
-                r = self.http.post(f"{BILIBILI_BASE}/chat/completions", json=body)
-            except httpx.HTTPError as exc:
-                if attempt == 3:
-                    raise LLMHTTPError(0, str(exc)) from exc
-                time.sleep(delay)
-                delay *= 2
-                continue
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            if r.status_code >= 400:
-                raise LLMHTTPError(r.status_code, r.text[:200])
-            data = r.json()
-            text = strip_think(data["choices"][0]["message"].get("content") or "")
-            u = data.get("usage") or {}
-            self.registry.record_llm_call(paper_id, "translate", self.model, int(u.get("prompt_tokens") or 0),
-                                          int(u.get("completion_tokens") or 0), 0.0, bool(text))
-            return text
-        raise LLMHTTPError(0, "retries exhausted")
+                parts, usage = [], {}
+                with self.http.stream("POST", f"{BILIBILI_BASE}/chat/completions", json=body,
+                                      timeout=httpx.Timeout(180, read=60)) as r:
+                    if r.status_code >= 400:
+                        raise LLMHTTPError(r.status_code, r.read().decode("utf-8", "replace")[:200])
+                    for line in r.iter_lines():
+                        if not line.startswith("data: ") or line[6:].strip() == "[DONE]":
+                            continue
+                        d = json.loads(line[6:])
+                        usage = d.get("usage") or usage
+                        for ch in d.get("choices") or []:
+                            parts.append((ch.get("delta") or {}).get("content") or (ch.get("message") or {}).get("content") or "")
+                text = strip_think("".join(parts))
+                if not text:
+                    raise LLMHTTPError(0, "empty answer")
+                self.registry.record_llm_call(paper_id, "translate", self.model, int(usage.get("prompt_tokens") or 0),
+                                              int(usage.get("completion_tokens") or 0), 0.0, True)
+                return text
+            except (httpx.HTTPError, LLMHTTPError, ValueError) as exc:
+                last = exc
+                time.sleep(2)
+        raise LLMHTTPError(getattr(last, "status_code", 0), str(last))
 
     def _llm(self, prompt: str, paper_id: int | None, kind: str) -> str:
         if kind == "main":
@@ -331,10 +336,13 @@ class Translator:
         """Returns (text, via). Falls back to the main LLM if the service fails."""
         kind = self.service["kind"]
         try:
-            if kind == "bilibili":
-                return self._bilibili(prompt, paper_id), self.model
-            return self._llm(prompt, paper_id, kind), self.model
+            if self.failures >= MAX_SERVICE_FAILURES:
+                raise LLMHTTPError(0, "service skipped after repeated failures")
+            text = self._bilibili(prompt, paper_id) if kind == "bilibili" else self._llm(prompt, paper_id, kind)
+            self.failures = 0
+            return text, self.model
         except Exception as exc:  # noqa: BLE001
+            self.failures += 1
             fb = self.config.raw["translation"].get("fallback_to_main", True)
             if kind != "main" and fb and self.config.api_key():
                 log.warning("translation service failed (%s); falling back to main model", exc)
