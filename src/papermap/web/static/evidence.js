@@ -114,4 +114,17 @@
       } catch (err) { problem(error, err.message); } finally { save.disabled = false; }
     });
   }
+
+  // link the selected question to fields (shown on the knowledge map)
+  const fieldsBar = document.querySelector(".ev-fields");
+  if (fieldsBar) {
+    const qid = fieldsBar.dataset.question, err = document.getElementById("notebook-error");
+    async function link(fieldId, on) {
+      try { await api(`/api/evidence/questions/${qid}/fields`, {field_id: Number(fieldId), on}); location.reload(); }
+      catch (e) { problem(err, e.message); }
+    }
+    const sel = fieldsBar.querySelector("[data-link-field]");
+    sel && sel.addEventListener("change", () => sel.value && link(sel.value, true));
+    fieldsBar.querySelectorAll("[data-unlink-field]").forEach(b => b.addEventListener("click", () => link(b.dataset.unlinkField, false)));
+  }
 })();

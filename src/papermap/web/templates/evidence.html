@@ -15,6 +15,13 @@
     <a class="ghost-btn" id="evidence-export" href="/evidence/{{ selected.id }}.md" download="PaperMap-证据-{{ selected.id }}.md">导出 Markdown</a>
   </div>
   {% if entries %}<h2 class="ev-question-title">{{ selected.title }}</h2>{% endif %}
+  <div class="ev-fields" data-question="{{ selected.id }}">
+    <span class="muted small">挂在学科</span>
+    {% for f in linked_fields %}<span class="group-chip"><a href="/field/{{ f.slug }}">{{ f.name_zh }}</a><button type="button" data-unlink-field="{{ f.id }}" title="从这个学科移除">×</button></span>{% endfor %}
+    {% set mine = linked_fields|map(attribute='id')|list %}
+    <select data-link-field title="挂到学科，会显示在知识地图上"><option value="">＋ 挂到学科…</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ f.name_zh }}</option>{% endfor %}</select>
+    {% if not linked_fields %}<span class="muted small">挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。</span>{% endif %}
+  </div>
   {% for e in entries %}
   <article class="ev-entry" id="evidence-{{ e.id }}" data-entry="{{ e.id }}">
     <div class="ev-entry-head"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span>

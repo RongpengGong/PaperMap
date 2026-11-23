@@ -18,7 +18,7 @@
   --shadow:none;
   --popover-shadow:0 16px 48px rgba(26,43,70,.16),0 2px 8px rgba(26,43,70,.07);
   --inset:0 0 0 transparent;
-  --map-method:#326bd3; --map-topic:#ae6d26; --map-paper:#8795aa; --map-edge:#cbd5e2;
+  --map-method:#326bd3; --map-topic:#ae6d26; --map-paper:#8795aa; --map-edge:#cbd5e2; --map-question:#8b5cf6;
   --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei UI","Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme:dark) {
@@ -40,7 +40,7 @@
     --shadow:none;
     --popover-shadow:0 18px 54px rgba(0,0,0,.36),0 2px 8px rgba(0,0,0,.15);
     --inset:0 0 0 transparent;
-    --map-method:#91b6ff; --map-topic:#e6b16e; --map-paper:#90a0b7; --map-edge:#43546d;
+    --map-method:#91b6ff; --map-topic:#e6b16e; --map-paper:#90a0b7; --map-edge:#43546d; --map-question:#c4a5ff;
   }
 }
 * { box-sizing:border-box; }
@@ -277,7 +277,7 @@ textarea.code { font:12.5px/1.65 ui-monospace,Menlo,Consolas,monospace; }
 .map-bar { display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin-bottom:14px; } .map-bar h2 { margin:0; }
 .legend { display:flex; align-items:center; gap:6px; font-size:12px; }
 .dot { display:inline-block; width:8px; height:8px; margin-left:8px; border-radius:50%; }
-.dot.method { background:var(--map-method); } .dot.topic { background:var(--map-topic); } .dot.paper { background:var(--map-paper); }
+.dot.method { background:var(--map-method); } .dot.topic { background:var(--map-topic); } .dot.paper { background:var(--map-paper); } .dot.question { background:var(--map-question); border-radius:2px; transform:rotate(45deg); }
 #map_wrap { position:relative; height:calc(100vh - 118px); min-height:320px; border:1px solid var(--line); border-radius:13px; background:var(--card); box-shadow:var(--shadow); overflow:hidden; }
 #map { display:block; width:100%; height:100%; cursor:grab; }
 #map_empty { position:absolute; inset:40% 20px auto; text-align:center; }
@@ -588,3 +588,8 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .extensions-panel details { margin-top:12px; font-size:12px; }
 .extensions-panel details .row { margin-top:10px; }
 .extensions-panel pre { max-height:200px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+.field-questions .fq { margin: 8px 0; }
+.field-questions .fq.suggested { border-left: 3px solid var(--map-question); padding: 6px 10px; background: color-mix(in srgb, var(--map-question) 6%, transparent); border-radius: 6px; }
+.field-questions .fq.suggested input { width: 100%; font-weight: 600; }
+.ev-fields { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin: 4px 0 12px; }
+.ev-fields select { width:auto; max-width: 260px; }

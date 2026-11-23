@@ -9,6 +9,46 @@
   {% if n_papers >= 2 %}<form method="post" action="/field/{{ f.slug }}/consolidate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="让模型对比本学科的论文，重写概述、进展小结和争议（每条都带出处）">立即整合</button></form>{% endif %}
   {% if n_papers %}<form method="post" action="/handbook/{{ f.slug }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ '重新生成学习手册' if has_handbook else '生成学习手册' }}</button></form>{% endif %}
 </div>
+<section class="card field-questions" data-field="{{ f.slug }}">
+  <div class="row"><h3 class="grow">研究问题</h3>
+    {% if n_papers >= 2 %}<button type="button" class="secondary" data-suggest-questions {{ 'disabled' if suggest_busy }} title="让模型根据本学科记录的争议和各论文的研究问题，提议最多 3 个跨论文的问题；需要你确认才会生效">{{ '正在提议…' if suggest_busy else '提议研究问题' }}</button>{% endif %}
+    <a class="ghost-btn" href="/evidence">证据笔记</a></div>
+  {% for q in field_questions %}
+  <p class="fq"><a href="/evidence?question={{ q.id }}"><strong>{{ q.title }}</strong></a><br>
+    <span class="muted small">{{ q.papers }} 篇论文 · {{ q.total }} 条摘录{% if q.total %}（支持 {{ q.supports }} · 相反 {{ q.opposes }} · 待核对 {{ q.pending }}）{% endif %}</span></p>
+  {% else %}<p class="muted small">还没有挂在这个学科下的研究问题。在「证据笔记」里新建问题并挂到学科，或点「提议研究问题」。</p>{% endfor %}
+  {% if suggested_questions %}
+  <h4>模型提议的问题 <span class="muted small">确认后才会出现在知识地图和证据笔记里</span></h4>
+  {% for q in suggested_questions %}
+  <div class="fq suggested" data-qid="{{ q.id }}">
+    <input type="text" value="{{ q.title }}" maxlength="300" data-q-title aria-label="研究问题（可以先改写再确认）">
+    {% if q.rationale %}<p class="muted small">{{ q.rationale }}</p>{% endif %}
+    <p class="muted small">来自：{% for p in q.papers %}<a href="/?id={{ p.id }}" title="{{ p.title }}">{{ p.label }}</a>{{ '、' if not loop.last }}{% endfor %}</p>
+    <div class="row"><button type="button" data-q-status="active">确认</button><button type="button" class="ghost" data-q-status="dismissed">忽略</button></div>
+  </div>
+  {% endfor %}{% endif %}
+  <p class="err-text small" data-fq-error hidden></p>
+</section>
 <div class="card md">{{ body_html|safe }}</div>
 <p class="muted">文件：<code>knowledge/{{ rel }}</code>（可直接用 Obsidian 打开；「我的笔记」一块程序永远不会改动）</p>
 {% endblock %}
+{% block scripts %}<script>
+(function () {
+  const box = document.querySelector(".field-questions"); if (!box) return;
+  const err = box.querySelector("[data-fq-error]");
+  const fail = m => { err.textContent = m; err.hidden = false; };
+  const btn = box.querySelector("[data-suggest-questions]");
+  btn && btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "正在提议…（约半分钟）";
+    const r = await window.pmApi(`/api/fields/${box.dataset.field}/suggest-questions`);
+    if (r.ok) { window.pmToast(r.created ? `提议了 ${r.created} 个问题，请确认或忽略` : "没有找到新的跨论文问题"); setTimeout(() => location.reload(), 900); }
+    else { btn.disabled = false; btn.textContent = "提议研究问题"; }
+  });
+  box.querySelectorAll("[data-q-status]").forEach(b => b.addEventListener("click", async () => {
+    const item = b.closest("[data-qid]");
+    const r = await window.pmApi(`/api/evidence/questions/${item.dataset.qid}/status`,
+      { status: b.dataset.qStatus, title: item.querySelector("[data-q-title]").value });
+    if (r.ok) location.reload(); else fail(r.message || "操作失败");
+  }));
+})();
+</script>{% endblock %}

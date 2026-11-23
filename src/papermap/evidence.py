@@ -53,14 +53,14 @@ def validate_rects(rects, width, height):
 def questions(registry):
     return registry.query("""
         SELECT q.id,q.title,COUNT(e.id) AS total FROM evidence_questions q
-        LEFT JOIN evidence_entries e ON e.question_id=q.id GROUP BY q.id ORDER BY q.id DESC
+        LEFT JOIN evidence_entries e ON e.question_id=q.id WHERE q.status='active' GROUP BY q.id ORDER BY q.id DESC
     """)
 
 
 def create_question(registry, title):
     title = valid_text(title, "研究问题", 300)
-    registry.execute("INSERT INTO evidence_questions(title,created_at) VALUES (?,?) ON CONFLICT(title) DO NOTHING",
-                     (title, now_iso()))
+    registry.execute("INSERT INTO evidence_questions(title,created_at) VALUES (?,?) "
+                     "ON CONFLICT(title) DO UPDATE SET status='active'", (title, now_iso()))
     return registry.one("SELECT id FROM evidence_questions WHERE title=?", (title,))["id"]
 
 
@@ -85,11 +85,13 @@ def add_entry(registry, question_id, title, paper_id, page, revision, rects, quo
     with registry._lock, registry.conn:
         db = registry.conn
         if not question_id:
-            db.execute("INSERT INTO evidence_questions(title,created_at) VALUES (?,?) ON CONFLICT(title) DO NOTHING",
-                       (title, now_iso()))
+            db.execute("INSERT INTO evidence_questions(title,created_at) VALUES (?,?) "
+                       "ON CONFLICT(title) DO UPDATE SET status='active'", (title, now_iso()))
             question_id = db.execute("SELECT id FROM evidence_questions WHERE title=?", (title,)).fetchone()["id"]
         elif not db.execute("SELECT 1 FROM evidence_questions WHERE id=?", (question_id,)).fetchone():
             raise ValueError("这个研究问题已不存在。")
+        else:
+            db.execute("UPDATE evidence_questions SET status='active' WHERE id=?", (question_id,))
         inserted = db.execute("""
             INSERT INTO evidence_entries
             (question_id,paper_id,page,revision,rects_json,quote,source,stance,note,anchor_key,created_at)

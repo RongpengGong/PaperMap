@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .. import evidence
+from .. import questions as qmod
 
 
 def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
@@ -31,7 +32,11 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         topics = evidence.questions(registry)
         selected = get_question(question) if question else (topics[0] if topics else None)
         items = evidence.get_entries(registry, selected["id"]) if selected else []
+        linked = qmod.question_fields(registry, selected["id"]) if selected else []
+        all_fields = registry.query("SELECT id, slug, name_zh, axis FROM fields WHERE status='active' "
+                                    "ORDER BY axis, sort_order, name_zh")
         return render(request, "evidence.html", questions=topics, selected=selected, entries=items,
+                      linked_fields=linked, all_fields=all_fields,
                       stances=evidence.STANCES, sources=evidence.SOURCES, anchor_path=evidence.anchor_path)
 
     @app.get("/evidence/{qid}.md")
@@ -52,6 +57,29 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             return {"ok": True, "id": evidence.create_question(registry, body.get("title"))}
         except ValueError as exc:
             return problem(exc)
+
+    @app.post("/api/evidence/questions/{qid}/fields")
+    def question_field(qid: int, body: dict):
+        check(body)
+        get_question(qid)
+        fid = body.get("field_id")
+        if type(fid) is not int:
+            return problem("请选择学科。")
+        try:
+            qmod.link_field(registry, qid, fid, bool(body.get("on", True)))
+        except ValueError as exc:
+            return problem(exc)
+        return {"ok": True, "fields": qmod.question_fields(registry, qid)}
+
+    @app.post("/api/evidence/questions/{qid}/status")
+    def question_status(qid: int, body: dict):
+        check(body)
+        get_question(qid)
+        try:
+            qmod.set_status(registry, qid, str(body.get("status", "")), body.get("title"))
+        except ValueError as exc:
+            return problem(exc)
+        return {"ok": True}
 
     @app.post("/api/reader/{pid}/evidence")
     def add(pid: int, body: dict):

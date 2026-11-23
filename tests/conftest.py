@@ -144,6 +144,9 @@ class FakeCompletions:
         elif "You are running the agent skill" in system:
             self.skill_calls = getattr(self, "skill_calls", 0) + 1
             content = "## 一句话\n\n测试技能输出"
+        elif "open research questions their own paper library" in system:
+            self.questions_calls = getattr(self, "questions_calls", 0) + 1
+            content = json.dumps(QUESTIONS)
         elif "You consolidate" in system:
             self.consolidate_calls = getattr(self, "consolidate_calls", 0) + 1
             content = json.dumps(CONSOLIDATE)
@@ -160,6 +163,13 @@ class FakeCompletions:
         msg = SimpleNamespace(content=content)
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=usage, model=kwargs["model"])
 
+
+QUESTIONS = {"questions": [
+    {"title": "空间相邻是否意味着功能联系？", "rationale": "P1 和 P2 都看到相邻，但没有干预", "refs": ["P1", "P2"],
+     "fields": ["scrna-seq", "no-such-field"]},
+    {"title": "只来自一篇论文的问题", "rationale": "x", "refs": ["P1"], "fields": []},
+    {"title": "已有的问题？", "rationale": "重复", "refs": ["P1", "P2"], "fields": []},
+]}
 
 CONSOLIDATE = {
     "overview": [{"text": "Fields combine Visium with scRNA-seq", "refs": ["P1", "P2"]},

@@ -252,6 +252,36 @@
   function setZoom(z) {
     relayout(() => { zoom = Math.max(0.5, Math.min(3, z)); });
   }
+  // Ctrl/⌘ + mouse wheel, trackpad pinch (Chromium/Edge send it as ctrl+wheel,
+  // WebKit as gesture events): zoom around the pointer, batched per frame.
+  let pendingZoom = null, anchor = null;
+  function zoomAt(z, clientX, clientY) {
+    z = Math.max(0.5, Math.min(3, z));
+    const r = pagesEl.getBoundingClientRect();
+    if (!anchor) anchor = { from: zoom, x: pagesEl.scrollLeft + clientX - r.left, y: pagesEl.scrollTop + clientY - r.top,
+                            ox: clientX - r.left, oy: clientY - r.top };
+    if (pendingZoom === null) requestAnimationFrame(() => {
+      const a = anchor, target = pendingZoom;
+      pendingZoom = null; anchor = null;
+      if (!info || !pageEls.length || Math.abs(target - zoom) < 0.001) return;
+      zoom = target; layout();
+      const k = zoom / a.from;
+      pagesEl.scrollLeft = a.x * k - a.ox;
+      pagesEl.scrollTop = a.y * k - a.oy;
+    });
+    pendingZoom = z;
+  }
+  pagesEl.addEventListener("wheel", e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const base = pendingZoom === null ? zoom : pendingZoom;
+    zoomAt(base * Math.exp(-Math.max(-60, Math.min(60, dy)) * 0.004), e.clientX, e.clientY);
+  }, { passive: false });
+  let gestureStart = 1;
+  pagesEl.addEventListener("gesturestart", e => { e.preventDefault(); gestureStart = zoom; });
+  pagesEl.addEventListener("gesturechange", e => { e.preventDefault(); zoomAt(gestureStart * e.scale, e.clientX, e.clientY); });
+  pagesEl.addEventListener("gestureend", e => e.preventDefault());
   document.getElementById("zoom_in").onclick = () => setZoom(zoom + 0.15);
   document.getElementById("zoom_out").onclick = () => setZoom(zoom - 0.15);
   document.getElementById("zoom_fit").onclick = () => relayout(() => { computeFit(); zoom = 1; });

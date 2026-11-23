@@ -1021,8 +1021,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         cite_edges = [{"source": f"p{a}", "target": f"p{b}"} for a, b in ci.library_edges(registry)
                       if a in papers and b in papers]
-        return {"nodes": nodes + list(papers.values()), "paper_edges": edges, "field_edges": field_edges,
-                "cite_edges": cite_edges}
+        from .. import questions as qmod
+
+        q_nodes, q_edges = qmod.graph_parts(registry)
+        shown = {n["id"] for n in nodes}
+        q_edges = [e for e in q_edges if e["target"] in shown]
+        q_nodes = [n for n in q_nodes if any(e["source"] == n["id"] for e in q_edges)]
+        return {"nodes": nodes + list(papers.values()) + q_nodes, "paper_edges": edges, "field_edges": field_edges,
+                "cite_edges": cite_edges, "question_edges": q_edges}
 
     @app.get("/fields", response_class=HTMLResponse)
     def fields_index(request: Request):
@@ -1044,11 +1050,37 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if not path.exists():
             pipeline.refresh_fields({slug})
         body_html = md_html(_split_front(path.read_text("utf-8"))[1]) if path.exists() else ""
+        from .. import questions as qmod
+
+        suggested = qmod.field_questions(registry, f["id"], "suggested")
+        for q in suggested:
+            q["papers"] = qmod.paper_labels(registry, q["source"].get("paper_ids", []))
         return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md",
+                      field_questions=qmod.field_questions(registry, f["id"]), suggested_questions=suggested,
+                      suggest_busy=("questions:" + slug) in busy,
                       has_handbook=(config.knowledge_dir / "handbooks" / f"{slug}.md").exists(),
                       created=created, hb_started=hb_started or ("handbook" in busy),
                       n_papers=len(registry.field_paper_rows(f["id"])),
                       cons_started=cons_started or ("consolidate" in busy))
+
+    @app.post("/api/fields/{slug}/suggest-questions")
+    async def api_suggest_questions(slug: str, body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        from .. import questions as qmod
+
+        if registry.field_by_slug(slug) is None:
+            raise HTTPException(404)
+        key = "questions:" + slug
+        if key in busy:
+            return {"ok": False, "message": "正在提议，请稍候"}
+        busy.add(key)
+        try:
+            created = await run_in_threadpool(qmod.suggest, pipeline.llm, config, registry, slug)
+        except Exception as exc:  # noqa: BLE001 - shown to the user
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        finally:
+            busy.discard(key)
+        return {"ok": True, "created": len(created)}
 
     # ------------------------------------------------------------------ review
     @app.get("/review", response_class=HTMLResponse)

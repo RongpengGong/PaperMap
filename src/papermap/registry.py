@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS pending_fields (
 CREATE TABLE IF NOT EXISTS evidence_questions (
     id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evidence_question_fields (
+    question_id INTEGER NOT NULL REFERENCES evidence_questions(id) ON DELETE CASCADE,
+    field_id INTEGER NOT NULL REFERENCES fields(id),
+    PRIMARY KEY (question_id, field_id)
+);
 CREATE TABLE IF NOT EXISTS evidence_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL REFERENCES evidence_questions(id),
     paper_id INTEGER NOT NULL REFERENCES papers(id), merged_from INTEGER, page INTEGER NOT NULL,
@@ -195,6 +200,10 @@ MIGRATIONS = {
                "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER"},
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
     "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
+    # research questions: user-made are active at once; model-proposed ones wait as 'suggested'
+    "evidence_questions": {"status": "TEXT NOT NULL DEFAULT 'active'",  # active / suggested / dismissed
+                           "origin": "TEXT NOT NULL DEFAULT 'user'",  # user / suggested
+                           "rationale": "TEXT", "source_json": "TEXT"},
 }
 
 PAPER_STATUSES = (
