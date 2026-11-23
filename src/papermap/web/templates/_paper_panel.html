@@ -27,7 +27,7 @@
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">我的笔记</button>{% endif %}
       {% if translation %}<button class="tab" data-tab="translation" type="button">译文对照</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
-      {% if has_pdf %}<button class="tab" data-tab="pdf" type="button">PDF</button>{% endif %}
+      {% if has_pdf %}<button class="tab" data-tab="pdf" type="button">阅读</button>{% endif %}
       <button class="tab" data-tab="info" type="button">文件与日志</button>
       <span class="grow"></span>
       {% if p.status == 'done' and has_pdf %}
@@ -44,7 +44,8 @@
         {% endif %}
       </span>
       {% endif %}
-      {% if has_pdf %}<button class="ghost-btn" data-action="reveal" type="button" title="在访达 / 资源管理器中显示">在文件夹中显示</button>{% endif %}
+      {% if has_pdf %}<a class="ghost-btn" href="/reader/{{ p.id }}" title="在整个窗口里阅读">全屏阅读</a>
+      <button class="ghost-btn" data-action="reveal" type="button" title="在访达 / 资源管理器中显示">在文件夹中显示</button>{% endif %}
       {% if p.status in ('new', 'error') %}<form method="post" action="/paper/{{ p.id }}/retry" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost-btn">重新处理</button></form>{% endif %}
     </div>
   </header>
@@ -71,7 +72,7 @@
   </div>
   {% endif %}
   {% for o in skill_outputs %}<div class="tab-body" data-body="skill-{{ o.id }}" hidden><div class="md">{{ o.html|safe }}</div></div>{% endfor %}
-  {% if has_pdf %}<div class="tab-body pdf-body" data-body="pdf" hidden><iframe data-src="/paper/{{ p.id }}/pdf" title="PDF"></iframe></div>{% endif %}
+  {% if has_pdf %}<div class="tab-body pdf-body" data-body="pdf" hidden><iframe data-src="/reader/{{ p.id }}?embed=1" title="PDF 阅读器"></iframe></div>{% endif %}
   <div class="tab-body" data-body="info" hidden>
     <h3>文件</h3><ul class="files">{% for f in files %}<li><code>{{ f }}</code></li>{% endfor %}</ul>
     {% if dois %}<h3>DOI</h3><ul>{% for d in dois %}<li><code>{{ d.doi }}</code> ({{ d.kind }})</li>{% endfor %}</ul>{% endif %}

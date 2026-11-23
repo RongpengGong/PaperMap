@@ -1,0 +1,47 @@
+{% extends ("bare.html" if embed else "base.html") %}
+{% block title %}{{ p.title }} - 阅读{% endblock %}
+{% block content_class %}reader-content{% endblock %}
+{% block content %}
+<div class="reader" id="reader" data-paper="{{ p.id }}" data-start="{{ start_page }}">
+  <aside class="reader-side" id="reader_side">
+    <div class="rs-tabs">
+      <button type="button" class="active" data-rs="toc">目录</button>
+      <button type="button" data-rs="search">搜索</button>
+      <button type="button" data-rs="ann">标注 <i id="ann_count"></i></button>
+    </div>
+    <div class="rs-body" data-rs-body="toc"><div id="toc"><p class="muted small pad">读取中…</p></div></div>
+    <div class="rs-body" data-rs-body="search" hidden>
+      <input type="search" id="search_q" placeholder="在全文中搜索（回车）">
+      <div id="search_results"></div>
+    </div>
+    <div class="rs-body" data-rs-body="ann" hidden><div id="ann_list"></div></div>
+  </aside>
+  <section class="reader-main">
+    <div class="reader-bar">
+      <button type="button" class="icon-btn" id="toggle_side" title="显示/隐藏侧栏">☰</button>
+      {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}">← 返回论文</a>{% endif %}
+      <span class="reader-title" title="{{ p.title }}">{{ p.title }}</span>
+      <span class="grow"></span>
+      <span class="page-ind"><input type="number" id="page_no" min="1" value="1"> / <span id="page_total">–</span></span>
+      <button type="button" class="icon-btn" id="zoom_out" title="缩小 (⌘-)">−</button>
+      <span id="zoom_label" class="zoom-label">100%</span>
+      <button type="button" class="icon-btn" id="zoom_in" title="放大 (⌘+)">＋</button>
+      <button type="button" class="ghost-btn" id="zoom_fit" title="适合宽度">适合宽度</button>
+    </div>
+    <div class="pages" id="pages"></div>
+  </section>
+</div>
+<div id="sel_toolbar" class="sel-toolbar" hidden>
+  {% for name, hex in colors.items() %}<button type="button" class="dot-btn" data-color="{{ name }}" style="--c:{{ hex }}" title="高亮"></button>{% endfor %}
+  <span class="sep"></span>
+  <button type="button" data-act="note">批注</button>
+  <button type="button" data-act="translate">翻译</button>
+  <button type="button" data-act="copy">复制</button>
+</div>
+<div id="tr_popup" class="tr-popup" hidden>
+  <div class="tr-head"><strong>译文</strong><span class="muted small" id="tr_model"></span><span class="grow"></span><button type="button" class="icon-btn" id="tr_close">×</button></div>
+  <div id="tr_text" class="tr-text"></div>
+  <div class="tr-actions"><button type="button" class="ghost-btn" id="tr_copy">复制译文</button><button type="button" class="ghost-btn" id="tr_save">存为批注</button></div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/reader.js?v={{ static_v }}"></script>{% endblock %}

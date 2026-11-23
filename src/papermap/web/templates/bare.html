@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}PaperMap{% endblock %}</title>
+<link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
+<body class="bare" data-csrf="{{ csrf }}">
+<main class="content {% block content_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+<div id="drop_overlay" hidden></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="ctx_menu" class="ctx-menu" hidden></div>
+<div id="modal" class="modal" hidden><div class="modal-box"><p id="modal_msg"></p><input type="text" id="modal_input" hidden><div class="modal-actions"><button type="button" class="secondary" id="modal_cancel">取消</button><button type="button" id="modal_ok">确定</button></div></div></div>
+<script src="/static/app.js?v={{ static_v }}"></script>
+{% block scripts %}{% endblock %}
+</body></html>

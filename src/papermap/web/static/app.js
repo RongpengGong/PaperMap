@@ -224,6 +224,8 @@
   document.addEventListener("click", e => { if (!menu.contains(e.target)) menu.hidden = true; });
   document.addEventListener("keydown", e => { if (e.key === "Escape") menu.hidden = true; });
 
+  window.pmDialog = dialog; window.pmApi = api; window.pmMenu = showMenu;
+
   async function newGroup(parentId = null, paperIds = []) {
     const name = await dialog(parentId ? "新建子分组：" : "新建分组：", { input: true, okText: "创建" });
     if (!name) return;

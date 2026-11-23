@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
 from .. import kb_git, library
+from .. import reader as reader_mod
 from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry
@@ -294,6 +295,111 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
+
+    # ------------------------------------------------------------------ reader
+    def reader_pdf(paper_id: int) -> Path:
+        row = registry.get_paper(paper_id)
+        f = pdf_file(row) if row else None
+        if f is None:
+            raise HTTPException(404)
+        return f
+
+    @app.get("/reader/{paper_id}", response_class=HTMLResponse)
+    def reader_page(request: Request, paper_id: int, embed: int = 0, page: int = 1):
+        reader_pdf(paper_id)
+        return render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page,
+                      colors=reader_mod.COLORS)
+
+    @app.get("/api/reader/{paper_id}/info")
+    def reader_info(paper_id: int):
+        data = reader_mod.info(reader_pdf(paper_id))
+        data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in registry.annotations(paper_id)]
+        return data
+
+    @app.get("/api/reader/{paper_id}/page/{n}.png")
+    def reader_png(paper_id: int, n: int, scale: float = 2.0):
+        try:
+            f = reader_mod.render(reader_pdf(paper_id), n, scale, config.data_dir / "cache" / "render")
+        except IndexError:
+            raise HTTPException(404) from None
+        return FileResponse(f, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+    @app.get("/api/reader/{paper_id}/page/{n}/words")
+    def reader_words(paper_id: int, n: int):
+        try:
+            return reader_mod.words(reader_pdf(paper_id), n)
+        except IndexError:
+            raise HTTPException(404) from None
+
+    @app.get("/api/reader/{paper_id}/search")
+    def reader_search(paper_id: int, q: str = ""):
+        return reader_mod.search(reader_pdf(paper_id), q)
+
+    def annotations_changed(paper_id: int) -> None:
+        background("annotations", lambda: reader_mod.write_annotations_md(
+            registry, config.knowledge_dir, paper_id, config.output_language))
+
+    @app.post("/api/reader/{paper_id}/annotations")
+    async def annotation_add(paper_id: int, request: Request):
+        body = await json_body(request)
+        reader_pdf(paper_id)
+        rects = reader_mod.clean_rects(body.get("rects"))
+        if not rects:
+            return {"ok": False, "message": "没有选中任何文字"}
+        color = body.get("color") if body.get("color") in reader_mod.COLORS else "yellow"
+        aid = registry.add_annotation(paper_id, int(body.get("page", 0)), json.dumps(rects),
+                                      str(body.get("text", ""))[:4000], color, str(body.get("note", ""))[:4000])
+        annotations_changed(paper_id)
+        return {"ok": True, "id": aid}
+
+    @app.post("/api/annotations/{ann_id}/{action}")
+    async def annotation_action(ann_id: int, action: str, request: Request):
+        body = await json_body(request)
+        row = registry.one("SELECT * FROM annotations WHERE id=?", (ann_id,))
+        if row is None:
+            raise HTTPException(404)
+        if action == "delete":
+            registry.delete_annotation(ann_id)
+        elif action == "update":
+            cols = {}
+            if "note" in body:
+                cols["note"] = str(body["note"])[:4000]
+            if body.get("color") in reader_mod.COLORS:
+                cols["color"] = body["color"]
+            if cols:
+                registry.update_annotation(ann_id, **cols)
+        else:
+            raise HTTPException(404)
+        annotations_changed(row["paper_id"])
+        return {"ok": True}
+
+    @app.post("/api/translate-text")
+    async def translate_text(request: Request):
+        """Quick translation of a selection in the reader (default translation service)."""
+        from .. import translate as tr
+
+        body = await json_body(request)
+        text = " ".join(str(body.get("text", "")).split())[:4000]
+        if not text:
+            return {"ok": False, "message": "没有选中文字"}
+        trc = config.raw["translation"]
+        try:
+            svc = tr.service_by_id(config, None)
+        except tr.TranslationError as exc:
+            return {"ok": False, "message": str(exc)}
+        if svc.get("kind") == "bilibili" and not trc.get("privacy_ack"):
+            if not body.get("ack"):
+                return {"ok": False, "need_ack": True}
+            trc["privacy_ack"] = True
+            config.save()
+        target = trc.get("target_language") or "zh"
+        prompt = tr.build_prompt(text, target, svc.get("mode", "translate"), svc.get("prompt", ""), [], False)
+        translator = tr.Translator(config, registry, pipeline.llm, svc)
+        try:
+            out, via = await run_in_threadpool(translator.call, prompt, body.get("paper_id"))
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"翻译失败：{type(exc).__name__}: {str(exc)[:200]}"}
+        return {"ok": True, "translation": out, "model": via}
 
     @app.post("/paper/{paper_id}/translate")
     async def paper_translate(paper_id: int, request: Request):

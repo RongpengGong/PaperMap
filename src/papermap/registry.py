@@ -87,6 +87,17 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS annotations (
+    id INTEGER PRIMARY KEY,
+    paper_id INTEGER NOT NULL REFERENCES papers(id),
+    page INTEGER NOT NULL,            -- 0-based
+    rects_json TEXT NOT NULL,         -- [[x0,y0,x1,y1], ...] in PDF points
+    text TEXT,
+    color TEXT NOT NULL DEFAULT 'yellow',
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,          -- translate / skill
@@ -506,6 +517,25 @@ class Registry:
         cols["updated_at"] = now_iso()
         sets = ", ".join(f"{k}=?" for k in cols)
         self.execute(f"UPDATE pending_fields SET {sets} WHERE id=?", (*cols.values(), pid))
+
+    # -- reader annotations ---------------------------------------------------
+    def annotations(self, paper_id: int) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM annotations WHERE paper_id=? ORDER BY page, id", (paper_id,))
+
+    def add_annotation(self, paper_id: int, page: int, rects_json: str, text: str, color: str, note: str) -> int:
+        ts = now_iso()
+        cur = self.execute(
+            "INSERT INTO annotations(paper_id, page, rects_json, text, color, note, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (paper_id, page, rects_json, text, color, note, ts, ts))
+        return int(cur.lastrowid)
+
+    def update_annotation(self, ann_id: int, **cols: Any) -> None:
+        cols["updated_at"] = now_iso()
+        sets = ", ".join(f"{k}=?" for k in cols)
+        self.execute(f"UPDATE annotations SET {sets} WHERE id=?", (*cols.values(), ann_id))
+
+    def delete_annotation(self, ann_id: int) -> None:
+        self.execute("DELETE FROM annotations WHERE id=?", (ann_id,))
 
     # -- collections (Zotero-style groups; a paper may be in several) --------
     def collections(self) -> list[sqlite3.Row]:
