@@ -1,0 +1,189 @@
+"""Write Markdown paper cards into the knowledge base."""
+
+from __future__ import annotations
+
+import re
+from datetime import date
+from pathlib import Path
+
+import yaml
+
+from .doi import slug as doi_slug
+
+USER_BEGIN = "<!-- user:begin -->"
+USER_END = "<!-- user:end -->"
+
+HEADINGS = {
+    "zh": {
+        "one": "一句话结论",
+        "question": "研究问题",
+        "design": "研究设计 / 数据",
+        "methods": "核心方法与工具",
+        "tools": "软件 / 工具包",
+        "findings": "主要发现",
+        "limits": "局限性",
+        "mine": "与我相关的点",
+        "fields": "所属学科",
+        "nodoi": "⚠️ 无 DOI",
+        "sample": "样本量",
+        "species": "物种",
+        "tissues": "组织",
+        "platforms": "平台",
+        "cohorts": "队列",
+        "mine_hint": "（在这里写你自己的笔记，程序更新卡片时不会改动这一节。）",
+        "fields_todo": "（分类将在阶段 2 加入）",
+    },
+    "en": {
+        "one": "One-sentence takeaway",
+        "question": "Research question",
+        "design": "Study design / data",
+        "methods": "Core methods",
+        "tools": "Software / tools",
+        "findings": "Key findings",
+        "limits": "Limitations",
+        "mine": "Relevance to me",
+        "fields": "Fields",
+        "nodoi": "⚠️ No DOI",
+        "sample": "Sample size",
+        "species": "Species",
+        "tissues": "Tissues",
+        "platforms": "Platforms",
+        "cohorts": "Cohorts",
+        "mine_hint": "(Your own notes go here; PaperMap never overwrites this section.)",
+        "fields_todo": "(classification arrives in stage 2)",
+    },
+}
+
+
+def card_filename(meta: dict, fallback_id: str) -> str:
+    year = meta.get("year") or "nd"
+    authors = meta.get("authors") or []
+    first = (authors[0].get("family") or authors[0].get("name", "")) if authors else "Anon"
+    first = _ascii_slug(first, title_case=True)[:30] or "Anon"
+    journal = meta.get("journal_abbrev") or meta.get("journal") or "NA"
+    journal = _ascii_slug(journal, title_case=True)[:25] or "NA"
+    tail = doi_slug(meta["doi"]) if meta.get("doi") else f"nodoi-{fallback_id}"
+    return f"{year}_{first}_{journal}_{tail}.md"
+
+
+def _ascii_slug(text: str, title_case: bool = False) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    words = re.findall(r"[A-Za-z0-9]+", t)
+    if title_case:
+        return "".join(w[:1].upper() + w[1:] for w in words)
+    return "-".join(w.lower() for w in words)
+
+
+def render_card(
+    meta: dict,
+    card: dict,
+    file_paths: list[str],
+    all_dois: list[dict],
+    language: str,
+    user_section: str | None = None,
+    added: str | None = None,
+) -> str:
+    h = HEADINGS["en" if language == "en" else "zh"]
+    authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
+    front = {
+        "doi": meta.get("doi"),
+        "dois": [d["doi"] for d in all_dois] or ([meta["doi"]] if meta.get("doi") else []),
+        "title": meta.get("title", ""),
+        "authors": authors,
+        "year": meta.get("year"),
+        "journal": meta.get("journal", ""),
+        "openalex_id": meta.get("openalex_id"),
+        "fields": [],
+        "topics": [],
+        "tools": card.get("tools", []),
+        "file_paths": file_paths,
+        "added": added or date.today().isoformat(),
+    }
+    out = ["---", yaml.safe_dump(front, allow_unicode=True, sort_keys=False, width=10**6).strip(), "---", ""]
+    out.append(f"# {meta.get('title') or '(untitled)'}")
+    out.append("")
+    cite = ", ".join(x for x in [_short_authors(authors), meta.get("journal", ""), str(meta.get("year") or "")] if x)
+    out.append(f"*{cite}*  ")
+    if meta.get("doi"):
+        out.append(f"DOI: [{meta['doi']}](https://doi.org/{meta['doi']})")
+        for d in all_dois:
+            if d["doi"] != meta["doi"]:
+                out.append(f"  · {d['kind']}: [{d['doi']}](https://doi.org/{d['doi']})")
+    else:
+        out.append(f"**{h['nodoi']}**")
+    out.append("")
+
+    def section(title: str, body: str) -> None:
+        out.extend([f"## {title}", "", body.strip() or "—", ""])
+
+    def bullets(items: list[str]) -> str:
+        return "\n".join(f"- {x}" for x in items) if items else "—"
+
+    section(h["one"], card.get("one_sentence", ""))
+    section(h["question"], card.get("research_question", ""))
+    d = card.get("design") or {}
+    design_lines = [d.get("summary", "")] if d.get("summary") else []
+    for key in ("sample_size",):
+        if d.get(key):
+            design_lines.append(f"- **{h['sample']}**: {d[key]}")
+    for key in ("species", "tissues", "platforms", "cohorts"):
+        if d.get(key):
+            design_lines.append(f"- **{h[key]}**: {', '.join(d[key])}")
+    section(h["design"], "\n".join(design_lines))
+    section(h["methods"], bullets(card.get("methods", [])))
+    section(h["tools"], ", ".join(f"`{t}`" for t in card.get("tools", [])) or "—")
+    section(h["findings"], "\n".join(f"{i}. {x}" for i, x in enumerate(card.get("key_findings", []), 1)))
+    section(h["limits"], bullets(card.get("limitations", [])))
+    out.extend([f"## {h['mine']}", "", USER_BEGIN, user_section if user_section is not None else h["mine_hint"], USER_END, ""])
+    section(h["fields"], h["fields_todo"])
+    return "\n".join(out).rstrip() + "\n"
+
+
+def _short_authors(authors: list[str]) -> str:
+    if not authors:
+        return ""
+    if len(authors) <= 2:
+        return " & ".join(authors)
+    return f"{authors[0]} et al."
+
+
+def read_user_section(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    text = path.read_text("utf-8")
+    m = re.search(re.escape(USER_BEGIN) + r"\n?(.*?)\n?" + re.escape(USER_END), text, re.DOTALL)
+    return m.group(1) if m else None
+
+
+def read_added(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    m = re.search(r"^added:\s*'?([0-9-]+)'?\s*$", path.read_text("utf-8"), re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def write_card(
+    knowledge_dir: Path,
+    meta: dict,
+    card: dict,
+    file_paths: list[str],
+    all_dois: list[dict],
+    language: str,
+    fallback_id: str,
+    existing_rel_path: str | None = None,
+) -> str:
+    """Write (or rewrite) a card, preserving the user's section. Returns rel path."""
+    papers_dir = knowledge_dir / "papers"
+    papers_dir.mkdir(parents=True, exist_ok=True)
+    rel = existing_rel_path or f"papers/{card_filename(meta, fallback_id)}"
+    path = knowledge_dir / rel
+    text = render_card(
+        meta, card, file_paths, all_dois, language,
+        user_section=read_user_section(path), added=read_added(path),
+    )
+    tmp = path.with_suffix(".md.tmp")
+    tmp.write_text(text, "utf-8")
+    tmp.replace(path)  # atomic on the same filesystem
+    return rel

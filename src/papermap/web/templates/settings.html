@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>设置</h2>
+{% if saved %}<div class="notice" style="border-left-color:#3a9d5d">已保存。入口文件夹的改动需重启 <code>papermap run</code> 生效。</div>{% endif %}
+<form method="post" action="/settings" class="card">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label>API Key</label>
+<input type="password" name="api_key" autocomplete="off" placeholder="{{ '已设置（来自' ~ key_source ~ '），留空则保持不变' if key_source else '粘贴你的 API Key' }}">
+<p class="muted">只保存在本机配置文件 <code>{{ cfg.path }}</code> 中。环境变量 <code>{{ cfg.llm.api_key_env }}</code> 优先。
+{% if cfg.llm.api_key %}<label style="display:inline;font-weight:400"><input type="checkbox" name="clear_key" value="1"> 删除本地保存的 Key</label>{% endif %}</p>
+<label>API 地址（OpenAI 兼容）</label><input type="text" name="base_url" value="{{ cfg.llm.base_url }}">
+<label>模型名</label><input type="text" name="model" value="{{ cfg.llm.model }}">
+<p class="muted">以服务商官方文档为准（DeepSeek 目前为 deepseek-flash / deepseek-v4-pro）。</p>
+<label>输出语言</label>
+<select name="output_language">{% for l in langs %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ l }}</option>{% endfor %}</select>
+<label>每月预算（美元，0 = 不限）</label><input type="number" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
+<label>入口文件夹（每行一个）</label><textarea name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
+<label>排除的子文件夹名（逗号分隔）</label><input type="text" name="exclude_dirs" value="{{ exclude_dirs }}">
+<label>排除的文件名模式（逗号分隔）</label><input type="text" name="exclude_patterns" value="{{ exclude_patterns }}">
+<label>联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" name="contact_email" value="{{ cfg.metadata.contact_email }}">
+<button type="submit">保存</button>
+</form>
+{% endblock %}

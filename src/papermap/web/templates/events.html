@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>活动日志</h2>
+<table><tr><th>时间</th><th>级别</th><th>内容</th></tr>
+{% for e in events %}<tr><td class="muted">{{ e.created_at }}</td><td><span class="chip {{ 'error' if e.level == 'error' else '' }}">{{ e.level }}</span></td>
+<td>{{ e.message }}{% if e.paper_id %} · <a href="/paper/{{ e.paper_id }}">#{{ e.paper_id }}</a>{% endif %}</td></tr>{% endfor %}
+</table>
+{% endblock %}

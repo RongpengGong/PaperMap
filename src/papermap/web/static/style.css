@@ -1,0 +1,22 @@
+:root { --bg:#fafafa; --fg:#1d1d1f; --muted:#6e6e73; --line:#e3e3e8; --accent:#2f6fde; --warn:#b3261e; --card:#fff; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#ececf0; --muted:#9a9aa2; --line:#2c2c31; --accent:#7aa7ff; --warn:#ff8a80; --card:#1f1f23; } }
+* { box-sizing: border-box; }
+body { margin:0; font:15px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+header { display:flex; gap:20px; align-items:center; padding:12px 24px; border-bottom:1px solid var(--line); background:var(--card); }
+header a { color:var(--fg); text-decoration:none; } header a.brand { font-weight:700; }
+header .right { margin-left:auto; color:var(--muted); font-size:13px; }
+main { max-width:1100px; margin:0 auto; padding:20px 24px 60px; }
+a { color:var(--accent); }
+.notice { padding:10px 14px; border:1px solid var(--line); border-left:4px solid var(--warn); background:var(--card); margin-bottom:16px; border-radius:6px; }
+.muted { color:var(--muted); font-size:13px; }
+table { width:100%; border-collapse:collapse; background:var(--card); }
+th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; }
+.chip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
+.chip.done { border-color:#3a9d5d; color:#3a9d5d; } .chip.error, .chip.doi_unverified { border-color:var(--warn); color:var(--warn); }
+.filters a { margin-right:12px; font-size:13px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:18px 24px; }
+form label { display:block; margin:14px 0 4px; font-weight:600; font-size:14px; }
+input[type=text], input[type=password], input[type=number], select, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+button { margin-top:16px; padding:8px 18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+code { font-size:13px; }

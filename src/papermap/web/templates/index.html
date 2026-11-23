@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="muted">隐私提示：每篇新论文的文本（标题、摘要、关键章节）会发送到你配置的 LLM 服务商；被排除规则命中的 PDF 不会发送。</p>
+<div class="filters">
+  <a href="/">全部</a>
+  {% for s, n in counts.items() %}<a href="/?status={{ s }}">{{ s }} ({{ n }})</a>{% endfor %}
+</div>
+<table>
+<tr><th>#</th><th>标题</th><th>年份</th><th>期刊</th><th>DOI</th><th>状态</th></tr>
+{% for p in papers %}
+<tr>
+  <td>{{ p.id }}</td>
+  <td><a href="/paper/{{ p.id }}">{{ p.title or "(无标题)" }}</a></td>
+  <td>{{ p.year or "" }}</td>
+  <td>{{ p.journal or "" }}</td>
+  <td><code>{{ p.doi or (p.doi_candidate ~ " ?" if p.doi_candidate else "无 DOI") }}</code></td>
+  <td><span class="chip {{ p.status }}">{{ p.status }}</span></td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="muted">还没有论文。把 PDF 放进入口文件夹，然后运行 <code>papermap scan</code> 或 <code>papermap run</code>。</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

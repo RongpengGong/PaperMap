@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}PaperMap{% endblock %}</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header>
+  <a class="brand" href="/">PaperMap</a><a href="/">论文</a><a href="/events">活动日志</a><a href="/settings">设置</a>
+  <span class="right">本月 LLM 花费 ${{ "%.4f"|format(month_cost) }}{% if budget %} / ${{ "%.2f"|format(budget) }}{% endif %}</span>
+</header>
+<main>
+{% if not key_set %}<div class="notice">尚未设置 LLM API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key（或设置环境变量）后才会生成。</div>{% endif %}
+{% block content %}{% endblock %}
+</main></body></html>
