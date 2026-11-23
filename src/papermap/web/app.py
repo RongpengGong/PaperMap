@@ -322,6 +322,55 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return render(request, "search.html", q=q, kind=kind, groups=groups, total=total, kinds=srch.KINDS,
                       terms=srch.query_terms(q), indexed=state)
 
+    # --------------------------------------------------------------------- Q&A
+    def answer_html(answer: str, sources: list[dict]) -> str:
+        by = {x["id"]: x for x in sources}
+
+        def link(m: re.Match) -> str:
+            src = by.get(m.group(1))
+            if src is None:
+                return ""
+            n = list(by).index(m.group(1)) + 1
+            if src["kind"] in ("page", "annotation") and src["page"] is not None:
+                href = f"/reader/{src['paper_id']}?page={src['page'] + 1}"
+            else:
+                href = f"/?id={src['paper_id']}"
+            tip = f"{src['who']}{' p.' + str(src['page'] + 1) if src['page'] is not None else ''} — {src['title']}"
+            return f'<a class="cite" href="{href}" title="{tip}">{n}</a>'
+
+        html = md.markdown(answer, extensions=["extra", "sane_lists"])
+        return re.sub(r"\[(S\d+)\]", link, html)
+
+    @app.get("/qa", response_class=HTMLResponse)
+    def qa_page(request: Request, id: int | None = None):
+        from .. import qa as qamod
+
+        qamod.ensure_schema(registry)
+        history = registry.query("SELECT id, question, created_at FROM qa_history ORDER BY id DESC LIMIT 50")
+        current = None
+        if id:
+            row = registry.one("SELECT * FROM qa_history WHERE id=?", (id,))
+            if row:
+                sources = json.loads(row["sources_json"])
+                current = {"row": row, "html": answer_html(row["answer"], sources), "sources": sources}
+        pipeline.taxonomy()
+        return render(request, "qa.html", history=history, current=current,
+                      groups=_flat_tree(registry.collection_tree()),
+                      fields=[f for f in registry.active_fields() if registry.field_paper_rows(f["id"])])
+
+    @app.post("/api/qa")
+    async def api_qa(request: Request):
+        from .. import qa as qamod
+
+        body = await json_body(request)
+        try:
+            r = await run_in_threadpool(qamod.ask, config, registry, pipeline.llm, str(body.get("question", "")),
+                                        str(body.get("scope", "")))
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        return {"ok": True, "id": r["id"], "html": answer_html(r["answer"], r["sources"]), "sources": r["sources"],
+                "keywords": r["keywords"], "cost": r["cost"], "model": r["model"]}
+
     # ------------------------------------------------------------------ reader
     def reader_pdf(paper_id: int) -> Path:
         row = registry.get_paper(paper_id)

@@ -129,21 +129,24 @@ def query_terms(q: str) -> list[str]:
 
 
 def search(registry: Registry, q: str, kinds: set[str] | None = None, paper_ids: list[int] | None = None,
-           limit: int = 300) -> list[dict]:
-    """Hits for all terms (AND). Each: paper_id, kind, page, label, snippet."""
+           limit: int = 300, any_term: bool = False, terms: list[str] | None = None) -> list[dict]:
+    """Hits for all terms (AND; ``any_term`` = OR). Each: paper_id, kind, page, label, snippet."""
     ensure_schema(registry)
-    terms = query_terms(q)
+    terms = terms if terms is not None else query_terms(q)
     if not terms:
         return []
     where, params = [], []
     long_terms = [t for t in terms if len(t) >= 3]
     short_terms = [t for t in terms if len(t) < 3]
+    conds, cparams = [], []
     if long_terms:
-        where.append("search_index MATCH ?")
-        params.append(" AND ".join('"' + t.replace('"', '""') + '"' for t in long_terms))
+        conds.append("search_index MATCH ?")
+        cparams.append((" OR " if any_term else " AND ").join('"' + t.replace('"', '""') + '"' for t in long_terms))
     for t in short_terms:
-        where.append("body LIKE ?")
-        params.append(f"%{t}%")
+        conds.append("body LIKE ?")
+        cparams.append(f"%{t}%")
+    where.append("(" + (" OR " if any_term else " AND ").join(conds) + ")")
+    params += cparams
     if kinds:
         where.append(f"kind IN ({','.join('?' * len(kinds))})")
         params += sorted(kinds)

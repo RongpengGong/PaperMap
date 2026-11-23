@@ -15,6 +15,7 @@ def atomic_write(path: Path, text: str, attempts: int = 5) -> None:
     program (e.g. an editor) holds the file, so retry briefly."""
     import time
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, "utf-8")
     for i in range(attempts):

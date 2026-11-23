@@ -126,7 +126,11 @@ class FakeCompletions:
     def create(self, **kwargs):
         system = kwargs["messages"][0]["content"]
         self.last_system = system
-        if "【源文】" in system:  # translation via the main model (single user message)
+        if "search keywords for a full-text index" in system:
+            content = json.dumps({"keywords": ["fibroblast", "Visium", "肝癌"]})
+        elif "QUESTION:" in (kwargs["messages"][-1]["content"] if kwargs["messages"] else ""):
+            content = "成纤维细胞位于小生境中 [S1][S2]。编造的句子 [S99]。"
+        elif "【源文】" in system:  # translation via the main model (single user message)
             self.translate_calls = getattr(self, "translate_calls", 0) + 1
             nums = re.findall(r"^\[(\d+)\]", system.split("【源文】")[1], re.M)
             content = "\n\n".join(f"[{n}] 主模型译文{n}" for n in nums) if nums else "主模型译文"

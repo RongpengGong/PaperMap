@@ -293,3 +293,17 @@ mark { background:#ffe066; color:inherit; border-radius:2px; padding:0 1px; }
 @media (prefers-color-scheme: dark) { mark { background:#8a6d00; } }
 .kind-chip { display:inline-block; font-size:11px; padding:0 6px; margin-right:6px; border-radius:4px; background:var(--side); color:var(--muted); white-space:nowrap; }
 .k-page { color:var(--accent); } .k-notes, .k-annotation { color:var(--ok); } .k-translation { color:var(--map-topic); }
+/* ---------- Q&A ---------- */
+.content.qa-content { padding:0; overflow:hidden; display:flex; }
+.qa-layout { flex:1; display:flex; min-height:0; }
+.qa-main { flex:1; min-width:0; overflow-y:auto; padding:24px 32px 60px; }
+.qa-ask textarea { font-size:14px; } .qa-ask .row { margin-top:8px; } .qa-ask button { margin:0; }
+.qa-answer { margin-top:18px; max-width:900px; } .qa-answer .md { font-size:14.5px; line-height:1.75; }
+a.cite { display:inline-block; min-width:16px; padding:0 4px; margin:0 1px; border-radius:8px; background:var(--accent-soft); color:var(--accent); font-size:11px; line-height:16px; text-align:center; vertical-align:super; }
+a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
+.qa-sources li { margin:4px 0; font-size:13px; }
+.qa-history { width:260px; flex:none; border-left:1px solid var(--line); overflow-y:auto; padding:18px 12px; background:var(--side); }
+.qa-history h3 { margin:0 0 8px 4px; font-size:13px; color:var(--muted); }
+.qa-history a { display:block; padding:6px 8px; border-radius:6px; color:var(--fg); font-size:12.5px; line-height:1.4; }
+.qa-history a:hover, .qa-history a.active { background:var(--side-hover); text-decoration:none; }
+.qa-history a i { display:block; font-style:normal; color:var(--muted); font-size:11px; }
