@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}从 Zotero 导入 - PaperMap{% endblock %}
+{% block content %}
+<h2>从 Zotero 导入</h2>
+<p class="muted">PaperMap 读取 Zotero 数据库的一份<strong>副本</strong>，Zotero 里的文件和数据都不会被修改（Zotero 开着也没关系）。有 PDF 的条目会像拖进来的论文一样处理：识别 DOI、生成卡片、分类；超过 {{ 5 }} 篇时先在首页给出费用估算，等你确认。重复导入不会产生重复。</p>
+<form method="get" action="/zotero" class="row"><input type="text" name="dir" value="{{ zdir }}"><button type="button" class="secondary" data-pick-folder="zdir_input" hidden></button><button>读取</button></form>
+{% if err %}<div class="notice">{{ err }}</div>{% endif %}
+{% if info %}
+<section class="card" style="margin-top:14px">
+  <div class="stats">
+    <div class="stat"><span class="muted">条目</span><strong>{{ info['items'] }}</strong></div>
+    <div class="stat"><span class="muted">有 PDF（会导入）</span><strong>{{ info.with_pdf }}</strong></div>
+    <div class="stat"><span class="muted">分组 / 标签 / 笔记</span><strong>{{ info.collections }} / {{ info.tags }} / {{ info.notes }}</strong></div>
+  </div>
+  <p><label class="inline"><input type="checkbox" id="z_cols" checked> 导入分组（放在「Zotero」分组下）</label><br>
+     <label class="inline"><input type="checkbox" id="z_tags" checked> 导入标签</label><br>
+     <label class="inline"><input type="checkbox" id="z_notes" checked> 导入笔记（加到「我的笔记」）</label></p>
+  <button type="button" id="z_go">导入 {{ info.with_pdf }} 篇有 PDF 的论文</button>
+  <p id="z_status" class="muted small">{% if job %}上次导入：{{ {'queued':'排队中','running':'进行中','done':'已完成','error':'出错'}[job.status] }}{% if job.status == 'running' %}（{{ job.progress }}/{{ job.total }}）{% endif %}{% if result %} · 关联 {{ result.linked }} 篇，新增 {{ result.new }} 篇{% if result.waiting %}，{{ result.waiting }} 篇在首页等待确认处理{% endif %}{% endif %}{% if job.status == 'error' %} · {{ job.message }}{% endif %}{% endif %}</p>
+</section>
+{% if info.without_pdf %}
+<section class="card">
+  <h3>没有 PDF 的条目（{{ info.without_pdf|length }}）</h3>
+  <p class="muted small">PaperMap 需要全文才能生成卡片。在 Zotero 里为它们下载 PDF（右键 → 查找可用的 PDF）后，再回来导入即可。</p>
+  <ul class="small">{% for x in info.without_pdf %}<li>{{ x.title }}{% if x.doi %} · <a target="_blank" rel="noopener" href="https://doi.org/{{ x.doi }}">{{ x.doi }}</a>{% endif %}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById("z_go") && document.getElementById("z_go").addEventListener("click", async e => {
+  e.target.disabled = true;
+  const j = await pmApi("/api/zotero/import", { dir: {{ zdir|tojson }}, collections: z_cols.checked, tags: z_tags.checked, notes: z_notes.checked });
+  if (j.ok) { document.getElementById("z_status").textContent = "已开始导入，完成后可以在「论文」里看到；超过 5 篇时请到首页确认处理。"; setTimeout(() => location.reload(), 4000); }
+});
+</script>
+{% endblock %}

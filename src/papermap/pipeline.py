@@ -369,6 +369,12 @@ class Pipeline:
         )
         self.classify_paper(paper_id)
         self.place_pdfs(paper_id)
+        try:
+            from . import zotero
+
+            zotero.apply_pending_notes(self.registry, self.config.knowledge_dir, paper_id)
+        except Exception:  # noqa: BLE001
+            log.exception("applying Zotero notes failed")
         self.reindex(paper_id)
         threading.Thread(target=self._fetch_citations, args=(paper_id,), daemon=True).start()
         try:
@@ -393,7 +399,8 @@ class Pipeline:
             self.config.output_language, fallback, existing_rel_path=row["kb_path"],
             fields=[dict(r) for r in self.registry.paper_field_rows(paper_id)],
             collections=[self.registry.collection_path(c["id"]) for c in self.registry.paper_collections(paper_id)],
-            reading={"read_status": row["read_status"], "starred": row["starred"]},
+            reading={"read_status": row["read_status"], "starred": row["starred"],
+                     "tags": json.loads(row["tags_json"] or "[]")},
         )
         if rel != row["kb_path"]:
             self.registry.update_paper(paper_id, kb_path=rel)
@@ -672,7 +679,8 @@ class Pipeline:
         if self._jobs is None:
             from .jobs import JobRunner
 
-            self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill})
+            self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill,
+                                                   "zotero": self._job_zotero})
         return self._jobs
 
     def _paper_files(self, paper_id: int) -> tuple[Path, Path]:
@@ -717,6 +725,14 @@ class Pipeline:
         self.reindex(job["paper_id"])
         self.kb_commit(f"Skill {sk.id} for paper #{job['paper_id']}")
         return out.name
+
+    def _job_zotero(self, job: dict, progress) -> str:
+        from . import zotero
+
+        opts = json.loads(job["arg"] or "{}")
+        r = zotero.run_import(self, Path(opts.get("dir") or zotero.default_dir()), opts.get("collections", True),
+                              opts.get("tags", True), opts.get("notes", True), progress)
+        return json.dumps(r)
 
     def submit_translation(self, paper_id: int, service_id: str = "") -> int:
         self._paper_files(paper_id)

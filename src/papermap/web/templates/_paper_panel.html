@@ -16,6 +16,7 @@
     {% for j in failed_jobs %}<p class="job-line err-text small">{{ '翻译' if j.kind == 'translate' else '技能解读' }}失败：{{ j.message }}</p>{% endfor %}
     <div class="chips-row">
       {% for l in plabels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ l.name_zh }}<small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} · 待审核{% endif %}{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small></a>{% endfor %}
+      {% for t in ptags[:12] %}<a class="tag-chip" href="/?q={{ t|urlencode }}" title="Zotero 标签">#{{ t }}</a>{% endfor %}
       <span class="groups">
         <span class="muted small">分组</span>
         {% for g in pcollections %}<span class="group-chip">{{ g.path }}<button type="button" data-remove-group="{{ g.id }}" title="从这个分组移出">×</button></span>{% endfor %}

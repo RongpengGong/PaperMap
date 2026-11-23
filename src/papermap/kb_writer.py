@@ -127,6 +127,7 @@ def render_card(
         "collections": collections or [],
         "read_status": (reading or {}).get("read_status", "unread"),
         "starred": bool((reading or {}).get("starred")),
+        "tags": (reading or {}).get("tags", []),
         "pdf": f"{stem}.pdf" if stem and has_pdf else None,
         "notes": f"{stem}.notes.md" if stem else None,
         "file_paths": file_paths,

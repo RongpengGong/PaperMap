@@ -116,8 +116,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             params.append(status)
         if q.strip():
             like = f"%{q.strip()}%"
-            sql += " AND (title LIKE ? OR authors_json LIKE ? OR journal LIKE ? OR doi LIKE ? OR first_author LIKE ?)"
-            params += [like] * 5
+            sql += (" AND (title LIKE ? OR authors_json LIKE ? OR journal LIKE ? OR doi LIKE ? OR first_author LIKE ?"
+                    " OR tags_json LIKE ?)")
+            params += [like] * 6
         rows = registry.query(sql + " ORDER BY id DESC LIMIT 2000", tuple(params))
         labels: dict[int, list] = {}
         for r in registry.query(
@@ -182,6 +183,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 "tr_services": tr_cfg.get("services", []), "tr_default": tr_cfg.get("default", "bilibili"),
                 "tr_ack": bool(tr_cfg.get("privacy_ack")),
                 "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
+                "ptags": json.loads(row["tags_json"] or "[]"),
                 "pcollections": [{"id": r["id"], "path": registry.collection_path(r["id"])}
                                  for r in registry.paper_collections(paper_id)],
                 "all_collections": _flat_tree(registry.collection_tree()),
@@ -513,6 +515,29 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                "JOIN papers p ON p.id=f.paper_id WHERE p.status != 'ignored'")
         rows = registry.query(sql + (" AND f.paper_id=?" if paper else "") + " ORDER BY p.id DESC, f.id", (paper,) if paper else ())
         return render(request, "figures.html", rows=rows, paper=paper)
+
+    # ----------------------------------------------------------------- Zotero
+    @app.get("/zotero", response_class=HTMLResponse)
+    def zotero_page(request: Request, dir: str = ""):
+        from .. import zotero as z
+
+        zdir = Path(dir).expanduser() if dir else z.default_dir()
+        try:
+            info = z.preview(zdir)
+            err = ""
+        except Exception as exc:  # noqa: BLE001
+            info, err = None, str(exc)
+        job = registry.one("SELECT * FROM jobs WHERE kind='zotero' ORDER BY id DESC LIMIT 1")
+        return render(request, "zotero.html", info=info, err=err, zdir=str(zdir), job=job,
+                      result=json.loads(job["message"]) if job and job["status"] == "done" and (job["message"] or "").startswith("{") else None)
+
+    @app.post("/api/zotero/import")
+    async def zotero_import(request: Request):
+        body = await json_body(request)
+        opts = {"dir": str(body.get("dir", "")), "collections": bool(body.get("collections", True)),
+                "tags": bool(body.get("tags", True)), "notes": bool(body.get("notes", True))}
+        pipeline.jobs.submit("zotero", 0, json.dumps(opts))
+        return {"ok": True}
 
     # -------------------------------------------------------------- citations
     @app.get("/citations", response_class=HTMLResponse)
