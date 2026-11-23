@@ -30,6 +30,7 @@
 <body class="app" data-csrf="{{ csrf }}">
 <aside class="sidebar">
   <div class="brand"><img src="/static/icon.png" alt=""><span>PaperMap</span></div>
+  <form class="side-search" method="get" action="/search"><input type="search" name="q" placeholder="全文搜索…" value="{{ request.query_params.get('q', '') if path == '/search' else '' }}"></form>
   <button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>导入 PDF</span></button>
   <input type="file" id="import_input" accept="application/pdf,.pdf" multiple hidden>
   {%- set cur_c = request.query_params.get('c', '') -%}

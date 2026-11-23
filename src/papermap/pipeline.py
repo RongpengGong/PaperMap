@@ -369,6 +369,7 @@ class Pipeline:
         )
         self.classify_paper(paper_id)
         self.place_pdfs(paper_id)
+        self.reindex(paper_id)
         try:
             self._auto_jobs(paper_id)
         except Exception as exc:  # noqa: BLE001
@@ -695,6 +696,7 @@ class Pipeline:
         out = translate.translate_paper(self.config, self.registry, self.llm, job["paper_id"], pdf, card, tax,
                                         job["arg"] or None, progress)
         self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
+        self.reindex(job["paper_id"])
         self.kb_commit(f"Translate paper #{job['paper_id']}")
         return out.name
 
@@ -710,6 +712,7 @@ class Pipeline:
         out = sr.run(sk, self.config, self.registry, self.llm, job["paper_id"], pdf, card)
         progress(1, 1)
         self.registry.log("info", f"Skill '{sk.label}' written: {out.name}", job["paper_id"])
+        self.reindex(job["paper_id"])
         self.kb_commit(f"Skill {sk.id} for paper #{job['paper_id']}")
         return out.name
 
@@ -732,6 +735,32 @@ class Pipeline:
             sid = sr.default_skill_id(self.config, sr.discover(self.config))
             if sid:
                 self.submit_skill(paper_id, sid)
+
+    # --------------------------------------------------------- full-text search
+    def pdf_for(self, paper_id: int) -> Path | None:
+        row = self.registry.get_paper(paper_id)
+        if row is None:
+            return None
+        if row["kb_path"] and row["kb_path"].count("/") >= 2:
+            p = library.pdf_path(self.config.knowledge_dir, row["kb_path"])
+            if p.exists():
+                return p
+        return next((Path(f) for f in self.registry.paper_file_paths(paper_id) if Path(f).exists()), None)
+
+    def reindex(self, paper_id: int, force: bool = False) -> bool:
+        from . import search
+
+        try:
+            return search.index_paper(self.config.knowledge_dir, self.registry, paper_id, self.pdf_for(paper_id), force)
+        except Exception:  # noqa: BLE001 - search must never break processing
+            log.exception("indexing paper %s failed", paper_id)
+            return False
+
+    def reindex_all(self, force: bool = False) -> int:
+        n = 0
+        for row in self.registry.query("SELECT id FROM papers WHERE status != 'ignored'"):
+            n += self.reindex(row["id"], force)
+        return n
 
     def place_pdfs(self, paper_id: int) -> None:
         """Put the paper's PDF(s) into its folder, then refresh the card's pdf link."""

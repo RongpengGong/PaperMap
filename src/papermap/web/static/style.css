@@ -284,3 +284,12 @@ body.bare .pages { padding:12px 10px 40px; }
 body.bare .page-num { display:none; }
 body.bare .reader-bar { padding:4px 8px; gap:5px; }
 body.bare .reader-bar .zoom-label { min-width:34px; }
+.side-search { margin:0 4px 10px; } .side-search input { padding:6px 9px; font-size:13px; border-radius:8px; }
+.search-form input { flex:1; } .search-form button { margin:0; }
+.search-group { margin-bottom:12px; } .sg-title { font-weight:600; font-size:14.5px; display:block; margin-bottom:2px; }
+.hits { margin:8px 0 0; padding:0; list-style:none; } .hits li { margin:6px 0; font-size:13px; line-height:1.55; }
+.hits a { color:var(--fg); } .hits a:hover { color:var(--accent); text-decoration:none; }
+mark { background:#ffe066; color:inherit; border-radius:2px; padding:0 1px; }
+@media (prefers-color-scheme: dark) { mark { background:#8a6d00; } }
+.kind-chip { display:inline-block; font-size:11px; padding:0 6px; margin-right:6px; border-radius:4px; background:var(--side); color:var(--muted); white-space:nowrap; }
+.k-page { color:var(--accent); } .k-notes, .k-annotation { color:var(--ok); } .k-translation { color:var(--map-topic); }

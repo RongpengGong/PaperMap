@@ -118,6 +118,8 @@ def _load(args: argparse.Namespace):
         pipe.migrate_library()
     except Exception:  # noqa: BLE001 - never block startup on the migration
         logging.getLogger(__name__).exception("library migration failed")
+    if getattr(args, "func", None) in (cmd_run, cmd_serve, cmd_app):
+        threading.Thread(target=pipe.reindex_all, name="reindex", daemon=True).start()
     return cfg, reg, pipe
 
 
@@ -356,6 +358,12 @@ def cmd_classify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reindex(args: argparse.Namespace) -> int:
+    cfg, reg, pipe = _load(args)
+    print(f"Indexed {pipe.reindex_all(force=args.force)} paper(s) for full-text search")
+    return 0
+
+
 def cmd_autostart(args: argparse.Namespace) -> int:
     from . import autostart
 
@@ -469,6 +477,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reject", type=int, metavar="ID")
     p.add_argument("--merge", nargs=2, metavar=("ID", "TARGET_SLUG"))
     p.set_defaults(func=cmd_pending)
+    p = sub.add_parser("reindex", help="rebuild the full-text search index")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_reindex)
     p = sub.add_parser("consolidate", help="consolidate field hub pages (default: those that are due)")
     p.add_argument("slug", nargs="*")
     p.set_defaults(func=cmd_consolidate)

@@ -101,7 +101,16 @@
     pageEls.forEach(el => io.observe(el));
     renderToc(); renderAnnList();
     const start = Math.max(1, Math.min(info.pages.length, +root.dataset.start || 1));
-    if (start > 1) goto(start - 1);
+    const find = (root.dataset.find || "").replace(/"/g, "").trim();
+    if (find) {  // opened from full-text search: show the hits on that page
+      const q = find.split(/\s+/).sort((a, b) => b.length - a.length)[0];
+      document.getElementById("search_q").value = q;
+      const hits = await (await fetch(`/api/reader/${pid}/search?q=${encodeURIComponent(q)}`)).json();
+      const onPage = hits.filter(h => h.page === start - 1);
+      await loadPage(start - 1);
+      goto(start - 1, (onPage[0] || {}).rect);
+      onPage.slice(1).forEach(h => flash(h.page, h.rect));
+    } else if (start > 1) goto(start - 1);
   }
 
   function goto(i, rect) {

@@ -2,7 +2,7 @@
 {% block title %}{{ p.title }} - 阅读{% endblock %}
 {% block content_class %}reader-content{% endblock %}
 {% block content %}
-<div class="reader" id="reader" data-paper="{{ p.id }}" data-start="{{ start_page }}">
+<div class="reader" id="reader" data-paper="{{ p.id }}" data-start="{{ start_page }}" data-find="{{ find }}">
   <aside class="reader-side" id="reader_side">
     <div class="rs-tabs">
       <button type="button" class="active" data-rs="toc">目录</button>

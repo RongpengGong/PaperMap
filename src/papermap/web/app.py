@@ -36,6 +36,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
+
+    def _hl(text: str, terms: list[str]):
+        from markupsafe import Markup, escape
+
+        out = str(escape(text))
+        for t in sorted(terms, key=len, reverse=True):
+            out = re.sub(re.escape(str(escape(t))), lambda m: f"<mark>{m.group(0)}</mark>", out, flags=re.I)
+        return Markup(out)
+
+    templates.env.filters["hl"] = _hl
     csrf_token = secrets.token_urlsafe(24)
     # cache-busting for static assets (app updates must not show stale CSS/JS)
     static_v = str(int(max(f.stat().st_mtime for f in (HERE / "static").iterdir())))
@@ -224,6 +234,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         atomic_write(library.notes_path(config.knowledge_dir, row["kb_path"]),
                      str(body.get("text", "")).replace("\r\n", "\n"))
+        background("reindex", pipeline.reindex, paper_id)
         return {"ok": True}
 
     @app.post("/paper/{paper_id}/reveal")
@@ -296,6 +307,21 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
 
+    # ------------------------------------------------------------------ search
+    @app.get("/search", response_class=HTMLResponse)
+    def search_page(request: Request, q: str = "", kind: str = ""):
+        from .. import search as srch
+
+        groups, total = [], 0
+        if q.strip():
+            hits = srch.search(registry, q, {kind} if kind in srch.KINDS else None)
+            total = len(hits)
+            groups = srch.grouped(registry, hits)
+        state = registry.one("SELECT count(*) AS n FROM search_state")["n"] if registry.one(
+            "SELECT name FROM sqlite_master WHERE name='search_state'") else 0
+        return render(request, "search.html", q=q, kind=kind, groups=groups, total=total, kinds=srch.KINDS,
+                      terms=srch.query_terms(q), indexed=state)
+
     # ------------------------------------------------------------------ reader
     def reader_pdf(paper_id: int) -> Path:
         row = registry.get_paper(paper_id)
@@ -305,9 +331,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return f
 
     @app.get("/reader/{paper_id}", response_class=HTMLResponse)
-    def reader_page(request: Request, paper_id: int, embed: int = 0, page: int = 1):
+    def reader_page(request: Request, paper_id: int, embed: int = 0, page: int = 1, q: str = ""):
         reader_pdf(paper_id)
-        return render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page,
+        return render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page, find=q,
                       colors=reader_mod.COLORS)
 
     @app.get("/api/reader/{paper_id}/info")
@@ -336,8 +362,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return reader_mod.search(reader_pdf(paper_id), q)
 
     def annotations_changed(paper_id: int) -> None:
-        background("annotations", lambda: reader_mod.write_annotations_md(
-            registry, config.knowledge_dir, paper_id, config.output_language))
+        def run():
+            reader_mod.write_annotations_md(registry, config.knowledge_dir, paper_id, config.output_language)
+            pipeline.reindex(paper_id)
+
+        background("annotations", run)
 
     @app.post("/api/reader/{paper_id}/annotations")
     async def annotation_add(paper_id: int, request: Request):
