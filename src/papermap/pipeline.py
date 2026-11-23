@@ -19,7 +19,10 @@ from .kb_writer import write_card
 from .llm import BudgetExceeded, LLMClient, LLMError, LLMNotConfigured
 from .metadata import MetadataClient, MetadataUnavailable
 from .pdf_extract import extract_for_llm, read_info, sha256_file
+from . import classify as clf
+from .kb_fields import write_fields
 from .registry import Registry
+from .taxonomy import Taxonomy, TaxonomyError
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +88,8 @@ class Pipeline:
         self.threshold = float(config.metadata.get("title_match_threshold", 85))
         self._lock = threading.Lock()  # one file at a time
         self._llm_block_reported = False
+        self._taxonomy: Taxonomy | None = None
+        self._taxonomy_sig: tuple | None = None
 
     # ------------------------------------------------------------------ files
     def handle_path(self, path: str | Path) -> str:
@@ -334,6 +339,7 @@ class Pipeline:
             f"Card written for paper #{paper_id} ({result.prompt_tokens}+{result.completion_tokens} tokens, ${result.cost_usd:.4f})",
             paper_id,
         )
+        self.classify_paper(paper_id)
         return "processed"
 
     def _refresh_card(self, paper_id: int) -> None:
@@ -349,6 +355,7 @@ class Pipeline:
             self.registry.paper_file_paths(paper_id),
             [dict(r) for r in self.registry.paper_dois(paper_id)],
             self.config.output_language, fallback, existing_rel_path=row["kb_path"],
+            fields=[dict(r) for r in self.registry.paper_field_rows(paper_id)],
         )
         if rel != row["kb_path"]:
             self.registry.update_paper(paper_id, kb_path=rel)
@@ -358,7 +365,8 @@ class Pipeline:
         return row["sha256"][:10] if row else f"id{paper_id}"
 
     def process_pending(self) -> dict[str, int]:
-        """Retry papers waiting for the LLM (no key yet, budget, network)."""
+        """Retry papers waiting for the LLM (no key yet, budget, network),
+        then classify finished papers that were never classified."""
         self._llm_block_reported = False
         counts: dict[str, int] = {}
         for row in list(self.registry.iter_papers_by_status(("new", "extracting"))):
@@ -366,8 +374,156 @@ class Pipeline:
                 outcome = self.process_paper(row["id"])
             counts[outcome] = counts.get(outcome, 0) + 1
             if outcome in ("waiting_llm", "retry_later"):
-                break  # no point trying the rest
+                return counts  # no point trying the rest
+        for k, v in self.classify_papers(mode="unclassified").items():
+            counts[f"classify:{k}"] = v
         return counts
+
+    # ------------------------------------------------------- classification
+    def taxonomy(self) -> Taxonomy:
+        """Current taxonomy; reloaded when the config or the YAML file changes."""
+        from .taxonomy import resolve_path
+
+        spec = str(self.config.raw.get("taxonomy_file") or "default")
+        path = resolve_path(spec, self.config.data_dir)
+        mtime = path.stat().st_mtime if path is not None and path.exists() else None
+        sig = (spec, mtime)
+        if self._taxonomy is None or sig != self._taxonomy_sig:
+            self._taxonomy = self.config.load_taxonomy()
+            self._taxonomy_sig = sig
+            self.registry.sync_fields(self._taxonomy)
+        return self._taxonomy
+
+    def stale_classification_count(self) -> int:
+        try:
+            key = clf.classify_key(self.taxonomy())
+        except TaxonomyError:
+            return 0
+        row = self.registry.one(
+            "SELECT count(*) AS n FROM papers WHERE status='done' AND classify_key IS NOT NULL AND classify_key != ?",
+            (key,),
+        )
+        return int(row["n"]) if row else 0
+
+    def classify_paper(self, paper_id: int) -> str:
+        row = self.registry.get_paper(paper_id)
+        if row is None or row["status"] != "done":
+            return "skipped"
+        try:
+            tax = self.taxonomy()
+        except TaxonomyError as exc:
+            self.registry.log("error", f"Taxonomy invalid, classification skipped: {exc}")
+            return "error"
+        before = {r["slug"] for r in self.registry.paper_field_rows(paper_id, include_rejected=True)}
+        paper, meta, card = clf.paper_inputs(row)
+        try:
+            result = clf.classify(self.llm, self.config, tax, paper, meta, card, paper_id)
+        except (LLMNotConfigured, BudgetExceeded) as exc:
+            if not self._llm_block_reported:
+                self.registry.log("warning", str(exc))
+                self._llm_block_reported = True
+            return "waiting_llm"
+        except LLMError as exc:
+            self.registry.log("error", f"Classification failed for paper #{paper_id}: {exc}", paper_id)
+            return "error"
+        except Exception as exc:  # noqa: BLE001
+            transient = _is_transient_llm_error(exc)
+            self.registry.log("warning" if transient else "error",
+                              f"Classification call failed for paper #{paper_id}: {type(exc).__name__}: {exc}", paper_id)
+            return "retry_later" if transient else "error"
+        summary = clf.apply(self.registry, self.config, tax, paper_id, result.data)
+        after = {r["slug"] for r in self.registry.paper_field_rows(paper_id, include_rejected=True)}
+        self._refresh_card(paper_id)
+        self.refresh_fields(before | after)
+        msg = f"Classified paper #{paper_id}: {', '.join(summary['accepted']) or '-'}"
+        if summary["suggested"]:
+            msg += f"; needs review: {', '.join(summary['suggested'])}"
+        if result.data.get("proposed_new"):
+            msg += f"; proposed new: {', '.join(p['name_en'] or p['name_zh'] for p in result.data['proposed_new'])}"
+        self.registry.log("warning" if summary["needs_review"] else "info", msg, paper_id)
+        return "classified"
+
+    def classify_papers(self, mode: str = "unclassified", paper_ids: list[int] | None = None) -> dict[str, int]:
+        """mode: unclassified | stale (taxonomy/prompt changed) | all."""
+        try:
+            key = clf.classify_key(self.taxonomy())
+        except TaxonomyError as exc:
+            self.registry.log("error", f"Taxonomy invalid: {exc}")
+            return {"error": 1}
+        if paper_ids:
+            rows = [r for r in (self.registry.get_paper(i) for i in paper_ids) if r]
+        elif mode == "all":
+            rows = self.registry.list_papers(status="done", limit=10**6)
+        elif mode == "stale":
+            rows = self.registry.query(
+                "SELECT * FROM papers WHERE status='done' AND (classify_key IS NULL OR classify_key != ?)", (key,))
+        else:
+            rows = self.registry.query("SELECT * FROM papers WHERE status='done' AND classify_key IS NULL")
+        counts: dict[str, int] = {}
+        for row in rows:
+            with self._lock:
+                outcome = self.classify_paper(row["id"])
+            counts[outcome] = counts.get(outcome, 0) + 1
+            if outcome in ("waiting_llm", "retry_later"):
+                break
+        return counts
+
+    def refresh_fields(self, slugs: set[str] | None = None) -> None:
+        try:
+            tax = self.taxonomy()
+        except TaxonomyError:
+            tax = None
+        write_fields(self.config.knowledge_dir, self.registry, tax, self.config.output_language, slugs)
+
+    def set_label(self, paper_id: int, slug: str, action: str) -> None:
+        """User decision on a label: accept / reject / add (source='user' sticks)."""
+        self.taxonomy()
+        field = self.registry.field_by_slug(slug)
+        if field is None or self.registry.get_paper(paper_id) is None:
+            raise ValueError(f"unknown paper or field: {paper_id}, {slug}")
+        status = {"accept": "accepted", "add": "accepted", "reject": "rejected"}[action]
+        with self._lock:
+            self.registry.set_paper_field(paper_id, field["id"], status=status, source="user",
+                                          **({"confidence": 1.0} if action == "add" else {}))
+            clf.recompute_review_flag(self.registry, paper_id)
+            self._refresh_card(paper_id)
+            self.refresh_fields({slug})
+        self.registry.log("info", f"User {action}ed label '{slug}' for paper #{paper_id}", paper_id)
+
+    def resolve_unverified(self, paper_id: int, doi: str | None) -> str:
+        """Review action for doi_unverified papers: use a DOI the user typed,
+        or treat the paper as having no DOI. Then process it normally."""
+        row = self.registry.get_paper(paper_id)
+        if row is None or row["status"] != "doi_unverified":
+            return "skipped"
+        with self._lock:
+            if doi:
+                d = doimod.normalize(doi)
+                if not d:
+                    raise ValueError("not a valid DOI")
+                existing = self.registry.paper_by_doi(d)
+                if existing is not None:
+                    self.registry.execute("UPDATE files SET paper_id=? WHERE paper_id=?", (existing["id"], paper_id))
+                    self.registry.execute("DELETE FROM papers WHERE id=?", (paper_id,))
+                    self.registry.log("info", f"User-confirmed DOI {d} is already in the library; files merged", existing["id"])
+                    self._refresh_card(existing["id"])
+                    return "duplicate_doi"
+                meta = self.metadata.lookup(d)
+                if not meta:
+                    raise ValueError(f"DOI {d} was not found in Crossref/OpenAlex")
+                self.registry.update_paper(
+                    paper_id, doi=d, doi_candidate=None, openalex_id=meta.get("openalex_id"),
+                    title=meta.get("title") or row["title"], year=meta.get("year"), journal=meta.get("journal"),
+                    first_author=_first_author(meta), authors_json=meta.get("authors", []),
+                    abstract=meta.get("abstract"), meta_json=meta, status="new", status_detail="DOI confirmed by user",
+                )
+                self.registry.add_doi(paper_id, d, "preprint" if meta.get("type") == "posted-content" else "published")
+            else:
+                meta = {"title": row["title"], "authors": [], "year": None, "journal": "", "doi": None}
+                self.registry.update_paper(paper_id, doi_candidate=None, meta_json=meta, status="new",
+                                           status_detail="No DOI (confirmed by user)")
+            self.registry.log("info", f"Review: paper #{paper_id} {'DOI ' + doimod.normalize(doi) if doi else 'marked as no-DOI'}", paper_id)
+            return self.process_paper(paper_id)
 
 
 def _first_author(meta: dict) -> str | None:

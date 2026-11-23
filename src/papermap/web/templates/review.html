@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}待审核 - PaperMap{% endblock %}
+{% block content %}
+<h2>待审核</h2>
+{% if error %}<div class="notice">{{ error }}</div>{% endif %}
+{% if busy %}<div class="notice ok">后台正在处理，稍后刷新页面查看结果。</div>{% endif %}
+
+<h3>分类需要确认（{{ items|length }}）</h3>
+<p class="muted">模型把握不大（置信度低于 {{ "%.0f"|format(100 * accept) }}%）的标签放在这里，确认后才会进入知识地图。</p>
+{% for p, labels in items %}
+<div class="card review-item">
+  <div><a href="/paper/{{ p.id }}"><strong>{{ p.title }}</strong></a> <span class="muted">{{ p.first_author or '' }} {{ p.year or '' }} · {{ p.journal or '' }}</span></div>
+  <div class="labels">
+  {% for l in labels %}
+    <span class="label {{ l.status }} {{ l.axis }}" title="{{ l.reason or '' }}">
+      {{ l.name_zh }} <small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small>
+      {% if l.status == 'suggested' %}
+      <form method="post" action="/review/label"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><input type="hidden" name="slug" value="{{ l.slug }}"><button name="action" value="accept" title="确认">✓</button><button name="action" value="reject" class="ghost" title="拒绝">✗</button></form>
+      {% endif %}
+    </span>
+  {% endfor %}
+  </div>
+  <form method="post" action="/review/label" class="row add-label">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}">
+    <select name="slug">{% for f in all_fields %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}</select>
+    <button name="action" value="add" class="secondary">添加标签</button>
+  </form>
+  <form method="post" action="/review/paper-ok"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><button class="secondary">其余待定标签全部拒绝，完成审核</button></form>
+</div>
+{% else %}<p class="muted">没有需要确认的分类。</p>{% endfor %}
+
+<h3>DOI 未通过校验（{{ unverified|length }}）</h3>
+<p class="muted">候选 DOI 查到的标题和 PDF 首页标题对不上。填入正确的 DOI，或者按「无 DOI」处理。</p>
+{% for p in unverified %}
+<div class="card review-item">
+  <div><a href="/paper/{{ p.id }}"><strong>{{ p.title }}</strong></a></div>
+  <p class="muted">{{ p.status_detail or '' }}</p>
+  <form method="post" action="/review/doi" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}">
+    <input type="text" name="doi" value="{{ p.doi_candidate or '' }}" placeholder="10.xxxx/...">
+    <button name="action" value="use">使用这个 DOI</button>
+    <button name="action" value="nodoi" class="secondary">按无 DOI 处理</button>
+    <button name="action" value="ignore" class="secondary">忽略此文件</button>
+  </form>
+</div>
+{% else %}<p class="muted">没有。</p>{% endfor %}
+
+<h3>模型提议的新类别（{{ proposals|length }}）</h3>
+<p class="muted">现有分类表覆盖不到的方向。阶段 3 会把相似提议合并、攒够数量后让你决定是否建立新学科；现在可以先到「分类表」页手动添加。</p>
+{% if proposals %}
+<table><tr><th>名称</th><th>轴</th><th>说明</th><th>来自论文</th></tr>
+{% for pr in proposals %}<tr><td>{{ pr.name_zh }}<br><span class="muted">{{ pr.name_en }}</span></td><td>{{ '方法' if pr.axis == 'method' else '主题' }}</td><td>{{ pr.description }}<br><span class="muted">{{ pr.reason }}</span></td><td><a href="/paper/{{ pr.paper_id }}">#{{ pr.paper_id }}</a></td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">没有。</p>{% endif %}
+{% endblock %}

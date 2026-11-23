@@ -31,7 +31,8 @@ HEADINGS = {
         "platforms": "平台",
         "cohorts": "队列",
         "mine_hint": "（在这里写你自己的笔记，程序更新卡片时不会改动这一节。）",
-        "fields_todo": "（分类将在阶段 2 加入）",
+        "fields_todo": "（尚未分类）",
+        "method_axis": "方法学", "topic_axis": "主题", "suggested": "待审核", "primary": "主要",
     },
     "en": {
         "one": "One-sentence takeaway",
@@ -50,7 +51,8 @@ HEADINGS = {
         "platforms": "Platforms",
         "cohorts": "Cohorts",
         "mine_hint": "(Your own notes go here; PaperMap never overwrites this section.)",
-        "fields_todo": "(classification arrives in stage 2)",
+        "fields_todo": "(not classified yet)",
+        "method_axis": "Methods", "topic_axis": "Topics", "suggested": "needs review", "primary": "primary",
     },
 }
 
@@ -84,6 +86,7 @@ def render_card(
     language: str,
     user_section: str | None = None,
     added: str | None = None,
+    fields: list[dict] | None = None,
 ) -> str:
     h = HEADINGS["en" if language == "en" else "zh"]
     authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
@@ -95,8 +98,8 @@ def render_card(
         "year": meta.get("year"),
         "journal": meta.get("journal", ""),
         "openalex_id": meta.get("openalex_id"),
-        "fields": [],
-        "topics": [],
+        "fields": [f["slug"] for f in fields or [] if f["axis"] == "method" and f["status"] == "accepted"],
+        "topics": [f["slug"] for f in fields or [] if f["axis"] == "topic" and f["status"] == "accepted"],
         "tools": card.get("tools", []),
         "file_paths": file_paths,
         "added": added or date.today().isoformat(),
@@ -137,8 +140,30 @@ def render_card(
     section(h["findings"], "\n".join(f"{i}. {x}" for i, x in enumerate(card.get("key_findings", []), 1)))
     section(h["limits"], bullets(card.get("limitations", [])))
     out.extend([f"## {h['mine']}", "", USER_BEGIN, user_section if user_section is not None else h["mine_hint"], USER_END, ""])
-    section(h["fields"], h["fields_todo"])
+    section(h["fields"], _fields_block(fields or [], h, language))
     return "\n".join(out).rstrip() + "\n"
+
+
+def _fields_block(fields: list[dict], h: dict, language: str) -> str:
+    if not fields:
+        return h["fields_todo"]
+    lines = []
+    for axis, title in (("method", h["method_axis"]), ("topic", h["topic_axis"])):
+        items = []
+        for f in fields:
+            if f["axis"] != axis or f["status"] == "rejected":
+                continue
+            name = f["name_en"] if language == "en" else f["name_zh"]
+            tag = []
+            if f.get("is_primary") and axis == "method":
+                tag.append(h["primary"])
+            if f["status"] == "suggested":
+                tag.append(h["suggested"])
+            suffix = f"（{'，'.join(tag)}）" if tag and language != "en" else (f" ({', '.join(tag)})" if tag else "")
+            items.append(f"[[fields/{f['slug']}|{name}]]{suffix}")
+        if items:
+            lines.append(f"- **{title}**: " + " · ".join(items))
+    return "\n".join(lines) or h["fields_todo"]
 
 
 def _short_authors(authors: list[str]) -> str:
@@ -173,6 +198,7 @@ def write_card(
     language: str,
     fallback_id: str,
     existing_rel_path: str | None = None,
+    fields: list[dict] | None = None,
 ) -> str:
     """Write (or rewrite) a card, preserving the user's section. Returns rel path."""
     papers_dir = knowledge_dir / "papers"
@@ -181,7 +207,7 @@ def write_card(
     path = knowledge_dir / rel
     text = render_card(
         meta, card, file_paths, all_dois, language,
-        user_section=read_user_section(path), added=read_added(path),
+        user_section=read_user_section(path), added=read_added(path), fields=fields,
     )
     tmp = path.with_suffix(".md.tmp")
     tmp.write_text(text, "utf-8")

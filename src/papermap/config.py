@@ -107,7 +107,13 @@ DEFAULTS: dict[str, Any] = {
         "openalex_api_key": "",
         "title_match_threshold": 85,
     },
-    "taxonomy_file": "taxonomies/default.yaml",
+    # Built-in preset name (liver_omics / default) or a YAML file path
+    # (relative paths are resolved against data_dir).
+    "taxonomy_file": "default",
+    "classification": {
+        "accept_confidence": 0.6,  # labels at/above this are assigned
+        "review_confidence": 0.35,  # labels in [review, accept) go to the review page
+    },
     "new_field_threshold": 3,
     "web": {"host": "127.0.0.1", "port": 8765},
     "debounce_seconds": 3,
@@ -185,6 +191,15 @@ class Config:
 
     def effective_llm(self) -> dict[str, Any]:
         return effective_llm(self.llm)
+
+    def load_taxonomy(self):
+        from . import taxonomy
+
+        return taxonomy.load(str(self.raw.get("taxonomy_file") or "default"), self.data_dir)
+
+    @property
+    def classification(self) -> dict[str, Any]:
+        return self.raw["classification"]
 
     def api_key(self) -> str:
         """Environment variable wins over the locally stored key."""

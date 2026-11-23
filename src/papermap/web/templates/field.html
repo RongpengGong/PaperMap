@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ f.name_zh }} - PaperMap{% endblock %}
+{% block content %}
+<p><a href="/fields">← 全部学科</a> · <a href="/map">知识地图</a></p>
+<div class="card md">{{ body_html|safe }}</div>
+<p class="muted">文件：<code>knowledge/{{ rel }}</code>（可直接用 Obsidian 打开；「我的笔记」一块程序永远不会改动）</p>
+{% endblock %}

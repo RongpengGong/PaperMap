@@ -83,3 +83,45 @@ def test_api_endpoints_use_form_values(config, registry, monkeypatch):
     assert c.post("/api/llm/test", json={**body, "provider": "deepseek", "model": "deepseek-flash"}).json()["ok"]
     assert seen["test"]["base_url"] == "https://api.deepseek.com"
     assert c.post("/api/llm/test", json={**body, "csrf": "bad"}).status_code == 403
+
+
+def _classified_client(config, registry, pdfs):
+    from fastapi.testclient import TestClient
+
+    from papermap.web.app import create_app
+
+    from .test_pipeline import make_pipeline
+    pipe, _ = make_pipeline(config, registry)
+    pipe.handle_path(pdfs["paper"])
+    return TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765"), pipe
+
+
+def test_stage2_pages(config, registry, pdfs):
+    c, pipe = _classified_client(config, registry, pdfs)
+    for url in ("/map", "/fields", "/review", "/taxonomy", "/field/spatial-transcriptomics", "/paper/1"):
+        r = c.get(url)
+        assert r.status_code == 200, url
+    hub = c.get("/field/spatial-transcriptomics").text
+    assert 'href="/paper/1"' in hub  # wikilinks converted
+    assert 'href="/field/spatial-transcriptomics"' in c.get("/paper/1").text
+    review = c.get("/review").text
+    assert "湿实验机制研究" in review and "Glioma" in review
+    g = c.get("/api/graph").json()
+    kinds = {n["kind"] for n in g["nodes"]}
+    assert {"method", "topic", "paper"} <= kinds
+    assert any(e["primary"] for e in g["paper_edges"]) and g["field_edges"]
+
+
+def test_review_and_taxonomy_actions(config, registry, pdfs):
+    c, pipe = _classified_client(config, registry, pdfs)
+    tok = _token(c)
+    r = c.post("/review/label", data={"csrf": tok, "paper_id": 1, "slug": "wet-lab-mechanism", "action": "accept"},
+               follow_redirects=False)
+    assert r.status_code == 303 and registry.get_paper(1)["needs_review"] == 0
+    bad = c.post("/taxonomy/save", data={"csrf": tok, "yaml_text": "method: []\ntopic: []"}, follow_redirects=True)
+    assert "分类表有错误" in bad.text and config.raw["taxonomy_file"] == "liver_omics"
+    from papermap.taxonomy import builtin_text
+    text = builtin_text("liver_omics").replace("Hepatocellular carcinoma (HCC), primary", "HCC, primary")
+    ok = c.post("/taxonomy/save", data={"csrf": tok, "yaml_text": text}, follow_redirects=True)
+    assert "已保存" in ok.text and config.raw["taxonomy_file"] == "taxonomy.yaml"
+    assert "用旧版分类表" in ok.text

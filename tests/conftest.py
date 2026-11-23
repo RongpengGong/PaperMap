@@ -98,28 +98,52 @@ CARD = {
 }
 
 
+CLASSIFY = {
+    "methods": [
+        {"slug": "spatial-transcriptomics", "confidence": 0.95, "primary": True, "note": "Visium niches", "reason": "r"},
+        {"slug": "scrna-seq", "confidence": 0.9, "primary": False, "note": "", "reason": "r"},
+        {"slug": "wet-lab-mechanism", "confidence": 0.45, "primary": False, "note": "", "reason": "weak"},
+    ],
+    "topics": [{"slug": "tumor-microenvironment", "confidence": 0.8, "reason": "r"}],
+    "proposed_new": [{"axis": "topic", "name_en": "Glioma", "name_zh": "胶质瘤", "description": "d", "reason": "r"}],
+}
+
+
 class FakeCompletions:
-    def __init__(self, outputs):
+    """Extraction calls consume ``outputs`` (then CARD); classification calls
+    consume ``classify_outputs`` (then CLASSIFY). Counted separately."""
+
+    def __init__(self, outputs, classify_outputs=()):
         self.outputs = list(outputs)
+        self.classify_outputs = list(classify_outputs)
         self.calls = 0
+        self.classify_calls = 0
+        self.last_system = ""
 
     def create(self, **kwargs):
-        self.calls += 1
-        content = self.outputs.pop(0) if self.outputs else json.dumps(CARD)
+        system = kwargs["messages"][0]["content"]
+        self.last_system = system
+        if "You classify" in system:
+            self.classify_calls += 1
+            content = self.classify_outputs.pop(0) if self.classify_outputs else json.dumps(CLASSIFY)
+        else:
+            self.calls += 1
+            content = self.outputs.pop(0) if self.outputs else json.dumps(CARD)
         usage = SimpleNamespace(prompt_tokens=1000, completion_tokens=200, prompt_cache_hit_tokens=0)
         msg = SimpleNamespace(content=content)
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=usage, model=kwargs["model"])
 
 
-def fake_llm_client(outputs=()):
-    completions = FakeCompletions(outputs)
+def fake_llm_client(outputs=(), classify_outputs=()):
+    completions = FakeCompletions(outputs, classify_outputs)
     return SimpleNamespace(chat=SimpleNamespace(completions=completions)), completions
 
 
 @pytest.fixture
 def config(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    cfg = cfgmod.from_dict({"inbox_dirs": [str(tmp_path / "inbox")], "data_dir": str(tmp_path / "data")},
+    cfg = cfgmod.from_dict({"inbox_dirs": [str(tmp_path / "inbox")], "data_dir": str(tmp_path / "data"),
+                            "taxonomy_file": "liver_omics"},
                            path=tmp_path / "data" / "config.yaml")
     cfg.ensure_dirs()
     return cfg

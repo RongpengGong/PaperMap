@@ -1,0 +1,108 @@
+# PaperMap taxonomy: liver disease + omics (author's preset).
+# Edit freely: slugs must be lowercase-with-dashes and unique.
+# "method" = research paradigm / methodology (main structure of the map)
+# "topic"  = disease / biological theme (cross-cutting tags)
+name: 肝病 × 组学（作者预设）
+version: 1
+method:
+  - slug: scrna-seq
+    name_zh: 单细胞转录组
+    name_en: Single-cell RNA-seq
+    description: Transcriptome profiling of individual cells or nuclei (scRNA-seq, snRNA-seq) as a primary data source, including atlas building, clustering, trajectory and cell-cell communication analysis.
+    synonyms: [single-cell, scRNA-seq, snRNA-seq, 单细胞, 单核测序, 10x Chromium, Drop-seq, Smart-seq]
+  - slug: single-cell-multiomics
+    name_zh: 单细胞多组学
+    name_en: Single-cell multi-omics
+    description: Single-cell assays measuring more than one modality or a non-RNA modality per cell, e.g. scATAC-seq, CITE-seq, multiome, single-cell DNA/CNV, TCR/BCR-seq, single-cell proteomics.
+    synonyms: [scATAC-seq, CITE-seq, 10x Multiome, scDNA-seq, single-cell lineage tracing, 单细胞ATAC, 单细胞多组学]
+  - slug: spatial-transcriptomics
+    name_zh: 空间转录组
+    name_en: Spatial transcriptomics
+    description: Gene expression measured with spatial coordinates in tissue sections, sequencing- or imaging-based, including spot deconvolution and spatial niche analysis.
+    synonyms: [Visium, Visium HD, Xenium, CosMx, Stereo-seq, MERFISH, Slide-seq, GeoMx, 空间转录组, spatial omics]
+  - slug: spatial-proteomics
+    name_zh: 空间蛋白组 / 多重成像
+    name_en: Spatial proteomics / multiplex imaging
+    description: Highly multiplexed protein imaging of tissue (IMC, CODEX/PhenoCycler, MIBI, MACSima, CyCIF, multiplex immunofluorescence) used for cell phenotyping and spatial analysis.
+    synonyms: [IMC, imaging mass cytometry, CODEX, PhenoCycler, MIBI, MACSIMA, CyCIF, multiplex immunofluorescence, mIF, 多重免疫荧光]
+  - slug: wet-lab-mechanism
+    name_zh: 湿实验机制研究
+    name_en: Wet-lab mechanistic study
+    description: Hypothesis-driven experiments in cell lines, organoids or animal models (knockout/knockdown, overexpression, co-culture, in vivo models) to establish biological mechanism.
+    synonyms: [mouse model, knockout, organoid, in vitro, in vivo, functional validation, 动物模型, 细胞实验, 机制研究]
+  - slug: clinical-cohort
+    name_zh: 临床队列 / 流行病学
+    name_en: Clinical cohort / epidemiology
+    description: Observational studies of patient cohorts or populations (prospective/retrospective cohorts, case-control, registries) relating exposures or biomarkers to clinical outcomes.
+    synonyms: [cohort study, retrospective, prospective, registry, survival analysis, epidemiology, 队列研究, 流行病学]
+  - slug: prediction-model
+    name_zh: 预测模型 / 机器学习
+    name_en: Prediction model / machine learning
+    description: Development or validation of diagnostic/prognostic models, risk scores, deep learning or machine learning classifiers, including radiomics and pathomics.
+    synonyms: [machine learning, deep learning, nomogram, risk score, prognostic model, radiomics, pathomics, AI, 预测模型, 机器学习]
+  - slug: mendelian-randomization
+    name_zh: 孟德尔随机化与遗传流行病学
+    name_en: Mendelian randomization & genetic epidemiology
+    description: Causal inference or association studies using genetic variants (MR, GWAS, PRS, genetic correlation, colocalization).
+    synonyms: [Mendelian randomization, MR, GWAS, polygenic risk score, PRS, colocalization, 孟德尔随机化]
+  - slug: meta-analysis
+    name_zh: Meta 分析 / 系统综述
+    name_en: Meta-analysis / systematic review
+    description: Systematic literature search with predefined criteria and quantitative or qualitative synthesis (meta-analysis, systematic review, network meta-analysis).
+    synonyms: [meta-analysis, systematic review, PRISMA, network meta-analysis, Meta分析, 系统综述]
+  - slug: review
+    name_zh: 综述
+    name_en: Narrative review
+    description: Narrative or perspective review articles summarizing a field without systematic search; no new primary data.
+    synonyms: [review, perspective, commentary, 综述, 述评]
+  - slug: methods-tool
+    name_zh: 方法学 / 工具开发
+    name_en: Methods & tool development
+    description: Papers whose main contribution is a new computational method, software package, assay, protocol or benchmark.
+    synonyms: [software, algorithm, benchmark, pipeline, R package, Python package, new assay, 方法学, 工具开发]
+topic:
+  - slug: hcc
+    name_zh: 肝细胞癌
+    name_en: Hepatocellular carcinoma
+    description: Hepatocellular carcinoma (HCC), primary liver cancer of hepatocyte origin.
+    synonyms: [HCC, hepatocellular carcinoma, liver cancer, 肝癌, 肝细胞癌]
+  - slug: cca
+    name_zh: 胆管癌
+    name_en: Cholangiocarcinoma
+    description: Cholangiocarcinoma (intrahepatic, perihilar, distal) and other biliary tract cancers.
+    synonyms: [CCA, iCCA, eCCA, cholangiocarcinoma, biliary tract cancer, 胆管癌]
+  - slug: psc
+    name_zh: 原发性硬化性胆管炎
+    name_en: Primary sclerosing cholangitis
+    description: Primary sclerosing cholangitis and related cholangiopathies.
+    synonyms: [PSC, primary sclerosing cholangitis, cholangiopathy, 原发性硬化性胆管炎]
+  - slug: masld
+    name_zh: MASLD / MASH
+    name_en: MASLD / MASH
+    description: Metabolic dysfunction-associated steatotic liver disease and steatohepatitis (formerly NAFLD/NASH).
+    synonyms: [MASLD, MASH, NAFLD, NASH, fatty liver, steatosis, 脂肪肝]
+  - slug: liver-fibrosis
+    name_zh: 肝纤维化
+    name_en: Liver fibrosis
+    description: Hepatic fibrosis and cirrhosis, hepatic stellate cell activation, extracellular matrix remodeling in the liver.
+    synonyms: [liver fibrosis, cirrhosis, hepatic stellate cells, HSC, 肝纤维化, 肝硬化]
+  - slug: tumor-microenvironment
+    name_zh: 肿瘤微环境
+    name_en: Tumor microenvironment
+    description: Non-malignant components of tumors (immune cells, fibroblasts/CAFs, endothelium, stroma) and their interactions with cancer cells, in any cancer type.
+    synonyms: [TME, tumor microenvironment, CAF, cancer-associated fibroblasts, tumor immunity, 肿瘤微环境]
+  - slug: neuro-immune
+    name_zh: 神经-免疫互作
+    name_en: Neuro-immune interaction
+    description: Interactions between the nervous system (including peripheral nerves) and immune cells or tissue homeostasis.
+    synonyms: [neuroimmune, neuro-immune, nerve, innervation, 神经免疫]
+  - slug: metabolic-syndrome
+    name_zh: 代谢综合征
+    name_en: Metabolic syndrome
+    description: Obesity, insulin resistance, type 2 diabetes, dyslipidemia and systemic metabolic dysfunction.
+    synonyms: [metabolic syndrome, obesity, insulin resistance, diabetes, 代谢综合征, 肥胖]
+  - slug: aging
+    name_zh: 衰老生物学
+    name_en: Aging biology
+    description: Cellular senescence, organismal aging and age-related changes in tissues.
+    synonyms: [aging, ageing, senescence, 衰老]

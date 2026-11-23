@@ -1,0 +1,123 @@
+# PaperMap taxonomy: generic biomedical starter set.
+# Edit freely: slugs must be lowercase-with-dashes and unique.
+# "method" = research paradigm / methodology (main structure of the map)
+# "topic"  = disease / biological theme (cross-cutting tags)
+name: 通用生物医学（起步）
+version: 1
+method:
+  - slug: scrna-seq
+    name_zh: 单细胞转录组
+    name_en: Single-cell RNA-seq
+    description: Transcriptome profiling of individual cells or nuclei (scRNA-seq, snRNA-seq) as a primary data source.
+    synonyms: [single-cell, scRNA-seq, snRNA-seq, 单细胞]
+  - slug: single-cell-multiomics
+    name_zh: 单细胞多组学
+    name_en: Single-cell multi-omics
+    description: Single-cell assays beyond RNA or with several modalities (scATAC-seq, CITE-seq, multiome, scDNA-seq, immune repertoire).
+    synonyms: [scATAC-seq, CITE-seq, multiome, 单细胞多组学]
+  - slug: spatial-transcriptomics
+    name_zh: 空间转录组
+    name_en: Spatial transcriptomics
+    description: Gene expression with spatial coordinates in tissue (Visium, Xenium, CosMx, MERFISH, Stereo-seq, GeoMx).
+    synonyms: [Visium, Xenium, CosMx, MERFISH, Stereo-seq, 空间转录组]
+  - slug: spatial-proteomics
+    name_zh: 空间蛋白组 / 多重成像
+    name_en: Spatial proteomics / multiplex imaging
+    description: Multiplexed protein imaging of tissue (IMC, CODEX, MIBI, CyCIF, multiplex immunofluorescence).
+    synonyms: [IMC, CODEX, MIBI, CyCIF, multiplex immunofluorescence, 多重成像]
+  - slug: bulk-omics
+    name_zh: 群体水平组学
+    name_en: Bulk omics
+    description: Bulk-tissue genomics, transcriptomics, epigenomics, proteomics or metabolomics (WGS/WES, RNA-seq, methylation arrays, mass spectrometry).
+    synonyms: [bulk RNA-seq, WGS, WES, proteomics, metabolomics, methylation, 组学]
+  - slug: functional-genomics
+    name_zh: 功能基因组学筛选
+    name_en: Functional genomics screens
+    description: Pooled or arrayed genetic perturbation screens (CRISPR, RNAi, Perturb-seq) to identify gene function.
+    synonyms: [CRISPR screen, Perturb-seq, RNAi screen, 功能筛选]
+  - slug: wet-lab-mechanism
+    name_zh: 湿实验机制研究
+    name_en: Wet-lab mechanistic study
+    description: Hypothesis-driven experiments in cells, organoids or animal models to establish biological mechanism.
+    synonyms: [mouse model, knockout, organoid, in vitro, in vivo, 机制研究]
+  - slug: clinical-trial
+    name_zh: 临床试验
+    name_en: Clinical trial
+    description: Interventional studies in humans (randomized or single-arm trials) and their correlative analyses.
+    synonyms: [RCT, randomized controlled trial, phase II, phase III, 临床试验]
+  - slug: clinical-cohort
+    name_zh: 临床队列 / 流行病学
+    name_en: Clinical cohort / epidemiology
+    description: Observational patient or population studies relating exposures or biomarkers to outcomes.
+    synonyms: [cohort study, case-control, registry, epidemiology, 队列研究]
+  - slug: prediction-model
+    name_zh: 预测模型 / 机器学习
+    name_en: Prediction model / machine learning
+    description: Diagnostic or prognostic models, risk scores, machine/deep learning, radiomics and pathomics.
+    synonyms: [machine learning, deep learning, nomogram, risk score, radiomics, 机器学习]
+  - slug: mendelian-randomization
+    name_zh: 孟德尔随机化与遗传流行病学
+    name_en: Mendelian randomization & genetic epidemiology
+    description: Genetic-variant based causal inference or association (MR, GWAS, PRS, colocalization).
+    synonyms: [Mendelian randomization, GWAS, PRS, 孟德尔随机化]
+  - slug: meta-analysis
+    name_zh: Meta 分析 / 系统综述
+    name_en: Meta-analysis / systematic review
+    description: Systematic search with predefined criteria and quantitative or qualitative synthesis.
+    synonyms: [meta-analysis, systematic review, PRISMA, Meta分析]
+  - slug: review
+    name_zh: 综述
+    name_en: Narrative review
+    description: Narrative or perspective reviews without new primary data.
+    synonyms: [review, perspective, 综述]
+  - slug: methods-tool
+    name_zh: 方法学 / 工具开发
+    name_en: Methods & tool development
+    description: Main contribution is a new computational method, software, assay, protocol or benchmark.
+    synonyms: [software, algorithm, benchmark, R package, 工具开发]
+topic:
+  - slug: cancer
+    name_zh: 肿瘤
+    name_en: Cancer
+    description: Malignant tumors of any organ, tumor evolution, metastasis and treatment response.
+    synonyms: [cancer, tumor, carcinoma, oncology, 肿瘤, 癌]
+  - slug: tumor-microenvironment
+    name_zh: 肿瘤微环境
+    name_en: Tumor microenvironment
+    description: Immune, stromal and vascular components of tumors and their interactions with cancer cells.
+    synonyms: [TME, CAF, tumor immunity, 肿瘤微环境]
+  - slug: immunology
+    name_zh: 免疫学
+    name_en: Immunology
+    description: Immune cell biology, inflammation, autoimmunity and immunotherapy outside a purely tumor context.
+    synonyms: [immune, inflammation, autoimmunity, T cell, 免疫]
+  - slug: neuroscience
+    name_zh: 神经科学
+    name_en: Neuroscience
+    description: Nervous system development, function and disease.
+    synonyms: [brain, neuron, glia, neurodegeneration, 神经]
+  - slug: cardiovascular
+    name_zh: 心血管
+    name_en: Cardiovascular
+    description: Heart and vascular biology and disease.
+    synonyms: [heart, atherosclerosis, vascular, 心血管]
+  - slug: metabolism
+    name_zh: 代谢性疾病
+    name_en: Metabolic disease
+    description: Obesity, diabetes, fatty liver and systemic metabolism.
+    synonyms: [obesity, diabetes, MASLD, metabolism, 代谢]
+  - slug: infectious-disease
+    name_zh: 感染性疾病
+    name_en: Infectious disease
+    description: Viral, bacterial, fungal and parasitic infections and host response.
+    synonyms: [infection, virus, bacteria, microbiome, 感染]
+  - slug: development-stem-cells
+    name_zh: 发育与干细胞
+    name_en: Development & stem cells
+    description: Embryonic development, organogenesis, stem cells and regeneration.
+    synonyms: [development, stem cell, regeneration, organogenesis, 发育, 干细胞]
+  - slug: aging
+    name_zh: 衰老生物学
+    name_en: Aging biology
+    description: Cellular senescence, organismal aging and age-related changes.
+    synonyms: [aging, senescence, 衰老]

@@ -68,6 +68,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         llm["model"] = _ask(f"Model ({' / '.join(pre['models'])})", pre["default_model"])
         api_key = getpass.getpass(f"API key from {pre['key_url']} (input hidden, Enter to skip): ").strip()
         llm["api_key"] = api_key
+    from .taxonomy import BUILTIN
+
+    print("\nClassification scheme (editable later on the web Taxonomy page):")
+    for i, (key, label) in enumerate(BUILTIN.items(), 1):
+        print(f"  {i}) {key}: {label}")
+    pick = _ask("Choose", "1")
+    keys = list(BUILTIN)
+    taxonomy_file = keys[int(pick) - 1] if pick.isdigit() and 1 <= int(pick) <= len(keys) else keys[0]
     email = _ask("Contact e-mail for Crossref/OpenAlex polite pool (optional)", "")
     budget = _ask("Monthly LLM budget in USD (0 = unlimited)", "5")
 
@@ -76,6 +84,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         "data_dir": data_dir,
         "llm": {**llm, "monthly_budget_usd": float(budget or 0)},
         "output_language": lang,
+        "taxonomy_file": taxonomy_file,
         "metadata": {"contact_email": email},
     }
     cfg = cfgmod.from_dict(raw)
@@ -188,6 +197,21 @@ def cmd_reprocess(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_classify(args: argparse.Namespace) -> int:
+    cfg, reg, pipe = _load(args)
+    tax = pipe.taxonomy()
+    mode = "all" if args.all else "stale" if args.stale else "unclassified"
+    print(f"Taxonomy: {tax.name} ({len(tax.axis('method'))} methods, {len(tax.axis('topic'))} topics)")
+    _key_hint(cfg)
+    counts = pipe.classify_papers(mode=mode, paper_ids=args.paper_id)
+    pipe.refresh_fields()
+    print("Result:", ", ".join(f"{k}={v}" for k, v in counts.items()) or "nothing to classify")
+    n = pipe.stale_classification_count()
+    if n:
+        print(f"{n} paper(s) were classified with an older taxonomy/prompt; run `papermap classify --stale`.")
+    return 0
+
+
 def _print_status(reg: Registry) -> None:
     counts = reg.status_counts()
     print("Library:", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "empty",
@@ -219,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prompt-version")
     p.add_argument("--status", choices=["error", "new", "done"])
     p.set_defaults(func=cmd_reprocess)
+    p = sub.add_parser("classify", help="classify papers into the taxonomy (default: unclassified only)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--stale", action="store_true", help="also re-classify papers made with an older taxonomy")
+    g.add_argument("--all", action="store_true", help="re-classify every paper")
+    p.add_argument("--paper-id", type=int, nargs="+")
+    p.set_defaults(func=cmd_classify)
     p = sub.add_parser("status", help="show library summary")
     p.add_argument("--limit", type=int, default=30)
     p.set_defaults(func=cmd_status)

@@ -1,9 +1,12 @@
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}PaperMap{% endblock %}</title><link rel="stylesheet" href="/static/style.css"></head>
+<title>{% block title %}PaperMap{% endblock %}</title><link rel="stylesheet" href="/static/style.css">{% block head %}{% endblock %}</head>
 <body>
 <header>
-  <a class="brand" href="/">PaperMap</a><a href="/">论文</a><a href="/events">活动日志</a><a href="/settings">设置</a>
+  <a class="brand" href="/">PaperMap</a>
+  <nav><a href="/">论文</a><a href="/map">知识地图</a><a href="/fields">学科</a>
+  <a href="/review">待审核{% if review_count %} <span class="badge">{{ review_count }}</span>{% endif %}</a>
+  <a href="/taxonomy">分类表</a><a href="/events">活动日志</a><a href="/settings">设置</a></nav>
   <span class="right">本月 LLM 花费 ${{ "%.4f"|format(month_cost) }}{% if budget %} / ${{ "%.2f"|format(budget) }}{% endif %}</span>
 </header>
 <main>

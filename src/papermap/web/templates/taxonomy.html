@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}分类表 - PaperMap{% endblock %}
+{% block content %}
+<h2>分类表</h2>
+{% if saved %}<div class="notice ok">已保存。</div>{% endif %}
+{% if started %}<div class="notice ok">已开始在后台分类，完成后刷新「学科」或「知识地图」查看。</div>{% endif %}
+{% if error %}<div class="notice"><strong>分类表有错误：</strong>{{ error }}</div>{% endif %}
+
+<section class="card">
+  <h3>当前使用</h3>
+  <p>{% if tax %}<strong>{{ tax.name }}</strong> · {{ tax.axis('method')|length }} 个方法学类别、{{ tax.axis('topic')|length }} 个主题{% endif %}
+  <span class="muted">（{{ '内置预设 ' ~ spec if is_builtin else '自定义文件 ' ~ custom_path }}）</span></p>
+  <form method="post" action="/taxonomy/preset" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="preset">
+      {% for k, label in builtin.items() %}<option value="{{ k }}" {{ 'selected' if spec == k }}>预设：{{ label }}</option>{% endfor %}
+      {% if not is_builtin %}<option value="taxonomy.yaml" selected>我编辑过的分类表</option>{% endif %}
+    </select>
+    <button class="secondary">切换</button>
+  </form>
+  {% if stale or unclassified %}
+  <div class="notice">
+    {% if unclassified %}{{ unclassified }} 篇论文还没有分类。{% endif %}
+    {% if stale %}{{ stale }} 篇论文是用旧版分类表分的类。{% endif %}
+    重新分类每篇大约消耗 3–5 千 token。
+    <form method="post" action="/taxonomy/reclassify" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button name="mode" value="stale">开始分类</button></form>
+  </div>
+  {% endif %}
+</section>
+
+{% if tax %}
+<section class="card">
+  {% for axis, title in [('method', '方法学（知识地图主结构）'), ('topic', '主题（交叉标签）')] %}
+  <h3>{{ title }}</h3>
+  <table><tr><th>slug</th><th>名称</th><th>判别说明（给模型看）</th></tr>
+  {% for c in tax.axis(axis) %}<tr><td><code>{{ c.slug }}</code></td><td>{{ c.name_zh }}<br><span class="muted">{{ c.name_en }}</span></td><td class="muted">{{ c.description }}{% if c.synonyms %}<br><em>{{ c.synonyms|join(', ') }}</em>{% endif %}</td></tr>{% endfor %}
+  </table>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>编辑</h3>
+  <p class="muted">直接修改下面的 YAML。保存时会先检查格式；保存后另存为 <code>{{ custom_path }}</code>，内置预设本身不会被改动。改动 slug 或说明后，已分类的论文会标记为「旧版」，可以点上面的按钮重新分类。你手动确认/拒绝过的标签不会被覆盖。</p>
+  <form method="post" action="/taxonomy/save">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <textarea name="yaml_text" rows="24" class="code" spellcheck="false">{{ text }}</textarea>
+    <button>检查并保存</button>
+  </form>
+</section>
+{% endblock %}

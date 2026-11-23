@@ -3,8 +3,9 @@
 {% block content %}
 <p><a href="/">← 返回列表</a> · <span class="chip {{ p.status }}">{{ p.status }}</span>
 {% if p.status_detail %}<span class="muted">{{ p.status_detail }}</span>{% endif %}</p>
+{% if labels %}<div class="labels">{% for l in labels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ l.name_zh }} <small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} · 待审核{% endif %}{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small></a>{% endfor %}</div>{% endif %}
 {% if body_html %}
-<div class="card">{{ body_html|safe }}</div>
+<div class="card md">{{ body_html|safe }}</div>
 {% else %}
 <div class="card"><h2>{{ p.title }}</h2>
 <p>DOI：<code>{{ p.doi or p.doi_candidate or "无" }}</code></p>

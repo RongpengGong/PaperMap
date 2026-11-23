@@ -73,6 +73,14 @@ CREATE TABLE IF NOT EXISTS paper_fields (
     confidence REAL, is_primary INTEGER,
     PRIMARY KEY (paper_id, field_id)
 );
+CREATE TABLE IF NOT EXISTS field_proposals (
+    id INTEGER PRIMARY KEY,
+    paper_id INTEGER REFERENCES papers(id),
+    axis TEXT, name_zh TEXT, name_en TEXT,
+    description TEXT, reason TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS llm_calls (
     id INTEGER PRIMARY KEY,
@@ -102,6 +110,18 @@ CREATE TABLE IF NOT EXISTS http_cache (
 );
 """
 
+# Columns added after the first release; created on open if missing.
+MIGRATIONS = {
+    "fields": {"description": "TEXT", "sort_order": "INTEGER"},
+    "paper_fields": {
+        "status": "TEXT NOT NULL DEFAULT 'accepted'",  # accepted / suggested / rejected
+        "source": "TEXT NOT NULL DEFAULT 'llm'",  # llm / user
+        "note": "TEXT",  # what this paper adds to the field (from the classifier)
+        "reason": "TEXT",
+    },
+    "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0"},
+}
+
 PAPER_STATUSES = (
     "new",
     "extracting",
@@ -128,7 +148,15 @@ class Registry:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        for table, cols in MIGRATIONS.items():
+            have = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            for col, decl in cols.items():
+                if col not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
     def close(self) -> None:
         with self._lock:
@@ -307,6 +335,81 @@ class Registry:
         self.execute(
             "INSERT OR REPLACE INTO http_cache(url, status, body, fetched_at) VALUES (?,?,?,?)",
             (url, status, json.dumps(body) if body is not None else None, time.time()),
+        )
+
+    # -- fields / classification -----------------------------------------
+    def sync_fields(self, taxonomy) -> None:
+        """Mirror the taxonomy into the fields table; removed slugs -> retired."""
+        with self._lock:
+            slugs = set()
+            for i, c in enumerate(taxonomy.categories):
+                slugs.add(c.slug)
+                self.conn.execute(
+                    "INSERT INTO fields(slug, name_zh, name_en, axis, status, description, sort_order) "
+                    "VALUES (?,?,?,?, 'active', ?, ?) ON CONFLICT(slug) DO UPDATE SET "
+                    "name_zh=excluded.name_zh, name_en=excluded.name_en, axis=excluded.axis, "
+                    "description=excluded.description, sort_order=excluded.sort_order, "
+                    "status=CASE WHEN fields.status IN ('active','retired') THEN 'active' ELSE fields.status END",
+                    (c.slug, c.name_zh, c.name_en, c.axis, c.description, i),
+                )
+            marks = ",".join("?" * len(slugs))
+            self.conn.execute(
+                f"UPDATE fields SET status='retired' WHERE status='active' AND slug NOT IN ({marks})",
+                tuple(slugs),
+            )
+            self.conn.commit()
+
+    def field_by_slug(self, slug: str) -> sqlite3.Row | None:
+        return self.one("SELECT * FROM fields WHERE slug=?", (slug,))
+
+    def active_fields(self) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM fields WHERE status='active' ORDER BY axis, sort_order")
+
+    def paper_field_rows(self, paper_id: int, include_rejected: bool = False) -> list[sqlite3.Row]:
+        cond = "" if include_rejected else "AND pf.status != 'rejected'"
+        return self.query(
+            "SELECT pf.*, f.slug, f.name_zh, f.name_en, f.axis, f.status AS field_status "
+            f"FROM paper_fields pf JOIN fields f ON f.id=pf.field_id WHERE pf.paper_id=? {cond} "
+            "ORDER BY f.axis, pf.is_primary DESC, pf.confidence DESC",
+            (paper_id,),
+        )
+
+    def field_paper_rows(self, field_id: int) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT pf.*, p.title, p.year, p.journal, p.first_author, p.kb_path, p.card_json, p.doi "
+            "FROM paper_fields pf JOIN papers p ON p.id=pf.paper_id "
+            "WHERE pf.field_id=? AND pf.status='accepted' AND p.status='done' "
+            "ORDER BY p.year DESC, p.id DESC",
+            (field_id,),
+        )
+
+    def set_paper_field(self, paper_id: int, field_id: int, **cols: Any) -> None:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT 1 FROM paper_fields WHERE paper_id=? AND field_id=?", (paper_id, field_id)
+            ).fetchone()
+            if row is None:
+                cols.setdefault("confidence", 1.0)
+                cols.setdefault("is_primary", 0)
+                names = ["paper_id", "field_id", *cols]
+                self.conn.execute(
+                    f"INSERT INTO paper_fields({','.join(names)}) VALUES ({','.join('?' * len(names))})",
+                    (paper_id, field_id, *cols.values()),
+                )
+            elif cols:
+                sets = ", ".join(f"{k}=?" for k in cols)
+                self.conn.execute(
+                    f"UPDATE paper_fields SET {sets} WHERE paper_id=? AND field_id=?",
+                    (*cols.values(), paper_id, field_id),
+                )
+            self.conn.commit()
+
+    def add_proposal(self, paper_id: int, axis: str, name_zh: str, name_en: str,
+                     description: str, reason: str) -> None:
+        self.execute(
+            "INSERT INTO field_proposals(paper_id, axis, name_zh, name_en, description, reason, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (paper_id, axis, name_zh, name_en, description, reason, now_iso()),
         )
 
     def iter_papers_by_status(self, statuses: tuple[str, ...]) -> Iterator[sqlite3.Row]:

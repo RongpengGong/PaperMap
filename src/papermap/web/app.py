@@ -22,6 +22,7 @@ from ..config import PROTOCOLS, PROVIDERS, Config, effective_llm
 from ..llm import check_connection, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry
+from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
 
 HERE = Path(__file__).parent
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -47,6 +48,20 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 return HTMLResponse("Forbidden origin", status_code=403)
         return await call_next(request)
 
+    busy: set[str] = set()  # names of running background jobs
+
+    def background(name: str, fn, *args) -> None:
+        def run():
+            busy.add(name)
+            try:
+                fn(*args)
+            finally:
+                busy.discard(name)
+        threading.Thread(target=run, daemon=True).start()
+
+    def md_html(text: str) -> str:
+        return md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
+
     def render(request: Request, name: str, **ctx):
         ctx.update(
             request=request,
@@ -54,6 +69,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             month_cost=registry.month_cost(),
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
+            review_count=_review_count(registry),
+            busy=bool(busy),
         )
         return templates.TemplateResponse(request, name, ctx)
 
@@ -72,9 +89,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             path = config.knowledge_dir / row["kb_path"]
             if path.exists():
                 front, body = _split_front(path.read_text("utf-8"))
-                body_html = md.markdown(body, extensions=["extra", "sane_lists"])
+                body_html = md_html(body)
         return render(
             request, "paper.html", p=row, front=front, body_html=body_html,
+            labels=registry.paper_field_rows(paper_id),
             files=registry.paper_file_paths(paper_id), dois=registry.paper_dois(paper_id),
             events=registry.query("SELECT * FROM events WHERE paper_id=? ORDER BY id DESC LIMIT 50", (paper_id,)),
         )
@@ -87,6 +105,178 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         registry.update_paper(paper_id, status="new")
         threading.Thread(target=pipeline.process_pending, daemon=True).start()
         return RedirectResponse(f"/paper/{paper_id}", status_code=303)
+
+    # ------------------------------------------------------------ knowledge map
+    @app.get("/map", response_class=HTMLResponse)
+    def knowledge_map(request: Request):
+        return render(request, "map.html")
+
+    @app.get("/api/graph")
+    def graph():
+        pipeline.taxonomy()
+        fields = {f["id"]: f for f in registry.query("SELECT * FROM fields WHERE status IN ('active','retired')")}
+        links = registry.query(
+            "SELECT pf.paper_id, pf.field_id, pf.is_primary, p.title, p.year, p.first_author, p.journal "
+            "FROM paper_fields pf JOIN papers p ON p.id=pf.paper_id "
+            "WHERE pf.status='accepted' AND p.status='done'"
+        )
+        lang = config.output_language
+        counts: dict[int, int] = {}
+        papers: dict[int, dict] = {}
+        by_paper: dict[int, list[int]] = {}
+        for ln in links:
+            counts[ln["field_id"]] = counts.get(ln["field_id"], 0) + 1
+            by_paper.setdefault(ln["paper_id"], []).append(ln["field_id"])
+            papers[ln["paper_id"]] = {
+                "id": f"p{ln['paper_id']}", "kind": "paper", "url": f"/paper/{ln['paper_id']}",
+                "label": f"{ln['first_author'] or '?'} {ln['year'] or ''}",
+                "title": ln["title"] or "", "journal": ln["journal"] or "",
+            }
+        nodes = [
+            {"id": f"f{fid}", "kind": f["axis"], "url": f"/field/{f['slug']}",
+             "label": f["name_en"] if lang == "en" else f["name_zh"],
+             "title": f["name_en"] if lang != "en" else f["name_zh"], "count": counts.get(fid, 0),
+             "retired": f["status"] == "retired"}
+            for fid, f in fields.items() if counts.get(fid) or f["status"] == "active"
+        ]
+        edges = [{"source": f"p{ln['paper_id']}", "target": f"f{ln['field_id']}", "primary": bool(ln["is_primary"])}
+                 for ln in links]
+        co: dict[tuple[int, int], int] = {}
+        for fids in by_paper.values():
+            for i, a in enumerate(sorted(fids)):
+                for b in sorted(fids)[i + 1:]:
+                    co[(a, b)] = co.get((a, b), 0) + 1
+        field_edges = [{"source": f"f{a}", "target": f"f{b}", "weight": w} for (a, b), w in co.items()]
+        return {"nodes": nodes + list(papers.values()), "paper_edges": edges, "field_edges": field_edges}
+
+    @app.get("/fields", response_class=HTMLResponse)
+    def fields_index(request: Request):
+        pipeline.taxonomy()
+        rows = registry.query(
+            "SELECT f.*, (SELECT count(*) FROM paper_fields pf JOIN papers p ON p.id=pf.paper_id "
+            " WHERE pf.field_id=f.id AND pf.status='accepted' AND p.status='done') AS n "
+            "FROM fields f WHERE f.status IN ('active','retired') ORDER BY f.axis, f.sort_order"
+        )
+        return render(request, "fields.html", rows=rows)
+
+    @app.get("/field/{slug}", response_class=HTMLResponse)
+    def field_page(request: Request, slug: str):
+        pipeline.taxonomy()
+        f = registry.field_by_slug(slug)
+        if f is None:
+            raise HTTPException(404)
+        path = config.knowledge_dir / "fields" / f"{slug}.md"
+        if not path.exists():
+            pipeline.refresh_fields({slug})
+        body_html = md_html(_split_front(path.read_text("utf-8"))[1]) if path.exists() else ""
+        return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md")
+
+    # ------------------------------------------------------------------ review
+    @app.get("/review", response_class=HTMLResponse)
+    def review(request: Request, error: str = ""):
+        pipeline.taxonomy()
+        unverified = registry.list_papers(status="doi_unverified", limit=1000)
+        flagged = registry.query("SELECT * FROM papers WHERE status='done' AND needs_review=1 ORDER BY id DESC")
+        items = [(p, registry.paper_field_rows(p["id"])) for p in flagged]
+        proposals = registry.query(
+            "SELECT fp.*, p.title FROM field_proposals fp JOIN papers p ON p.id=fp.paper_id "
+            "WHERE fp.status='open' ORDER BY fp.id DESC")
+        return render(request, "review.html", unverified=unverified, items=items, proposals=proposals,
+                      all_fields=registry.active_fields(), error=error,
+                      accept=float(config.classification.get("accept_confidence", 0.6)))
+
+    @app.post("/review/label")
+    def review_label(csrf: str = Form(...), paper_id: int = Form(...), slug: str = Form(...),
+                     action: str = Form(...), back: str = Form("/review")):
+        _check_csrf(csrf, csrf_token)
+        if action not in ("accept", "reject", "add"):
+            raise HTTPException(400)
+        try:
+            pipeline.set_label(paper_id, slug, action)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return RedirectResponse(back if back.startswith("/") else "/review", status_code=303)
+
+    @app.post("/review/paper-ok")
+    def review_paper_ok(csrf: str = Form(...), paper_id: int = Form(...)):
+        """Accept the current labels as they are (clears the review flag)."""
+        _check_csrf(csrf, csrf_token)
+        for r in registry.paper_field_rows(paper_id):
+            if r["status"] == "suggested":
+                pipeline.set_label(paper_id, r["slug"], "reject")
+        registry.update_paper(paper_id, needs_review=0)
+        return RedirectResponse("/review", status_code=303)
+
+    @app.post("/review/doi")
+    def review_doi(csrf: str = Form(...), paper_id: int = Form(...), action: str = Form(...), doi: str = Form("")):
+        _check_csrf(csrf, csrf_token)
+        if action == "ignore":
+            registry.update_paper(paper_id, status="ignored", status_detail="Ignored on the review page")
+            return RedirectResponse("/review", status_code=303)
+        try:
+            if action == "use":
+                # validate quickly so errors show on the page; processing runs in the background
+                from ..doi import normalize
+
+                if not normalize(doi):
+                    raise ValueError("这不是有效的 DOI")
+            background("doi", pipeline.resolve_unverified, paper_id, doi if action == "use" else None)
+        except ValueError as exc:
+            return RedirectResponse(f"/review?error={_q(str(exc))}", status_code=303)
+        return RedirectResponse("/review", status_code=303)
+
+    # ---------------------------------------------------------------- taxonomy
+    @app.get("/taxonomy", response_class=HTMLResponse)
+    def taxonomy_page(request: Request, saved: int = 0, error: str = "", started: int = 0):
+        spec = str(config.raw.get("taxonomy_file") or "default")
+        path = resolve_path(spec, config.data_dir)
+        error_now = ""
+        try:
+            tax = pipeline.taxonomy()
+        except TaxonomyError as exc:
+            tax, error_now = None, str(exc)
+        text = path.read_text("utf-8") if path is not None and path.exists() else builtin_text(spec if spec in BUILTIN else "default")
+        return render(request, "taxonomy.html", tax=tax, spec=spec, is_builtin=path is None, text=text,
+                      builtin=BUILTIN, saved=saved, error=error or error_now, started=started,
+                      stale=pipeline.stale_classification_count(),
+                      unclassified=registry.one("SELECT count(*) AS n FROM papers WHERE status='done' AND classify_key IS NULL")["n"],
+                      custom_path=config.data_dir / "taxonomy.yaml")
+
+    @app.post("/taxonomy/preset")
+    def taxonomy_preset(csrf: str = Form(...), preset: str = Form(...)):
+        _check_csrf(csrf, csrf_token)
+        if preset not in BUILTIN and preset != "taxonomy.yaml":
+            raise HTTPException(400)
+        config.raw["taxonomy_file"] = preset
+        config.save()
+        pipeline.taxonomy()
+        background("fields", pipeline.refresh_fields)
+        return RedirectResponse("/taxonomy?saved=1", status_code=303)
+
+    @app.post("/taxonomy/save")
+    def taxonomy_save(csrf: str = Form(...), yaml_text: str = Form(...)):
+        _check_csrf(csrf, csrf_token)
+        try:
+            parse_text(yaml_text)
+        except TaxonomyError as exc:
+            return RedirectResponse(f"/taxonomy?error={_q(str(exc))}", status_code=303)
+        target = config.data_dir / "taxonomy.yaml"
+        tmp = target.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml_text, "utf-8")
+        tmp.replace(target)
+        config.raw["taxonomy_file"] = "taxonomy.yaml"
+        config.save()
+        pipeline.taxonomy()
+        background("fields", pipeline.refresh_fields)
+        return RedirectResponse("/taxonomy?saved=1", status_code=303)
+
+    @app.post("/taxonomy/reclassify")
+    def taxonomy_reclassify(csrf: str = Form(...), mode: str = Form("stale")):
+        _check_csrf(csrf, csrf_token)
+        if mode not in ("stale", "all", "unclassified"):
+            raise HTTPException(400)
+        background("classify", pipeline.classify_papers, mode)
+        return RedirectResponse("/taxonomy?started=1", status_code=303)
 
     @app.get("/events", response_class=HTMLResponse)
     def events(request: Request):
@@ -202,6 +392,38 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return await run_in_threadpool(check_connection, eff)
 
     return app
+
+
+def _review_count(registry: Registry) -> int:
+    row = registry.one(
+        "SELECT (SELECT count(*) FROM papers WHERE status='doi_unverified') + "
+        "(SELECT count(*) FROM papers WHERE status='done' AND needs_review=1) AS n")
+    return int(row["n"]) if row else 0
+
+
+def _q(s: str) -> str:
+    from urllib.parse import quote
+
+    return quote(s[:500])
+
+
+_WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+
+
+def _wikilinks(text: str, registry: Registry) -> str:
+    """Turn Obsidian-style [[fields/x|Label]] / [[papers/y|Label]] into web links."""
+
+    def repl(m: re.Match) -> str:
+        target, label = m.group(1).strip(), (m.group(2) or m.group(1)).strip()
+        if target.startswith("fields/"):
+            return f"[{label}](/field/{target.split('/', 1)[1]})"
+        if target.startswith("papers/"):
+            row = registry.one("SELECT id FROM papers WHERE kb_path=?", (target + ".md",))
+            if row:
+                return f"[{label}](/paper/{row['id']})"
+        return label
+
+    return _WIKILINK.sub(repl, text)
 
 
 def _check_csrf(given: str, expected: str) -> None:
