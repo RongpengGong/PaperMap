@@ -1,15 +1,18 @@
 /* PaperMap — native surfaces, clear content, restrained glass. */
 :root {
   color-scheme:light;
-  --window-edge:#e3edf9; --edge-line:#c9d9ed;
+  --window-rim:clamp(8px,.85vw,13px); --edge-line:#c9d9ed;
+  --rim-solid:#bed7f0; --rim-tint:rgba(139,191,239,.42); --rim-glint:rgba(244,253,255,.78); --rim-sheen:rgba(244,253,255,.34);
+  --rim-wash:linear-gradient(155deg,rgba(245,252,255,.35) 8%,rgba(129,196,238,.19) 46%,rgba(82,143,217,.28) 78%,rgba(177,230,243,.34));
+  --control-sheen:linear-gradient(164deg,rgba(255,255,255,.13),transparent 55%,rgba(16,53,125,.13));
   --canvas:#f6f8fb; --canvas-end:#f6f8fb; --ambient-cyan:transparent; --ambient-lilac:transparent;
   --bg:#f7f8fa; --fg:#242d3b; --muted:#626f81;
   --line:#dce3ed; --line-strong:#c6d1df; --accent:#2564d9; --accent-hover:#1955c6;
   --accent-soft:#e7efff; --warn:#b53d36; --ok:#207b57;
   --card:#fff; --side:#eef1f5; --side-glass:rgba(235,241,248,.8); --native-side:rgba(236,243,250,.56);
   --glass-stroke:transparent; --glass-top:transparent;
-  --chrome:rgba(247,249,252,.94); --active-surface:#dde7f5; --account-surface:rgba(210,223,242,.24);
-  --side-hover:rgba(99,125,161,.08); --row-sel:#e5edfa;
+  --chrome:rgba(247,249,252,.94); --active-surface:linear-gradient(155deg,rgba(221,241,255,.8),rgba(164,202,239,.49)); --account-surface:rgba(210,223,242,.24);
+  --side-hover:rgba(99,125,161,.08); --row-sel:linear-gradient(160deg,rgba(228,244,255,.85),rgba(178,209,245,.54));
   --toolbar:#f3f5f8; --field:#fff; --popover:rgba(249,252,255,.92);
   --reader-bg:#e4e9f0; --selection:#c6dbff; --mark:#ffe8a3;
   --shadow:none;
@@ -21,15 +24,17 @@
 @media (prefers-color-scheme:dark) {
   :root {
     color-scheme:dark;
-    --window-edge:#253448; --edge-line:#3c516a;
+    --edge-line:#3c516a;
+    --rim-solid:#243d58; --rim-tint:rgba(23,64,101,.54); --rim-glint:rgba(177,219,250,.38); --rim-sheen:rgba(170,215,247,.17);
+    --rim-wash:linear-gradient(155deg,rgba(124,191,227,.18) 8%,rgba(39,111,162,.16) 46%,rgba(54,103,166,.27) 78%,rgba(128,195,207,.22));
     --canvas:#1d222a; --canvas-end:#1d222a; --ambient-cyan:transparent; --ambient-lilac:transparent;
     --bg:#20252d; --fg:#e8edf5; --muted:#a5b2c6;
     --line:#344254; --line-strong:#50627b; --accent:#88b2ff; --accent-hover:#a9c8ff;
     --accent-soft:#2a4064; --warn:#ffaaa2; --ok:#7ad4ad;
     --card:#272e39; --side:#232b36; --side-glass:rgba(30,39,52,.86); --native-side:rgba(24,31,42,.65);
     --glass-stroke:transparent; --glass-top:transparent;
-    --chrome:rgba(35,43,55,.94); --active-surface:#34465f; --account-surface:rgba(156,180,216,.055);
-    --side-hover:rgba(161,188,228,.09); --row-sel:#33445f;
+    --chrome:rgba(35,43,55,.94); --active-surface:linear-gradient(155deg,rgba(82,128,165,.52),rgba(49,78,121,.65)); --account-surface:rgba(156,180,216,.055);
+    --side-hover:rgba(161,188,228,.09); --row-sel:linear-gradient(160deg,rgba(75,119,158,.55),rgba(47,73,114,.68));
     --toolbar:#252e3c; --field:#1b232e; --popover:rgba(34,44,59,.95);
     --reader-bg:#131d2a; --selection:#345d96; --mark:#755915;
     --shadow:none;
@@ -60,10 +65,17 @@ h2 { font-size:22px; font-weight:650; } h3 { font-size:15px; font-weight:650; }
 ::-webkit-scrollbar-thumb { background:var(--line-strong); border:2px solid transparent; background-clip:padding-box; border-radius:8px; }
 ::-webkit-scrollbar-corner { background:transparent; }
 
-/* The whole sidebar scrolls: neither many groups nor a short window can hide Settings. */
-body.app { display:flex; height:100vh; height:100dvh; min-height:0; overflow:hidden; background:var(--bg); }
-/* A single cool edge separates the reading surface from the native window. */
-body.app::after { content:""; flex:0 0 clamp(7px,.7vw,12px); align-self:stretch; background:var(--window-edge); border-inline-start:1px solid var(--edge-line); pointer-events:none; }
+/* Both exposed edges share one pane, including the lower-right corner. */
+body.app {
+  display:flex; height:100vh; height:100dvh; min-height:0; overflow:hidden;
+  padding-inline-end:var(--window-rim); padding-block-end:var(--window-rim);
+  background:
+    linear-gradient(to top,var(--rim-sheen),transparent 78%) bottom / 100% var(--window-rim) no-repeat,
+    linear-gradient(to left,var(--rim-sheen),transparent 78%) right / var(--window-rim) 100% no-repeat,
+    var(--rim-wash) var(--rim-solid);
+  box-shadow:inset -1px -1px 0 var(--rim-glint);
+}
+/* The whole sidebar scrolls, including on short windows. */
 .sidebar { width:216px; flex:none; min-height:0; height:100%; margin:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:0; padding:18px 10px 12px; background:var(--side); border:0; border-right:1px solid var(--line); border-radius:0; box-shadow:none; }
 .sidebar > * { flex-shrink:0; }
 .brand { display:flex; align-items:center; gap:9px; padding:1px 10px 17px; font-size:16px; font-weight:700; letter-spacing:-.035em; }
@@ -83,7 +95,8 @@ body.app::after { content:""; flex:0 0 clamp(7px,.7vw,12px); align-self:stretch;
 .cost-line { font-size:11px !important; color:var(--muted) !important; font-variant-numeric:tabular-nums; }
 .badge { margin-left:auto; min-width:18px; padding:0 5px; border-radius:6px; background:var(--warn); color:var(--card); font-size:10px; font-weight:650; text-align:center; line-height:17px; }
 .content { flex:1; min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; padding:28px 32px 56px; background:var(--bg); }
-.app > .content { margin:0; border:0; border-radius:0; box-shadow:none; }
+.app > .content { margin:0; border:0; border-end-end-radius:var(--window-rim); box-shadow:1px 1px 0 var(--rim-glint); }
+.app > .sidebar { box-shadow:0 1px 0 var(--rim-glint); }
 .content > h2:first-child,.content > p:first-child + h2 { margin-top:0; margin-bottom:18px; }
 .content.split-content { padding:0; overflow:hidden; display:flex; flex-direction:column; }
 
@@ -93,8 +106,8 @@ input::placeholder,textarea::placeholder { color:var(--muted); opacity:.9; }
 input:focus,select:focus,textarea:focus { outline:0; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 input[type=checkbox],input[type=radio] { accent-color:var(--accent); }
 textarea { resize:vertical; }
-button,a.button { margin-top:14px; padding:7px 14px; border:1px solid transparent; border-radius:7px; background:#2564d9; color:#fff; font-size:12.5px; font-weight:550; line-height:1.45; cursor:pointer; box-shadow:none; transition:background .12s,border-color .12s,box-shadow .12s; }
-button:hover,a.button:hover { background:#1955c6; text-decoration:none; }
+button,a.button { margin-top:14px; padding:7px 14px; border:1px solid transparent; border-radius:7px; background:var(--control-sheen) #205ac3; color:#fff; font-size:12.5px; font-weight:550; line-height:1.45; cursor:pointer; box-shadow:none; transition:background .12s,border-color .12s,box-shadow .12s; }
+button:hover,a.button:hover { background:var(--control-sheen) #194fae; text-decoration:none; }
 button:active { box-shadow:none; }
 button:disabled { opacity:.5; cursor:default; }
 button.secondary,.ghost-btn,.ghost-select,.icon-btn { border:1px solid var(--line-strong); background:var(--card); color:var(--fg); box-shadow:none; }
@@ -477,7 +490,9 @@ details.account-help > :not(summary) { position:static; max-width:100%; margin:7
   .list-head,.panel-head,.reader-bar,.side-col .tabs,.lb-head { -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px); }
   .ctx-menu,.link-pop,.sel-toolbar,.tr-popup,#tip,#toast { background:var(--popover); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px); }
 }
-html.native-glass,html.native-glass body.app { background:transparent; }
+html.native-glass { background:transparent; }
+/* The desktop WKWebView supplies the live macOS vibrancy behind this tint. */
+html.native-glass body.app { background-color:var(--rim-tint); }
 html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(--native-side); -webkit-backdrop-filter:none; backdrop-filter:none; }
 /* Respond to the actual paper workspace, not only the full browser width. */
 @container paper-workspace (max-width:620px) {
@@ -513,7 +528,6 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 }
 @media (max-width:650px) {
   .sidebar { width:160px; margin:0; height:100%; border-radius:0; } .nav a { gap:7px; padding:5px 7px; font-size:12px; }
-  .app > .content { margin:0; border-radius:0; }
   .brand { gap:7px; font-size:14px; } .brand img { width:25px; height:25px; }
   .split { flex-direction:column; } .list-pane { width:100%; height:30vh; min-height:150px; border-right:0; border-bottom:1px solid var(--line); }
   .detail-pane { flex:1; } .list-head { flex-wrap:nowrap; padding:9px; } .list-head select { max-width:106px; }
@@ -549,8 +563,8 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
   .settings-header #settings_save { margin-left:auto; }
 }
 @media (prefers-reduced-transparency:reduce) {
-  :root { --chrome:var(--toolbar); --active-surface:var(--card); --popover:var(--card); }
-  body.app,html.native-glass body.app { background:var(--canvas); }
+  :root { --chrome:var(--toolbar); --active-surface:var(--selection); --row-sel:var(--selection); --popover:var(--card); --control-sheen:none; }
+  body.app,html.native-glass body.app { background:var(--rim-solid); box-shadow:none; }
   .sidebar,.settings-sidebar,html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(--side); }
   .ctx-menu,.link-pop,.sel-toolbar,.tr-popup,#tip,#toast { background:var(--card); }
   .sidebar,.settings-sidebar,.ctx-menu,.link-pop,.sel-toolbar,.tr-popup,#tip,#toast,.list-head,.panel-head,.reader-bar,.side-col .tabs,.lb-head { -webkit-backdrop-filter:none; backdrop-filter:none; }
