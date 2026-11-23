@@ -351,3 +351,4 @@ a.cite:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .res-table td.res-title a { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 .preset-head { margin: 14px 0 6px; }
 .choices.compact .choice { padding: 8px 12px; }
+#modal_msg { white-space: pre-line; word-break: break-all; }
