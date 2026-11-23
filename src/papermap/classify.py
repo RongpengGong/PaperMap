@@ -141,7 +141,7 @@ def classify(llm: LLMClient, config: Config, taxonomy: Taxonomy, paper: dict, me
              card: dict, paper_id: int | None) -> Classification:
     res = llm.chat_json(
         build_system(taxonomy, config.output_language), build_user(paper, meta, card),
-        make_validator(taxonomy), purpose="classify", paper_id=paper_id, max_tokens=2048,
+        make_validator(taxonomy), purpose="classify", paper_id=paper_id, max_tokens=4096,
     )
     return Classification(res.data, res.cost_usd)
 
