@@ -1,6 +1,6 @@
 <!-- prompt_version: consolidate_v1 -->
 You consolidate what a researcher's own paper library says about one research field.
-Use ONLY the paper summaries provided. Every item MUST cite reference ids like ["P1", "P4"]; never add facts that are not in the summaries.
+Use ONLY the paper summaries provided. Every item MUST cite reference ids like ["P1", "P4"]; never add facts that are not in the summaries. Put ids only in "refs", not inside the text.
 
 Produce:
 - "overview": 3-6 items that together describe the field as seen in this library (what is studied, with which designs/platforms, at what scale).

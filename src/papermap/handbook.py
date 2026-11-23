@@ -17,7 +17,7 @@ from .config import Config
 from .extract import LANGUAGE_RULES
 from .extract import load_prompt as _load_prompt
 from .kb_writer import USER_BEGIN, USER_END, atomic_write, read_user_section
-from .llm import LLMClient
+from .llm import LLMClient, replace_ref_ids
 from .registry import Registry
 
 PROMPT_VERSION = "handbook_v1"
@@ -126,6 +126,12 @@ def _cite(refs_by_id: dict[str, dict], ids: list[str]) -> str:
 def render(field, data: dict, refs: list[dict], language: str, model: str, user_section: str | None) -> str:
     h = H["en" if language == "en" else "zh"]
     by_id = {r["ref"]: r for r in refs}
+    labels = {r["ref"]: f"{r['first_author'] or '?'} {r['year'] or ''}".strip() for r in refs}
+    for key in ("representative", "methods", "findings"):
+        for it in data["A"].get(key) or []:
+            it["text"] = replace_ref_ids(it["text"], labels)
+    if data.get("overview"):
+        data["overview"] = replace_ref_ids(data["overview"], labels)
     name = field["name_en"] if language == "en" else field["name_zh"]
     front = {"slug": field["slug"], "name_zh": field["name_zh"], "name_en": field["name_en"],
              "papers": len(refs), "dois": [r["doi"] for r in refs if r["doi"]],

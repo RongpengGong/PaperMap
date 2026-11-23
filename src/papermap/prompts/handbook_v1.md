@@ -4,7 +4,7 @@ You write a study handbook that helps a biomedical researcher get into a researc
 The handbook has two strictly separated parts:
 
 PART A - "From your library": ONLY facts stated in the paper summaries provided below.
-- Every item MUST cite one or more papers by their reference id, e.g. ["P1", "P3"].
+- Every item MUST cite one or more papers by their reference id, e.g. ["P1", "P3"], in "refs" only (not inside the text).
 - Never add facts, numbers, tools or claims that are not in the provided summaries. If the library is thin, write fewer items.
 
 PART B - "Background (LLM-generated, verify before relying on it)": general textbook knowledge about the field

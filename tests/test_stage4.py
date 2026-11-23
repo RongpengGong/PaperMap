@@ -29,7 +29,7 @@ def test_consolidation_cited_and_versioned(config, registry):
     pipe.consolidate_field("spatial-transcriptomics")
     hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text()
     assert "Fields combine Visium with scRNA-seq" in hub and "Made-up overview" not in hub
-    assert "P1 finds A at margins" in hub and "Single-paper" not in hub
+    assert "finds A at margins while" in hub and "(P1" not in hub and "Single-paper" not in hub
     assert "整合于" in hub and "基于 3 篇论文" in hub
     assert "逐篇记录" in hub and "note 0" in hub  # per-paper notes kept
     assert not consmod.due(registry, f["id"], every=3)
@@ -108,3 +108,9 @@ def test_web_costs_and_bulk(config, registry, pdfs):
         time.sleep(0.05)
     assert registry.list_papers()[0]["status"] == "done"
     assert c.get("/concepts").status_code == 200
+
+
+def test_ref_ids_in_prose_become_author_year():
+    from papermap.llm import replace_ref_ids
+    labels = {"P1": "Cai 2026", "P2": "de Jong 2026"}
+    assert replace_ref_ids("51 samples (P1) vs P2; P10 stays", labels) == "51 samples (Cai 2026) vs de Jong 2026; P10 stays"

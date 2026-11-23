@@ -13,7 +13,7 @@ import json
 from .config import Config
 from .extract import LANGUAGE_RULES
 from .extract import load_prompt as _load_prompt
-from .llm import LLMClient
+from .llm import LLMClient, replace_ref_ids
 from .registry import Registry, now_iso
 
 PROMPT_VERSION = "consolidate_v1"
@@ -83,7 +83,9 @@ def run(llm: LLMClient, config: Config, registry: Registry, slug: str) -> dict:
                         make_validator({r["ref"] for r in refs}), purpose="consolidate", max_tokens=6144)
     # store refs as paper ids so later renders survive renumbering
     by_ref = {r["ref"]: r["paper_id"] for r in refs}
-    stored = {k: [{"text": it["text"], "paper_ids": [by_ref[x] for x in it["refs"]]} for it in res.data[k]]
+    labels = {r["ref"]: f"{r['first_author'] or '?'} {r['year'] or ''}".strip() for r in refs}
+    stored = {k: [{"text": replace_ref_ids(it["text"], labels), "paper_ids": [by_ref[x] for x in it["refs"]]}
+                  for it in res.data[k]]
               for k in ("overview", "progress", "disputes")}
     registry.execute(
         "INSERT INTO field_syntheses(field_id, n_papers, data_json, model, prompt_version, created_at) "

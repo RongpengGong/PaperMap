@@ -382,6 +382,14 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
         return {"ok": False, "message": f"{hint + '：' if hint else ''}{type(exc).__name__}: {str(exc)[:300]}"}
 
 
+def replace_ref_ids(text: str, labels: dict[str, str]) -> str:
+    """'... 51 samples (P1) vs 13 (P2, P3)' -> '... (Cai 2026) vs (Kalfakakou 2026, de Jong 2026)'."""
+    def sub(m: re.Match) -> str:
+        return labels.get(m.group(0), m.group(0))
+
+    return re.sub(r"\bP\d{1,3}\b", sub, text)
+
+
 def _parse_json(raw: str) -> tuple[dict | None, str]:
     text = raw.strip()
     fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
