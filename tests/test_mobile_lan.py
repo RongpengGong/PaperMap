@@ -81,6 +81,7 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         listing = web.get('/v1/papers').json()
         assert listing['libraryId'] == pair['libraryId'] and listing['v'] == 1
         assert [p['id'] for p in listing['papers']] == [1]
+        assert listing['desktop']['version'] and 'updateAvailable' in listing['desktop']  # shown on the phone
         revision = listing['papers'][0]['revision']
         base = '/v1/papers/1/' + revision
         other = '/v1/papers/2/' + hashlib.sha256(pdfs['refs_only'].read_bytes()).hexdigest()

@@ -12,4 +12,5 @@
 </a>
 {% else %}
 <p class="muted pad">{{ _("没有找到论文。") }}</p>
+{% if not request.query_params.get('q') and not request.query_params.get('status') and not request.query_params.get('c') %}<p class="pad small"><button type="button" class="ghost-btn" data-demo-import>{{ _("导入示例论文") }}</button><br><span class="muted">{{ _("6 篇开放获取（CC BY）的单细胞与空间组学论文，导入后可随时删除。") }}</span></p>{% endif %}
 {% endfor %}

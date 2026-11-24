@@ -315,8 +315,13 @@ class _Handler(BaseHTTPRequestHandler):
                 if paper['revision'] == revision:
                     result.append({key: paper[key] for key in
                                    ('id', 'title', 'revision', 'pageCount', 'byteSize', 'companionVersion')})
+            from . import appupdate
+
+            upd = appupdate.state(server.config)  # cached answer only: the phone never triggers a GitHub request
             self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
-                             'processing': server.work is not None})
+                             'processing': server.work is not None,
+                             'desktop': {'version': upd['current'], 'latestVersion': upd.get('latest') or '',
+                                         'updateAvailable': upd['newer'], 'releaseUrl': upd.get('url') or ''}})
             return
         if self.path == '/v1/tasks' or self.path.startswith(('/v1/uploads/', '/v1/tasks/')):
             self._processing()

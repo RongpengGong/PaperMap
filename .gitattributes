@@ -1,0 +1,8 @@
+# Same bytes on every OS: Windows checkouts must not turn LF into CRLF (generated files are compared byte for byte).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.woff2 binary

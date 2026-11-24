@@ -23,6 +23,7 @@
 {%- elif name == 'citecheck' %}<path d="M9 4H5v16h14V10"/><path d="M8 12l3 3 9-9"/>
 {%- elif name == 'status' %}<path d="M3 12h4l3-7 4 14 3-7h4"/>
 {%- elif name == 'guide' %}<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.4.1-.7.5-.7.9V14M12 17h.01"/>
+{%- elif name == 'feedback' %}<path d="M4 4h16v12H8l-4 4z"/><path d="M12 7v4M12 13.5h.01"/>
 {%- elif name == 'clips' %}<path d="M6 3h12v18l-6-4-6 4z"/><path d="M9.5 8.5h5"/>
 {%- elif name == 'tracking' %}<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 12l5.5-5.5M12 2v2M22 12h-2"/>
 {%- endif %}</svg>
@@ -36,7 +37,7 @@
   ('know', _('知识整理'), [('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')), ('/handbooks', 'handbooks', _('手册')), ('/concepts', 'concepts', _('工具'))]),
   ('data', _('资料'), [('/figures', 'figures', _('图片库')), ('/resources', 'resources', _('数据资源')), ('/citations', 'citations', _('引用'))]),
 ] -%}
-{%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志')), ('/status', 'status', _('状态检查')), ('/guide', 'guide', _('使用指南'))] -%}
+{%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志')), ('/status', 'status', _('状态检查')), ('/guide', 'guide', _('使用指南')), ('/feedback', 'feedback', _('反馈问题'))] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
 <html lang="{{ html_lang() }}" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><script>window.PM_LANG="{{ ui_lang() }}";window.t=function(s){var m=window.PM_T;return (m&&s&&m[s])||s;};</script>{% if ui_lang() != 'zh-CN' %}<script src="/i18n/{{ ui_lang() }}.js?v={{ static_v }}"></script>{% endif %}<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -104,6 +105,7 @@
       <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
       {% endfor %}
     </details>
+    {% if app_update and app_update.newer %}<a class="update-chip" href="{{ app_update.url }}" target="_blank" rel="noopener" title="{{ _("在浏览器打开下载页") }}">⬆ {{ _("有新版本") }} v{{ app_update.latest }}</a>{% endif %}
     <a class="{{ is_active('/settings') }}" href="/settings" title="{{ _("设置") }}" {% if is_active('/settings') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>{{ _("设置") }}</span></a>
     <a class="cost-line" href="/costs">{{ _("本月 $") }}{{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>
   </nav>
@@ -149,6 +151,7 @@
     <li><b>{{ _("写作 · 引用核对") }}</b> {{ _("用库里的证据写段落，逐句检查稿件引用") }}</li>
     <li><b>{{ _("今天读什么") }}</b> {{ _("论文列表顶部汇总最值得读的几篇") }}</li>
   </ul>
+  {% if all_n is defined and all_n < 5 %}<p class="small muted welcome-demo">{{ _("文献库还是空的？可以先导入 6 篇开放获取的示例论文看看效果（会用你配置的模型生成卡片）。") }} <button type="button" class="ghost-btn" data-demo-import>{{ _("导入示例论文") }}</button></p>{% endif %}
   <div class="welcome-foot"><a class="ghost-btn" href="/guide">{{ _("看使用指南") }}</a><span class="grow"></span><button type="button" data-welcome-ok>{{ _("知道了") }}</button></div>
 </div></div></template>
 <script>(function(){try{var k="pm_welcome_v2";if(localStorage.getItem(k))return;var tpl=document.getElementById("welcome_tpl");if(!tpl)return;var n=tpl.content.firstElementChild.cloneNode(true);document.body.appendChild(n);var done=function(){localStorage.setItem(k,"1");n.remove();};n.addEventListener("click",function(e){if(e.target===n||e.target.closest("[data-welcome-ok]")||e.target.closest("a"))done();});}catch(e){}})();</script>{% endif %}

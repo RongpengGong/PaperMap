@@ -195,6 +195,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             theme=_theme(config.raw.get("appearance")),
             key_set=config.model_ready(),
             account_provider=config.llm.get("provider", "deepseek"),
+            app_update=__import__("papermap.appupdate", fromlist=["state"]).state(config)
+            if config.raw.get("update_check", True) is not False else {},
             is_subscription=is_subscription,
             month_cost=registry.month_cost(),
             budget=float(config.llm.get("monthly_budget_usd") or 0),
@@ -2365,7 +2367,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
     from .extras_routes import mount_extras
 
-    mount_extras(app, config, registry, pipeline, render, _gettext, _fname)
+    mount_extras(app, config, registry, pipeline, render, _gettext, _fname, lambda t: _check_csrf(t, csrf_token))
     from .writing_routes import mount_writing
 
     mount_writing(app, config, registry, pipeline, render, json_body, md_html, _gettext, _check_csrf, csrf_token, _flat_tree)

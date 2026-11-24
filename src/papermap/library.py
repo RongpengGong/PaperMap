@@ -47,12 +47,16 @@ def replace_file(src: Path, dst: Path) -> None:
     from .reader import DOCS
 
     DOCS.release(src)
-    try:
-        os.replace(src, dst)
-    except PermissionError:
-        gc.collect()  # PyMuPDF documents nobody closed explicitly
-        time.sleep(0.2)
-        os.replace(src, dst)
+    for attempt in range(10):  # a background task (indexing, figures) may still be reading the file
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            gc.collect()  # PyMuPDF documents nobody closed explicitly
+            DOCS.release(src)
+            time.sleep(0.3)
 
 def folder_of(knowledge_dir: Path, kb_path: str) -> Path:
     return (knowledge_dir / kb_path).parent

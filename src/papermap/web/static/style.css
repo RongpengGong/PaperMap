@@ -1018,3 +1018,11 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .welcome-box li { padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; line-height:1.55; }
 .welcome-box li b { display:inline-block; min-width:92px; color:var(--fg); }
 .welcome-foot { display:flex; align-items:center; gap:8px; } .welcome-foot button, .welcome-foot .ghost-btn { margin:0; }
+.update-chip { display:block; margin:4px 6px 6px; padding:6px 10px; border-radius:9px; background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:600; text-decoration:none; }
+.update-chip:hover { background:var(--accent); color:#fff; text-decoration:none; }
+.welcome-demo { margin:0 0 12px; padding:9px 11px; border-radius:10px; background:var(--toolbar); line-height:1.6; }
+.welcome-demo .ghost-btn { margin:6px 0 0; }
+.feedback-page { max-width:860px; }
+.feedback-page textarea { width:100%; min-height:340px; font-family:ui-monospace, Menlo, monospace; font-size:12px; line-height:1.5; }
+.feedback-actions { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+.feedback-actions button, .feedback-actions .ghost-btn { margin:0; }

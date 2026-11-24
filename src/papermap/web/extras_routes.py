@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from .. import appupdate, demo, feedback
 from .. import backup as backup_mod
 
 
@@ -34,7 +35,10 @@ def _dir_size(path) -> int:
     return total
 
 
-def mount_extras(app, config, registry, pipeline, render, tr, fname):
+def mount_extras(app, config, registry, pipeline, render, tr, fname, check_csrf=None):
+    if check_csrf is None:  # tests may mount without it
+        def check_csrf(_):
+            return None
     # ------------------------------------------------------------ ⌘K quick jump
     @app.get("/api/jump")
     def jump(q: str = ""):
@@ -186,11 +190,65 @@ def mount_extras(app, config, registry, pipeline, render, tr, fname):
             f"{running} {tr('个进行中')} · {failed} {tr('个最近 7 天失败')}")
         errors = registry.one("SELECT count(*) AS n FROM events WHERE level='error' AND created_at > datetime('now', '-7 days')")["n"]
         add(tr("后台任务"), tr("错误日志"), "warn" if errors else "ok", f"{errors} {tr('条最近 7 天的错误')}", "/events")
+        upd = appupdate.state(config)
+        if appupdate.enabled(config):
+            add(tr("版本"), "PaperMap", "warn" if upd["newer"] else "ok",
+                (f"{upd['current']} → {upd['latest']} · " + tr("有新版本")) if upd["newer"] else f"{upd['current']} · " + tr("已是最新"),
+                upd.get("url") or "")
+        else:
+            add(tr("版本"), "PaperMap", "ok", f"{upd['current']} · " + tr("检查更新已关闭"))
         worst = "error" if any(c["level"] == "error" for c in checks) else "warn" if any(c["level"] == "warn" for c in checks) else "ok"
         groups: dict[str, list] = {}
         for c in checks:
             groups.setdefault(c["group"], []).append(c)
         return render(request, "status.html", groups=groups, worst=worst)
+
+    # ------------------------------------------------------------ update check
+    appupdate.check_in_background(config)
+
+    @app.get("/api/update")
+    def update_state():
+        st = appupdate.state(config)
+        return {"ok": True, "enabled": appupdate.enabled(config), **st}
+
+    @app.post("/api/update/check")
+    async def update_check(request: Request):
+        body = await request.json()
+        check_csrf(str(body.get("csrf", "")))
+        if "enabled" in body:
+            config.raw["update_check"] = bool(body["enabled"])
+            config.save()
+        if not appupdate.enabled(config):
+            return {"ok": True, "enabled": False, **appupdate.state(config)}
+        from starlette.concurrency import run_in_threadpool
+
+        st = await run_in_threadpool(appupdate.check, config, True)
+        return {"ok": "error" not in st, "enabled": True, "message": tr("无法连接 GitHub，稍后再试") if "error" in st else "", **st}
+
+    # ------------------------------------------------------------ feedback
+    @app.get("/feedback", response_class=HTMLResponse)
+    def feedback_page(request: Request):
+        rep = feedback.report(config, registry)
+        return render(request, "feedback.html", report=rep, repo=appupdate.REPO)
+
+    @app.post("/api/feedback/url")
+    async def feedback_url(request: Request):
+        body = await request.json()
+        check_csrf(str(body.get("csrf", "")))
+        title = str(body.get("title") or "Bug: ")
+        text = feedback.redact(str(body.get("body") or ""), config)  # once more, after the user's edits
+        return {"ok": True, "url": feedback.issue_url(title, text), "body": text}
+
+    # ------------------------------------------------------------ sample library
+    @app.post("/api/demo/import")
+    async def demo_import(request: Request):
+        body = await request.json()
+        check_csrf(str(body.get("csrf", "")))
+        return {"ok": demo.start(pipeline), **demo.status()}
+
+    @app.get("/api/demo/status")
+    def demo_status():
+        return {"ok": True, **demo.status(), "papers": len(demo.PAPERS)}
 
     # ------------------------------------------------------------ guide
     @app.get("/guide", response_class=HTMLResponse)

@@ -748,3 +748,23 @@ document.addEventListener("submit", async event => {
     submit.disabled = false;
   }
 });
+
+// Sample library: six open-access papers imported the normal way into their own group.
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-demo-import]"); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  b.disabled = true;
+  const t = s => (window.t ? window.t(s) : s);
+  const r = await fetch("/api/demo/import", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csrf: document.body.dataset.csrf }) }).then(x => x.json()).catch(() => ({}));
+  if (!r.ok && !r.running) { b.disabled = false; window.pmToast && window.pmToast(t("导入失败")); return; }
+  const tick = async () => {
+    const s = await fetch("/api/demo/status").then(x => x.json()).catch(() => null);
+    if (!s) return setTimeout(tick, 3000);
+    b.textContent = `${t("正在导入示例论文…")} ${s.done}/${s.papers}`;
+    if (s.running) return setTimeout(tick, 2500);
+    window.pmToast && window.pmToast(`${t("示例论文已导入")}：${s.added}${s.failed ? ` · ${t("失败")} ${s.failed}` : ""}`);
+    setTimeout(() => { location.href = "/"; }, 800);
+  };
+  tick();
+}, true);

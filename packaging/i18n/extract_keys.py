@@ -17,7 +17,7 @@ py = ["src/papermap/web/app.py", "src/papermap/web/evidence_routes.py", "src/pap
       "src/papermap/backup.py", "src/papermap/supplements.py", "src/papermap/consolidate.py", "src/papermap/desktop.py",
       "src/papermap/chat.py", "src/papermap/web/chat_routes.py", "src/papermap/versions.py", "src/papermap/purposes.py",
       "src/papermap/trash.py", "src/papermap/evidence_links.py", "src/papermap/writing.py", "src/papermap/citecheck.py",
-      "src/papermap/clips.py", "src/papermap/web/writing_routes.py", "src/papermap/web/extras_routes.py"]
+      "src/papermap/clips.py", "src/papermap/web/writing_routes.py", "src/papermap/web/extras_routes.py", "src/papermap/appupdate.py", "src/papermap/feedback.py", "src/papermap/demo.py"]
 for f in py:
     for node in ast.walk(ast.parse(open(f, encoding="utf-8").read())):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) < 300 and "\n" not in node.value:
