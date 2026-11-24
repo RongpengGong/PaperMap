@@ -204,6 +204,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             csrf=csrf_token,
             review_count=_review_count(registry, pipeline.new_field_threshold),
             tracking_badge=_tracking_badge(registry),
+            phone=mobile.sidebar(),
             collection_tree=registry.collection_tree(),
             unfiled_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored' AND id NOT IN "
                                    "(SELECT paper_id FROM paper_collections)")["n"],

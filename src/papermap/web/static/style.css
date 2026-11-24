@@ -1018,6 +1018,9 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .welcome-box li { padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; line-height:1.55; }
 .welcome-box li b { display:inline-block; min-width:92px; color:var(--fg); }
 .welcome-foot { display:flex; align-items:center; gap:8px; } .welcome-foot button, .welcome-foot .ghost-btn { margin:0; }
+.phone-link .phone-state { margin-left:auto; font-style:normal; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.phone-link .phone-state.on { color:var(--ok); }
+.phone-link .phone-state.on::before { content:""; display:inline-block; width:6px; height:6px; margin-right:5px; border-radius:50%; background:currentColor; vertical-align:1px; }
 .update-chip { display:block; margin:4px 6px 6px; padding:6px 10px; border-radius:9px; background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:600; text-decoration:none; }
 .update-chip:hover { background:var(--accent); color:#fff; text-decoration:none; }
 .welcome-demo { margin:0 0 12px; padding:9px 11px; border-radius:10px; background:var(--toolbar); line-height:1.6; }

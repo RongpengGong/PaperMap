@@ -48,6 +48,9 @@ def phone_controls(config, registry, monkeypatch):
             self.code = None
             self.processing = False
 
+        def sidebar(self):
+            return {"active": True, "papers": len(self.shared), "minutesAgo": 3} if self.code else {"active": False}
+
         def paired(self):
             return self.code is not None or getattr(self, "kept", False)
 
@@ -169,3 +172,13 @@ def test_a_kept_pairing_can_be_revoked(phone_controls):
     assert web.post("/settings/mobile/revoke", data={"csrf": "wrong"}).status_code == 403
     revoked = web.post("/settings/mobile/revoke", headers=FRAGMENT, data={"csrf": tok}).text
     assert "/settings/mobile/revoke" not in revoked and not controls.paired()
+
+
+def test_sidebar_entry_shows_the_phone_state(phone_controls):
+    web, controls = phone_controls
+    tok = _token(web)
+    link = nodes(web.get("/events").text).all(lambda n: "phone-link" in n.attrs.get("class", ""))[0]
+    assert link.attrs["href"] == "/settings?section=mobile" and "未共享" in link.text()
+    web.post("/settings/mobile/start", headers=FRAGMENT, data={"csrf": tok, "address": controls.ips[0], "inbox": "true"})
+    link = nodes(web.get("/events").text).all(lambda n: "phone-link" in n.attrs.get("class", ""))[0]
+    assert "3 分钟前" in " ".join(link.text().split())

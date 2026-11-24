@@ -315,3 +315,12 @@ def test_the_model_chooses_among_the_closest_paragraphs(config, registry, pdfs):
     model = Model()
     out = mobile_match.suggest(config, registry, pid, revision, 'The cohort was followed for longer than planned.', 0, model)
     assert out['found'] and out['by'] == 'model' and out['reason'] == '意思相同' and len(model.asked) == 1
+
+
+def test_sidebar_shows_whether_the_phone_has_been_in_touch(lan):
+    assert lan.sidebar() == {'active': False, 'resuming': False}
+    pair = lan.start('127.0.0.1', [1])
+    assert lan.sidebar() == {'active': True, 'papers': 1, 'minutesAgo': None}
+    with client(pair) as web:
+        web.get('/v1/papers')
+    assert lan.sidebar()['minutesAgo'] == 0

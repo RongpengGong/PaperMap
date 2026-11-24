@@ -18,6 +18,7 @@
 {%- elif name == 'figures' %}<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>
 {%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
 {%- elif name == 'folder' %}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+{%- elif name == 'phone' %}<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/>
 {%- elif name == 'inbox' %}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
 {%- elif name == 'write' %}<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4M14 20h6"/>
 {%- elif name == 'citecheck' %}<path d="M9 4H5v16h14V10"/><path d="M8 12l3 3 9-9"/>
@@ -105,6 +106,9 @@
       <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
       {% endfor %}
     </details>
+    {% set phone_here = path == '/settings' and request.query_params.get('section') == 'mobile' %}
+    <a class="phone-link {{ 'active' if phone_here }}" href="/settings?section=mobile" title="{{ _("鸿蒙手机同步") }}" {% if phone_here %}aria-current="page"{% endif %}>{{ icon('phone') }}<span>{{ _("手机") }}</span>
+      <i class="phone-state {{ 'on' if phone.active }}">{% if phone.active %}{% if phone.minutesAgo is none %}{{ _("共享中") }}{% elif phone.minutesAgo < 1 %}{{ _("刚刚连接") }}{% elif phone.minutesAgo < 60 %}{{ phone.minutesAgo }} {{ _("分钟前") }}{% elif phone.minutesAgo < 1440 %}{{ phone.minutesAgo // 60 }} {{ _("小时前") }}{% else %}{{ _("共享中") }}{% endif %}{% elif phone.resuming %}{{ _("等待网络") }}{% else %}{{ _("未共享") }}{% endif %}</i></a>
     {% if app_update and app_update.newer %}<a class="update-chip" href="{{ app_update.url }}" target="_blank" rel="noopener" title="{{ _("在浏览器打开下载页") }}">⬆ {{ _("有新版本") }} v{{ app_update.latest }}</a>{% endif %}
     <a class="{{ is_active('/settings') }}" href="/settings" title="{{ _("设置") }}" {% if is_active('/settings') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>{{ _("设置") }}</span></a>
     <a class="cost-line" href="/costs">{{ _("本月 $") }}{{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>

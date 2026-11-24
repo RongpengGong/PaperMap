@@ -261,6 +261,7 @@ class _Listener(ThreadingHTTPServer):
         self.failed = deque()
         self.requests = deque()
         self.verified = {}
+        self.last_seen = 0.0
         super().__init__((address, port), _Handler)
 
     def verify_request(self, request, client_address):
@@ -358,6 +359,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif self.headers.get('Origin') or self.headers.get('Host') != self.server.info['url'][8:]:
             self._error(403, 'native_client_required')
         else:
+            self.server.last_seen = time.time()  # shown in the desktop sidebar
             return True
         return False
 
@@ -704,6 +706,16 @@ class MobileLan:
                         **({'inbox': True} if self._listener.inbox else {}),
                         **({'movedPort': True} if self.moved_port else {})}
             return {'active': False}
+
+    def sidebar(self) -> dict:
+        """Connection state for the sidebar entry; cheap enough to compute on every page."""
+        with self._mutex:
+            listener = self._listener
+            if listener:
+                seen = listener.last_seen
+                return {'active': True, 'papers': len(listener.revisions),
+                        'minutesAgo': int((time.time() - seen) // 60) if seen else None}
+        return {'active': False, 'resuming': bool(self._resumer and not self._resuming.is_set())}
 
     def pairing(self) -> dict:
         with self._mutex:
