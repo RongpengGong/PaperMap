@@ -1,6 +1,6 @@
 <section id="recent-reading" aria-labelledby="recent-reading-heading" {% if q or status or not recent_reading %}hidden{% endif %}>
   <h2 id="recent-reading-heading">{{ _("继续阅读") }}</h2>
   <ul>{% for item in recent_reading %}<li>
-    <a href="/reader/{{ item.id }}" title="{{ item.title or _('无标题论文') }}"><span>{{ item.title or _('无标题论文') }}</span><small>{{ _("第") }} {{ item.page + 1 }} {{ _("页") }}</small></a>
+    <a href="/?id={{ item.id }}&amp;read=1" title="{{ item.title or _('无标题论文') }}"><span>{{ item.title or _('无标题论文') }}</span><small>{{ _("第") }} {{ item.page + 1 }} {{ _("页") }}</small></a>
   </li>{% endfor %}</ul>
 </section>

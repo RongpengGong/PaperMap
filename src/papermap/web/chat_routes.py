@@ -32,7 +32,8 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         _, card = paper(paper_id)
         data = chat.load(chat.chat_path(card))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
-                "models": chat.model_choices(config), "model": data.get("model") or "main"}
+                "models": chat.model_choices(config), "model": data.get("model") or "main",
+                "effort": data.get("effort") or ""}
 
     @app.post("/api/paper/{paper_id}/chat")
     async def chat_send(paper_id: int, request: Request):
@@ -46,7 +47,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
             r = await run_in_threadpool(
                 chat.send, config, registry, pipeline.llm, paper_id, card, pdf_file(row), notes, card_text,
                 str(body.get("text", "")), str(body.get("model") or "main"), str(body.get("quote") or ""),
-                int(page) if str(page or "").isdigit() else None)
+                int(page) if str(page or "").isdigit() else None, str(body.get("effort") or ""))
         except Exception as exc:  # noqa: BLE001 - shown in the chat, never crashes the app
             return error(exc)
         return {"ok": True, "user": render(r["user"]), "reply": render(r["reply"])}
@@ -57,7 +58,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         row, card = paper(paper_id)
         try:
             text = await run_in_threadpool(chat.summarize, config, pipeline.llm, chat.chat_path(card), row["title"] or "",
-                                           str(body.get("model") or "main"), paper_id)
+                                           str(body.get("model") or "main"), paper_id, str(body.get("effort") or ""))
         except Exception as exc:  # noqa: BLE001
             return error(exc)
         return {"ok": True, "text": text}
@@ -95,7 +96,8 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
     def page_chat_get(key: str):
         data = chat.load(chat.page_store(config.data_dir, page_key(key)))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
-                "models": chat.model_choices(config), "model": data.get("model") or "main"}
+                "models": chat.model_choices(config), "model": data.get("model") or "main",
+                "effort": data.get("effort") or ""}
 
     @app.post("/api/page-chat")
     async def page_chat_send(request: Request):
@@ -105,7 +107,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         try:
             r = await run_in_threadpool(chat.converse, config, pipeline.llm, chat.page_store(config.data_dir, key),
                                         system, str(body.get("text", "")), str(body.get("model") or "main"),
-                                        str(body.get("quote") or ""))
+                                        str(body.get("quote") or ""), None, None, str(body.get("effort") or ""))
         except Exception as exc:  # noqa: BLE001
             return error(exc)
         return {"ok": True, "user": render(r["user"]), "reply": render(r["reply"])}
@@ -116,7 +118,8 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         key = page_key(body.get("key"))
         try:
             text = await run_in_threadpool(chat.summarize, config, pipeline.llm, chat.page_store(config.data_dir, key),
-                                           str(body.get("title") or key), str(body.get("model") or "main"))
+                                           str(body.get("title") or key), str(body.get("model") or "main"), None,
+                                           str(body.get("effort") or ""))
         except Exception as exc:  # noqa: BLE001
             return error(exc)
         return {"ok": True, "text": text}

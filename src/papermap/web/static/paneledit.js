@@ -84,7 +84,8 @@
     const bodyEl = panel.querySelector("[data-card-body]"), status = panel.querySelector("[data-card-status]");
     const pid = panel.dataset.paper;
     if (reset) reset.addEventListener("click", async () => {
-      if (!confirm(t("丢弃你对这张卡片的修改，恢复为自动生成的版本？"))) return;
+      if (!(await (window.pmDialog ? window.pmDialog(t("放弃你对这张卡片的全部修改，换回模型生成的版本？（不重新调用模型；旧版本留在知识库的 git 历史里）"), { okText: t("放弃修改"), danger: true }) : confirm(t("放弃修改？"))))) return;
+      if (ed) { clearTimeout(timer); ed.destroy(); ed = null; }
       const r = await fetch(`/paper/${pid}/card`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, reset: true }) }).then(x => x.json());
       if (r.ok && window.pmOpenPaper) window.pmOpenPaper(pid, false); else say(r.message || t("操作失败"));
     });
@@ -112,6 +113,7 @@
         () => save(), uploader("../../attachments/"));
       linkSuggest(ed);
       btn.textContent = t("完成");
+      if (reset) reset.hidden = false;  // only offered while editing
       ed.commands.focus("start");
     });
   }

@@ -2,6 +2,7 @@
 {% macro chat_inner() %}
     <div class="chat-top">
       <select data-chat-model title="{{ _("用哪个模型讨论（在设置里配置过的都可以选）") }}"></select>
+      <select data-chat-effort hidden title="{{ _("推理强度：越高越仔细，也越慢、越耗额度") }}"></select>
       <span class="grow"></span>
       <button type="button" class="ghost-btn" data-chat-new title="{{ _("清空这次对话，重新开始") }}">{{ _("新对话") }}</button>
     </div>

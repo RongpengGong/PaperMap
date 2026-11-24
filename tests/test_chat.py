@@ -92,3 +92,20 @@ def test_page_chat_drawer_and_notes(config, registry, pdfs):
     assert w["ok"] and "### 与 AI 讨论" in note and "- 用 Hallmark 集合" in note and "写下用法" not in note
     assert "## 用到它的论文\n\n- x" in page.read_text("utf-8")  # generated part untouched
     assert c.get("/api/page-chat", params={"key": "/concept/msigdb"}).json()["messages"] == []
+
+
+def test_subscription_models_offer_reasoning_effort(config, monkeypatch):
+    for k in ("OPUS", "SONNET", "HAIKU", "FABLE"):  # aliases resolve to the first-party models
+        monkeypatch.delenv(f"ANTHROPIC_DEFAULT_{k}_MODEL", raising=False)
+    config.raw["llm"].setdefault("presets", {})["claude_cli"] = {"model": "sonnet"}
+    monkeypatch.setattr(chat, "_subscription_ready", lambda cfg, pid: pid == "claude_cli")
+    ch = {m["key"]: m for m in chat.model_choices(config)}
+    opus = ch["claude_cli|opus"]
+    assert "high" in opus["efforts"] and "low" in opus["efforts"]
+    eff = chat.resolve(config, "claude_cli|opus", "high")
+    assert eff["provider"] == "claude_cli" and eff["model"] == "opus" and eff["reasoning_effort"] == "high"
+    import pytest
+
+    with pytest.raises(ValueError):
+        chat.resolve(config, "claude_cli|opus", "turbo")
+    assert not ch.get("main", {}).get("efforts")  # the default test model (DeepSeek) has none

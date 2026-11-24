@@ -188,6 +188,10 @@
     const w = pref("pm_split"); if (split && w) split.style.setProperty("--pdf-w", w);
     const frame = panel.querySelector(".pdf-col iframe");
     const pdfBtn = panel.querySelector('[data-action="toggle-pdf"]');
+    if (new URLSearchParams(location.search).get("read") === "1") {  // "continue reading": show the PDF next to the card
+      pref("pm_pdf_hidden", "0");
+      const u = new URL(location.href); u.searchParams.delete("read"); history.replaceState(history.state, "", u);
+    }
     const applyPdf = () => {
       const hidden = pref("pm_pdf_hidden") === "1";
       panel.classList.toggle("pdf-hidden", hidden);

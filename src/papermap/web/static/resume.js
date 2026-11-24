@@ -8,7 +8,7 @@
     const items = recent.map(item => {
       const li = document.createElement("li"), link = document.createElement("a");
       const title = document.createElement("span"), page = document.createElement("small");
-      link.href = "/reader/" + item.id;
+      link.href = "/?id=" + item.id + "&read=1";
       link.title = title.textContent = item.title || t("无标题论文");
       page.textContent = t("第 ") + (item.page + 1) + t(" 页");
       link.append(title, page); li.append(link);

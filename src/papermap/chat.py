@@ -53,27 +53,63 @@ def _subscription_ready(config: Config, pid: str) -> bool:
     return False
 
 
+_CATALOG: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _chatgpt_catalog(config: Config) -> list[dict]:
+    """The account's ChatGPT models with their reasoning-effort levels (cached 10 minutes)."""
+    import time
+
+    from .llm import list_chatgpt_model_options
+
+    hit = _CATALOG.get("chatgpt_plan")
+    if hit and time.monotonic() - hit[0] < 600:
+        return hit[1]
+    try:
+        eff = config.resolve_llm({**config.llm, "provider": "chatgpt_plan"})
+        rows = list_chatgpt_model_options(eff, timeout_s=15)
+    except Exception:  # noqa: BLE001 - offline: fall back to the saved model without levels
+        rows = []
+    _CATALOG["chatgpt_plan"] = (time.monotonic(), rows)
+    return rows
+
+
+def _efforts(config: Config, pid: str, model: str) -> list[str]:
+    if pid == "claude_cli":
+        from .claude_cli import model_option
+
+        return list(model_option(model)["reasoning_efforts"])
+    if pid == "chatgpt_plan":
+        return next((list(r["reasoning_efforts"]) for r in _chatgpt_catalog(config) if r["id"] == model), [])
+    return []
+
+
 def model_choices(config: Config) -> list[dict]:
-    """Models the user has already set up (key or sign-in present). ``main`` = the main model."""
+    """Models the user has already set up (key or sign-in present). ``main`` = the main model.
+    Subscription models (ChatGPT, Claude) also list their reasoning-effort levels."""
     llm = config.llm
     main = config.effective_llm()
-    out = [{"key": "main", "label": "主模型 · " + _label(main), "ready": config.model_ready()}]
-    seen = {(main.get("provider"), main.get("model"))}
+    mp = main.get("provider", "")
+    out = [{"key": "main", "label": "主模型 · " + _label(main), "ready": config.model_ready(),
+            "efforts": _efforts(config, mp, main.get("model", "")) if mp in ("chatgpt_plan", "claude_cli") else [],
+            "effort": main.get("reasoning_effort") or ""}]
+    seen = {(mp, main.get("model"))}
 
-    def add(pid: str, model: str, label: str) -> None:
+    def add(pid: str, model: str, label: str, efforts: list[str] | None = None) -> None:
         if model and (pid, model) not in seen:
             seen.add((pid, model))
-            out.append({"key": f"{pid}|{model}", "label": label, "ready": True})
+            out.append({"key": f"{pid}|{model}", "label": label, "ready": True, "efforts": efforts or [],
+                        "effort": ((states.get(pid) or {}).get("reasoning_effort") or "") if efforts else ""})
 
+    states = llm.get("presets") or {}
     for pid, pre in PROVIDERS.items():
         if config.resolve_llm({**llm, "provider": pid})["api_key"]:
             for m in pre["models"]:
                 add(pid, m, f"{pre['label']} · {m}")
-    states = llm.get("presets") or {}
     for pid, pre in PRESETS.items():
         st = states.get(pid) or {}
         if pid in ("chatgpt_plan", "claude_cli"):
-            if pid not in states and main.get("provider") != pid:
+            if pid not in states and mp != pid:
                 continue  # never set up: do not probe sign-in state
             if not _subscription_ready(config, pid):
                 continue
@@ -82,12 +118,13 @@ def model_choices(config: Config) -> list[dict]:
 
                 models = [m["id"] for m in MODELS]
             else:
-                models = [st.get("model")] if st.get("model") else []
-        else:
-            if not (st.get("api_key") or "").strip():
-                continue
-            models = list(pre.get("models") or {}) or ([st["model"]] if st.get("model") else [])
-        for m in models:
+                models = [r["id"] for r in _chatgpt_catalog(config)] or ([st["model"]] if st.get("model") else [])
+            for m in models:
+                add(pid, m, f"{pre['label']} · {m}", _efforts(config, pid, m))
+            continue
+        if not (st.get("api_key") or "").strip():
+            continue
+        for m in list(pre.get("models") or {}) or ([st["model"]] if st.get("model") else []):
             add(pid, m, f"{pre['label']} · {m}")
     c = llm.get("custom") or {}
     custom = config.resolve_llm({**llm, "provider": "custom"})
@@ -96,20 +133,29 @@ def model_choices(config: Config) -> list[dict]:
     return out
 
 
-def resolve(config: Config, key: str) -> dict:
-    """Connection settings for one of :func:`model_choices` (anything else is refused)."""
+def resolve(config: Config, key: str, effort: str = "") -> dict:
+    """Connection settings for one of :func:`model_choices` (anything else is refused).
+    ``effort`` must be one of that model's levels; empty keeps the configured default."""
+    choices = {c["key"]: c for c in model_choices(config)} if (key not in ("", "main") or effort) else {}
     if not key or key == "main":
-        return config.effective_llm()
-    if key not in {c["key"] for c in model_choices(config)}:
-        raise ValueError("这个模型还没有在设置里配置好")
-    pid, model = key.split("|", 1)
-    llm = copy.deepcopy(config.llm)
-    llm["provider"] = pid
-    if pid in PROVIDERS:
-        llm["model"] = model
-    elif pid in PRESETS:
-        llm.setdefault("presets", {}).setdefault(pid, {})["model"] = model
-    return config.resolve_llm(llm)
+        eff = config.effective_llm()
+        key = "main"
+    else:
+        if key not in choices:
+            raise ValueError("这个模型还没有在设置里配置好")
+        pid, model = key.split("|", 1)
+        llm = copy.deepcopy(config.llm)
+        llm["provider"] = pid
+        if pid in PROVIDERS:
+            llm["model"] = model
+        elif pid in PRESETS:
+            llm.setdefault("presets", {}).setdefault(pid, {})["model"] = model
+        eff = config.resolve_llm(llm)
+    if effort:
+        if effort not in (choices.get(key) or {}).get("efforts", []):
+            raise ValueError("这个模型不支持所选的推理强度")
+        eff = {**eff, "reasoning_effort": effort}
+    return eff
 
 
 # ------------------------------------------------------------------ storage
@@ -212,7 +258,7 @@ def _now() -> str:
 
 # ------------------------------------------------------------------ actions
 def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str, key: str = "main",
-             quote: str = "", page: int | None = None, paper_id: int | None = None) -> dict:
+             quote: str = "", page: int | None = None, paper_id: int | None = None, effort: str = "") -> dict:
     """One turn: earlier turns from ``store`` go with the new message; both are saved after the answer."""
     text = (text or "").strip()[:MAX_MESSAGE_CHARS]
     quote = (quote or "").strip()[:MAX_QUOTE_CHARS]
@@ -220,7 +266,7 @@ def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str
         text = "请解释这段。" if config.output_language != "en" else "Please explain this passage."
     if not text:
         raise ValueError("请输入问题")
-    eff = resolve(config, key)
+    eff = resolve(config, key, effort)
     with _LOCK:
         data = load(store)
     history = [{"role": m["role"], "content": _user_content(m) if m["role"] == "user" else m["content"]}
@@ -232,21 +278,24 @@ def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str
             msg["page"] = int(page)
     res = llm.chat_text(system, _user_content(msg), purpose="chat", paper_id=paper_id, max_tokens=4096,
                         eff=eff, history=history)
-    reply = {"role": "assistant", "content": res.raw.strip(), "model": res.model, "at": _now()}
+    reply = {"role": "assistant", "content": res.raw.strip(), "at": _now(),
+             "model": res.model + (f" · {effort}" if effort else "")}
     with _LOCK:
         data = load(store)
         data["messages"] += [msg, reply]
         data["model"] = key
+        data["effort"] = effort
         save(store, data)
     return {"user": msg, "reply": reply}
 
 
 def send(config: Config, registry: Registry, llm: LLMClient, paper_id: int, card: Path, pdf: Path | None,
-         notes: str, card_text: str, text: str, key: str = "main", quote: str = "", page: int | None = None) -> dict:
+         notes: str, card_text: str, text: str, key: str = "main", quote: str = "", page: int | None = None,
+         effort: str = "") -> dict:
     row = registry.get_paper(paper_id)
     paper = paper_text(pdf, config.data_dir) if pdf else ""
     return converse(config, llm, chat_path(card), _system(config, row, card_text, notes, paper), text, key,
-                    quote, page, paper_id)
+                    quote, page, paper_id, effort)
 
 
 def library_overview(registry: Registry, limit_chars: int = 30000) -> str:
@@ -288,7 +337,7 @@ def page_system(config: Config, registry: Registry, title: str, path: str, page_
 
 
 def summarize(config: Config, llm: LLMClient, store: Path, subject: str, key: str = "main",
-              paper_id: int | None = None) -> str:
+              paper_id: int | None = None, effort: str = "") -> str:
     msgs = load(store)["messages"]
     if not msgs:
         raise ValueError("还没有讨论内容")
@@ -302,7 +351,7 @@ def summarize(config: Config, llm: LLMClient, store: Path, subject: str, key: st
         "citations like [p.5] and paper names. Do not add anything that was not in the discussion. Keep it short (3-10 bullets).",
     ])
     res = llm.chat_text(system, f"Subject: {subject}\n\n===== DISCUSSION =====\n{transcript[-60000:]}",
-                        purpose="chat_summary", paper_id=paper_id, max_tokens=2048, eff=resolve(config, key))
+                        purpose="chat_summary", paper_id=paper_id, max_tokens=2048, eff=resolve(config, key, effort))
     return res.raw.strip()
 
 

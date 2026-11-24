@@ -25,6 +25,18 @@
     };
     const extra = () => (isPage ? { key, title: document.title.replace(/ - PaperMap$/, ""), page_text: pageText(), rel } : {});
     const log = box.querySelector("[data-chat-log]"), sel = box.querySelector("[data-chat-model]");
+    const effSel = box.querySelector("[data-chat-effort]");
+    let models = [];
+    const EFFORT_NAMES = { minimal: t("最低"), low: t("低"), medium: t("中"), high: t("高"), xhigh: t("很高"), max: t("最高"), ultra: t("极高") };
+    function fillEfforts(want) {
+      const m = models.find(x => x.key === sel.value) || {};
+      const list = m.efforts || [];
+      effSel.hidden = !list.length;
+      effSel.innerHTML = `<option value="">${esc(t("默认强度"))}${m.effort ? " (" + esc(EFFORT_NAMES[m.effort] || m.effort) + ")" : ""}</option>`
+        + list.map(e => `<option value="${esc(e)}">${esc(EFFORT_NAMES[e] ? `${EFFORT_NAMES[e]} · ${e}` : e)}</option>`).join("");
+      effSel.value = list.includes(want) ? want : "";
+    }
+    const effort = () => (effSel.hidden ? "" : effSel.value);
     const input = box.querySelector("[data-chat-text]"), sendBtn = box.querySelector("[data-chat-send]");
     const quoteBox = box.querySelector("[data-chat-quote]"), quoteText = box.querySelector("[data-chat-quote-text]");
     const sumBox = box.querySelector("[data-chat-summary]"), sumText = box.querySelector("[data-chat-summary-text]");
@@ -70,11 +82,13 @@
       sel.innerHTML = j.models.map(m => `<option value="${esc(m.key)}" ${m.ready ? "" : "disabled"}>${esc(m.label)}${m.ready ? "" : " — " + esc(t("未配置"))}</option>`).join("");
       const keys = j.models.filter(m => m.ready).map(m => m.key);
       sel.value = keys.includes(j.model) ? j.model : keys.includes(pref) ? pref : (keys[0] || "main");
+      models = j.models; fillEfforts(j.effort || localStorage.getItem(MODEL_PREF + "_effort") || "");
       log.innerHTML = ""; count = 0;
       if (!j.messages.length) empty(); else j.messages.forEach(bubble);
       scroll();
     }
-    sel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF, sel.value); } catch (e) { /* private mode */ } });
+    sel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF, sel.value); } catch (e) { /* private mode */ } fillEfforts(effSel.value); });
+    effSel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF + "_effort", effSel.value); } catch (e) { /* private mode */ } });
 
     async function send() {
       const text = input.value.trim();
@@ -83,7 +97,7 @@
       const u = bubble({ role: "user", content: text || t("请解释这段。"), quote: quote && quote.text, page: quote && quote.page });
       const wait = document.createElement("div"); wait.className = "chat-msg assistant pending"; wait.innerHTML = `<span class="chat-dots"><i></i><i></i><i></i></span>`;
       log.appendChild(wait); scroll();
-      const body = { text, model: sel.value, quote: quote ? quote.text : "", page: quote ? quote.page : null, ...extra() };
+      const body = { text, model: sel.value, quote: quote ? quote.text : "", page: quote ? quote.page : null, effort: effort(), ...extra() };
       input.value = ""; setQuote(null); busy(true);
       const j = await post(base, body);
       busy(false); wait.remove();
@@ -109,7 +123,7 @@
     box.querySelector("[data-chat-end]").addEventListener("click", async () => {
       if (!count) { say(t("还没有讨论内容")); return; }
       const btn = box.querySelector("[data-chat-end]"); btn.disabled = true; btn.textContent = t("正在总结…");
-      const j = await post(`${base}/summary`, { model: sel.value, ...extra() });
+      const j = await post(`${base}/summary`, { model: sel.value, effort: effort(), ...extra() });
       btn.disabled = false; btn.textContent = t("结束讨论，总结到笔记");
       if (!j.ok) { say(j.message || t("总结失败")); return; }
       sumText.value = j.text; sumBox.hidden = false; sumText.focus(); sumBox.scrollIntoView({ block: "nearest" });

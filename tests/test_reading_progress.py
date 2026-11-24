@@ -44,7 +44,7 @@ def test_reader_progress_lifecycle(config, registry, pdfs):
     assert 'data-start=""' in regular and 'data-resume-page="1" data-resume-offset="0.46"' in regular
     assert 'data-start="1"' in web.get(reader + "?page=1").text
     shelf = re.search(r'<section id="recent-reading".*?</section>', web.get("/").text, re.S).group()
-    assert f'href="{reader}"' in shelf and "第 2 页" in shelf and "hidden" not in shelf
+    assert f'href="/?id={pid}&amp;read=1"' in shelf and "第 2 页" in shelf and "hidden" not in shelf
     assert re.search(r'<section id="recent-reading"[^>]+hidden', web.get("/?q=demo").text)
     assert 'id="recent-reading"' not in web.get("/?c=none").text
 
