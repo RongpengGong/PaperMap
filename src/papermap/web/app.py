@@ -1189,7 +1189,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.post("/api/papers/delete")
     async def papers_delete(request: Request):
-        """Move papers to the trash (data_dir/trash); restorable from the 「已删除」 filter."""
+        """Move papers to the trash (data_dir/trash); restorable from the deleted-papers filter."""
         from .. import trash
 
         body = await json_body(request)

@@ -129,3 +129,93 @@ def test_openalex_parse_and_pmc_links():
     r = tracking.OpenAlexSource.parse(w)
     assert r["doi"] == "10.5555/abc" and r["abstract"] == "hello world" and r["is_preprint"]
     assert r["oa_urls"] == ["pmc:PMC123", "https://e/x.pdf"] and r["references"] == ["W1"]
+
+
+def test_query_parser_matches_like_the_search_engines():
+    q = tracking.parse_query('("single-cell RNA-seq" OR scRNA-seq) AND (HCC OR "hepatocellular carcinoma")')
+    assert tracking.query_matches(q, "an scrna-seq atlas of hcc")
+    assert tracking.query_matches(q, "single-cell rna-seq of hepatocellular carcinoma")
+    assert not tracking.query_matches(q, "an scrna-seq atlas of colon")
+    assert not tracking.query_matches(tracking.parse_query("HCC"), "hcc1 cell line only")  # whole words
+    assert tracking.parse_query("") is None
+
+
+PUBMED_XML = """<?xml version="1.0"?><PubmedArticleSet>
+<PubmedArticle><MedlineCitation><PMID>41000001</PMID><Article>
+<Journal><Title>Hepatology</Title><JournalIssue><PubDate><Year>2026</Year><Month>Nov</Month></PubDate></JournalIssue></Journal>
+<ArticleTitle>Spatial atlas of <i>fibroblast</i> niches in HCC.</ArticleTitle>
+<Abstract><AbstractText Label="BACKGROUND">Fibroblasts matter.</AbstractText><AbstractText Label="RESULTS">Visium shows niches.</AbstractText></Abstract>
+<AuthorList><Author><LastName>Li</LastName><ForeName>Wei</ForeName></Author></AuthorList>
+<PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList>
+<ELocationID EIdType="doi">10.1002/HEP.99999</ELocationID></Article></MedlineCitation>
+<PubmedData><ArticleIdList><ArticleId IdType="pubmed">41000001</ArticleId><ArticleId IdType="pmc">PMC1234567</ArticleId></ArticleIdList></PubmedData>
+</PubmedArticle>
+<PubmedArticle><MedlineCitation><PMID>41000002</PMID><Article><Journal><Title>X</Title></Journal>
+<ArticleTitle>Erratum: something</ArticleTitle><PublicationTypeList><PublicationType>Published Erratum</PublicationType></PublicationTypeList>
+</Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"""
+
+
+def test_pubmed_fetch_uses_entrez_date_and_parses(config, registry):
+    import httpx
+
+    from papermap.metadata import MetadataClient
+
+    seen = []
+
+    def handler(req):
+        seen.append(req.url)
+        if "esearch" in req.url.path:
+            return httpx.Response(200, json={"esearchresult": {"idlist": ["41000001", "41000002"]}})
+        return httpx.Response(200, text=PUBMED_XML)
+
+    md = MetadataClient(registry, transport=httpx.MockTransport(handler))
+    src = tracking.PubMedSource(md)
+    src.MIN_INTERVAL = 0
+    recs = src.fetch(registry, {"kind": "field", "query": '"fibroblast niche" OR Visium'}, date(2026, 11, 17), 50)
+    term = seen[0].params["term"]
+    assert '"2026/11/17"[EDAT]' in term and '"fibroblast niche" OR Visium' in term
+    assert len(recs) == 1  # the erratum is skipped
+    r = recs[0]
+    assert r["doi"] == "10.1002/hep.99999" and r["pmid"] == "41000001" and r["oa_urls"] == ["pmc:PMC1234567"]
+    assert r["title"] == "Spatial atlas of fibroblast niches in HCC" and "RESULTS: Visium" in r["abstract"]
+    assert r["authors"] == ["Wei Li"] and r["pub_date"] == "2026-11-01"
+
+
+def test_biorxiv_window_matched_locally_and_preprint_dedup(config, registry, pdfs, monkeypatch):
+    import httpx
+
+    from papermap.metadata import MetadataClient
+
+    calls = []
+    page = {"messages": [{"status": "ok", "total": 3}], "collection": [
+        {"doi": "10.1101/2026.11.01.111", "title": "Fibroblast niche in liver cancer by Visium", "authors": "Li, W.; Chen, X.",
+         "date": "2026-11-18", "version": "1", "abstract": "Spatial.", "published": "NA"},
+        {"doi": "10.1101/2026.11.01.111", "title": "Fibroblast niche in liver cancer by Visium", "authors": "Li, W.; Chen, X.",
+         "date": "2026-11-20", "version": "2", "abstract": "Spatial v2.", "published": "10.1038/s41586-026-00001-1"},
+        {"doi": "10.1101/2026.11.02.222", "title": "Plant roots", "authors": "Z, Z.", "date": "2026-11-19", "version": "1",
+         "abstract": "Roots.", "published": "NA"}]}
+
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, json=page if "/biorxiv/" in req.url.path else {"messages": [{"total": 0}], "collection": []})
+
+    src = tracking.BioRxivSource(MetadataClient(registry, transport=httpx.MockTransport(handler), min_interval_s=0))
+    w = {"kind": "gap", "query": '"fibroblast niche" OR Visium'}
+    recs = src.fetch(registry, w, date(2026, 11, 17), 50)
+    assert [r["doi"] for r in recs] == ["10.1101/2026.11.01.111"] and recs[0]["version"] == 2
+    assert recs[0]["related_dois"] == ["10.1038/s41586-026-00001-1"] and recs[0]["authors"] == ["W. Li", "X. Chen"]
+    n = len(calls)
+    src.fetch(registry, {"kind": "field", "query": "roots"}, date(2026, 11, 17), 50)
+    assert len(calls) == n  # one download per run, shared by every watch
+
+    # the published version found by another source and the preprint end up as ONE candidate
+    c, pipe, *_ = client(config, registry, pdfs)
+    tracking.ensure_schema(registry)
+    lib = tracking._library_keys(registry)  # noqa: SLF001
+    wid = registry.execute("INSERT INTO track_watches(kind, ref, label, query, created_at) VALUES ('gap','x','x','x','t')").lastrowid
+    cid1, _ = tracking.upsert(registry, rec("10.1038/s41586-026-00001-1", "Fibroblast niche in liver cancer (journal)"), wid, "openalex", lib)
+    cid2, new = tracking.upsert(registry, recs[0], wid, "biorxiv", lib)
+    assert cid1 == cid2 and not new
+    # and a preprint whose published version is already in the library is not proposed at all
+    lib[0].add("10.1038/s41586-026-00002-2")
+    assert tracking.upsert(registry, {**recs[0], "doi": "10.1101/x", "related_dois": ["10.1038/s41586-026-00002-2"]}, wid, "biorxiv", lib) == (None, False)

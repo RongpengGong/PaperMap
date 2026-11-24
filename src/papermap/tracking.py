@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -265,8 +266,243 @@ class OpenAlexSource:
         }
 
 
+# ------------------------------------------------------------------ boolean queries matched locally
+_TOKEN = re.compile(r'\s*(\(|\)|"[^"]*"|[^\s()"]+)')
+
+
+def parse_query(q: str):
+    """The watches' search syntax: words, "phrases", AND / OR (AND binds tighter), parentheses.
+    Returns a nested tuple tree, or None when empty."""
+    toks = [t for t in _TOKEN.findall(q or "") if t.strip()]
+    pos = 0
+
+    def peek():
+        return toks[pos] if pos < len(toks) else None
+
+    def term():
+        nonlocal pos
+        t = peek()
+        if t is None:
+            return None
+        pos += 1
+        if t == "(":
+            node = expr()
+            if peek() == ")":
+                pos += 1
+            return node
+        if t == ")":
+            return None
+        return ("t", t.strip('"').lower())
+
+    def conj():
+        nonlocal pos
+        parts = [term()]
+        while peek() not in (None, ")") and peek().upper() != "OR":
+            if peek().upper() == "AND":
+                pos += 1
+            parts.append(term())
+        parts = [p for p in parts if p]
+        return parts[0] if len(parts) == 1 else ("and", parts) if parts else None
+
+    def expr():
+        nonlocal pos
+        parts = [conj()]
+        while peek() is not None and peek().upper() == "OR":
+            pos += 1
+            parts.append(conj())
+        parts = [p for p in parts if p]
+        return parts[0] if len(parts) == 1 else ("or", parts) if parts else None
+
+    return expr()
+
+
+def query_matches(tree, text: str) -> bool:
+    if tree is None:
+        return False
+    kind, val = tree
+    if kind == "t":
+        return re.search(r"(?<![a-z0-9])" + re.escape(val) + r"(?![a-z0-9])", text) is not None
+    hits = (query_matches(t, text) for t in val)
+    return all(hits) if kind == "and" else any(hits)
+
+
+class PubMedSource:
+    """NCBI E-utilities (esearch + efetch). Catch-up uses the Entrez date, i.e. when PubMed added
+    the record, so a paper indexed late is still found on the next run."""
+    name = "pubmed"
+    BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    MIN_INTERVAL = 0.4  # NCBI allows 3 requests per second without an API key
+
+    def __init__(self, metadata):
+        self.md = metadata
+        self._last = 0.0
+
+    def supports(self, kind: str) -> bool:
+        return kind in ("field", "gap")
+
+    def _get(self, path: str, params: dict) -> httpx.Response:
+        params = {**params, "tool": "PaperMap"}
+        if getattr(self.md, "email", ""):
+            params["email"] = self.md.email
+        delay = 1.0
+        for attempt in range(4):
+            wait = self._last + self.MIN_INTERVAL - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
+            try:
+                r = self.md.http.get(f"{self.BASE}/{path}", params=params, timeout=40)
+            except httpx.HTTPError as exc:
+                if attempt == 3:
+                    raise RuntimeError(f"PubMed: {exc}") from exc
+            else:
+                if r.status_code == 200:
+                    return r
+                if r.status_code not in (429, 500, 502, 503) or attempt == 3:
+                    raise RuntimeError(f"PubMed: HTTP {r.status_code}")
+            time.sleep(delay)
+            delay *= 2
+        raise RuntimeError("PubMed: no answer")
+
+    def fetch(self, registry: Registry, watch, since: date, per_page: int) -> list[dict]:
+        q = (watch["query"] or "").strip()
+        if not q:
+            return []
+        term = f'({q}) AND ("{since:%Y/%m/%d}"[EDAT] : "3000"[EDAT])'
+        ids = self._get("esearch.fcgi", {"db": "pubmed", "term": term, "retmax": per_page, "retmode": "json",
+                                         "sort": "relevance"}).json().get("esearchresult", {}).get("idlist", [])
+        if not ids:
+            return []
+        xml = self._get("efetch.fcgi", {"db": "pubmed", "id": ",".join(ids), "retmode": "xml"}).text
+        return self.parse(xml)
+
+    @staticmethod
+    def parse(xml: str) -> list[dict]:
+        import xml.etree.ElementTree as ET
+
+        out = []
+        root = ET.fromstring(xml)
+        for art in root.iter("PubmedArticle"):
+            cit = art.find("MedlineCitation")
+            a = cit.find("Article") if cit is not None else None
+            if a is None:
+                continue
+            text = lambda el: "".join(el.itertext()).strip() if el is not None else ""  # noqa: E731
+            ids = {i.get("IdType"): (i.text or "").strip() for i in art.iter("ArticleId")}
+            pmid = text(cit.find("PMID")) or ids.get("pubmed")
+            doi = norm_doi(ids.get("doi")) or next((norm_doi(e.text) for e in a.iter("ELocationID")
+                                                    if e.get("EIdType") == "doi" and e.text), None)
+            parts = []
+            for ab in a.iter("AbstractText"):
+                label = ab.get("Label")
+                parts.append((f"{label}: " if label else "") + text(ab))
+            authors = []
+            for au in a.iter("Author"):
+                name = " ".join(x for x in (text(au.find("ForeName")), text(au.find("LastName"))) if x) or text(au.find("CollectiveName"))
+                if name:
+                    authors.append(name)
+            year, pub = None, None
+            d = a.find("ArticleDate")
+            if d is None:
+                d = a.find("Journal/JournalIssue/PubDate")
+            if d is not None:
+                y, m, dd = text(d.find("Year")), text(d.find("Month")), text(d.find("Day"))
+                if y.isdigit():
+                    year = int(y)
+                    months = {mo: i for i, mo in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug",
+                                                            "sep", "oct", "nov", "dec"], 1)}
+                    mm = int(m) if m.isdigit() else months.get(m[:3].lower(), 1)
+                    pub = f"{year:04d}-{mm:02d}-{int(dd) if dd.isdigit() else 1:02d}"
+            types = {text(t).lower() for t in a.iter("PublicationType")}
+            if types & {"erratum", "published erratum", "retraction of publication", "comment", "editorial"}:
+                continue
+            pmc = ids.get("pmc") or ""
+            out.append({
+                "doi": doi, "openalex_id": None, "pmid": pmid,
+                "title": re.sub(r"\s+", " ", text(a.find("ArticleTitle"))).strip().rstrip("."),
+                "abstract": " ".join(parts), "pub_date": pub, "year": year,
+                "journal": text(a.find("Journal/Title")), "authors": authors[:30],
+                "is_preprint": "preprint" in types,
+                "oa_urls": [f"pmc:{pmc}"] if re.fullmatch(r"PMC\d+", pmc) else [],
+                "landing": f"https://doi.org/{doi}" if doi else f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                "references": [],
+            })
+        return out
+
+
+class BioRxivSource:
+    """bioRxiv / medRxiv. The public API lists preprints by posting date but cannot search, so each
+    run downloads the window once and every watch's query is matched against title + abstract here."""
+    name = "biorxiv"
+    API = "https://api.biorxiv.org/details"
+    SERVERS = ("biorxiv", "medrxiv")
+    MAX_PAGES = 60  # per server and run (100 records each)
+
+    def __init__(self, metadata):
+        self.md = metadata
+        self._cache: dict[str, list[dict]] = {}
+        self._since: dict[str, date] = {}
+
+    def supports(self, kind: str) -> bool:
+        return kind in ("field", "gap")
+
+    def _window(self, server: str, since: date) -> list[dict]:
+        if server in self._since and self._since[server] <= since:
+            return [r for r in self._cache[server] if (r.get("pub_date") or "") >= since.isoformat()]
+        recs, cursor, today = [], 0, date.today().isoformat()
+        for _ in range(self.MAX_PAGES):
+            body = self.md._get_json(f"{self.API}/{server}/{since.isoformat()}/{today}/{cursor}/json", None, cache=False)  # noqa: SLF001
+            if body is None:
+                raise RuntimeError(f"{server}: no answer")
+            batch = body.get("collection") or []
+            recs += [self.parse(r, server) for r in batch]
+            msg = (body.get("messages") or [{}])[0]
+            total = int(msg.get("total") or msg.get("count") or 0)
+            cursor += len(batch)
+            if not batch or cursor >= total:
+                break
+        latest: dict[str, dict] = {}
+        for r in recs:  # the API lists every version; keep the newest
+            if r["doi"] and (r["doi"] not in latest or r["version"] > latest[r["doi"]]["version"]):
+                latest[r["doi"]] = r
+        self._cache[server], self._since[server] = list(latest.values()), since
+        return self._cache[server]
+
+    def fetch(self, registry: Registry, watch, since: date, per_page: int) -> list[dict]:
+        tree = parse_query(watch["query"])
+        if tree is None:
+            return []
+        out = []
+        for server in self.SERVERS:
+            for r in self._window(server, since):
+                if query_matches(tree, f"{r['title']} {r['abstract']}".lower()):
+                    out.append(r)
+        return out[: per_page * 2]
+
+    @staticmethod
+    def parse(r: dict, server: str) -> dict:
+        doi = norm_doi(r.get("doi"))
+        try:
+            version = int(r.get("version") or 1)
+        except ValueError:
+            version = 1
+        published = norm_doi(r.get("published")) if (r.get("published") or "NA") != "NA" else None
+        authors = [" ".join(reversed([x.strip() for x in a.split(",", 1)])) for a in (r.get("authors") or "").split(";") if a.strip()]
+        host = "www.medrxiv.org" if server == "medrxiv" else "www.biorxiv.org"
+        return {
+            "doi": doi, "openalex_id": None, "pmid": None, "version": version,
+            "title": " ".join((r.get("title") or "").split()), "abstract": " ".join((r.get("abstract") or "").split()),
+            "pub_date": r.get("date"), "year": int(r["date"][:4]) if (r.get("date") or "")[:4].isdigit() else None,
+            "journal": "medRxiv" if server == "medrxiv" else "bioRxiv", "authors": authors[:30],
+            "is_preprint": True, "related_dois": [published] if published else [],
+            "oa_urls": [f"https://{host}/content/{doi}v{version}.full.pdf"] if doi else [],
+            "landing": f"https://doi.org/{doi}" if doi else "", "references": [],
+        }
+
+
 def sources(pipeline) -> dict:
-    return {"openalex": OpenAlexSource(pipeline.metadata)}
+    return {"openalex": OpenAlexSource(pipeline.metadata), "pubmed": PubMedSource(pipeline.metadata),
+            "biorxiv": BioRxivSource(pipeline.metadata)}
 
 
 # ------------------------------------------------------------------ candidates
@@ -291,10 +527,11 @@ def _gap_matches(registry: Registry, text: str) -> list[int]:
 
 
 def find_existing(registry: Registry, rec: dict):
-    if rec.get("doi"):
-        r = registry.one("SELECT * FROM track_candidates WHERE doi=?", (rec["doi"],))
-        if r:
-            return r
+    for d in [rec.get("doi"), *(rec.get("related_dois") or [])]:  # preprint and published version: one candidate
+        if d:
+            r = registry.one("SELECT * FROM track_candidates WHERE doi=?", (d,))
+            if r:
+                return r
     for col in ("openalex_id", "pmid"):
         if rec.get(col):
             r = registry.one(f"SELECT * FROM track_candidates WHERE {col}=?", (rec[col],))
@@ -315,6 +552,8 @@ def find_existing(registry: Registry, rec: dict):
 def upsert(registry: Registry, rec: dict, watch_id: int, source: str, lib: tuple) -> tuple[int | None, bool]:
     """Store one record as a candidate (or add this watch/source as a reason). None if already in the library."""
     dois, oa_ids, titles = lib
+    if any(d and d.lower() in dois for d in rec.get("related_dois") or []):
+        return None, False  # a preprint whose published version is already in the library
     if (rec.get("doi") and rec["doi"].lower() in dois) or (rec.get("openalex_id") in oa_ids) \
             or title_key(rec.get("title", "")) in titles or not rec.get("title"):
         return None, False
@@ -438,8 +677,9 @@ def run(pipeline, force: bool = False) -> dict:
         today = date.today()
         lib = _library_keys(registry)
         found_new, errors, touched = 0, [], []
+        srcs = sources(pipeline)  # once per run: bioRxiv reuses one download for every watch
         for w in registry.query("SELECT * FROM track_watches WHERE enabled=1"):
-            for name, src in sources(pipeline).items():
+            for name, src in srcs.items():
                 if not src.supports(w["kind"]):
                     continue
                 cur = registry.one("SELECT * FROM track_cursors WHERE watch_id=? AND source=?", (w["id"], name))
@@ -587,7 +827,7 @@ def source_status(registry: Registry) -> list[dict]:
         r = registry.one("SELECT min(last_success) AS oldest, max(last_success) AS newest, max(last_run_at) AS ran, "
                          "sum(last_error IS NOT NULL) AS errs, count(*) AS n FROM track_cursors c JOIN track_watches w "
                          "ON w.id=c.watch_id AND w.enabled=1 WHERE source=?", (name,))
-        out.append({"name": name, "label": label, "connected": name in ("openalex",), **(dict(r) if r else {})})
+        out.append({"name": name, "label": label, "connected": True, **(dict(r) if r else {})})
     return out
 
 
