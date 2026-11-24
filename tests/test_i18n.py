@@ -22,7 +22,7 @@ def test_catalogs_cover_all_keys(tmp_path):
     subprocess.run([sys.executable, str(ROOT / "packaging/i18n/extract_keys.py"), str(out)], cwd=ROOT, check=True,
                    capture_output=True)
     keys = {k for k in json.loads(out.read_text("utf-8")) if not k.startswith("^")}  # skip regex literals
-    for code in ("zh-TW", "en", "ja"):
+    for code in ("zh-TW", "en", "de"):
         i18n.catalog.cache_clear()
         missing = sorted(keys - set(i18n.catalog(code)))
         assert not missing, f"{code} lacks {missing[:10]}"
@@ -45,8 +45,8 @@ def test_switch_language_and_keep_user_text(config, registry):
     assert js.startswith("window.PM_T=") and '"保存":"Save"' in js.replace(" ", "")
     nb = c.get(f"/evidence?question={qid}").text
     assert re.search(r'<option value="%d"[^>]*>设置' % qid, nb)  # the user's own title is not translated
-    c.post("/api/appearance", json={"csrf": tok, "language": "ja"})
-    assert "表示言語" in c.get("/settings?section=appearance").text
+    c.post("/api/appearance", json={"csrf": tok, "language": "de"})
+    assert "Sprache der Oberfläche" in c.get("/settings?section=appearance").text
     c.post("/api/appearance", json={"csrf": tok, "language": "zh-TW"})
     assert "介面語言" in c.get("/settings?section=appearance").text or "界面語言" in c.get("/settings?section=appearance").text
     c.post("/api/appearance", json={"csrf": tok, "language": "xx"})

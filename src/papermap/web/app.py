@@ -99,7 +99,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             en, zh = row["name_en"], row["name_zh"]
         except (KeyError, IndexError, TypeError):
             return ""
-        return (en or zh or "") if _lang() in ("en", "ja") else (zh or en or "")
+        return (en or zh or "") if _lang() in ("en", "de") else (zh or en or "")
 
     templates.env.globals["fname"] = _fname
     templates.env.globals["_"] = _gettext
@@ -1074,8 +1074,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             }
         nodes = [
             {"id": f"f{fid}", "kind": f["axis"], "url": f"/field/{f['slug']}",
-             "label": f["name_en"] if lang == "en" or _lang() in ("en", "ja") else f["name_zh"],
-             "title": f["name_zh"] if lang == "en" or _lang() in ("en", "ja") else f["name_en"], "count": counts.get(fid, 0),
+             "label": f["name_en"] if lang == "en" or _lang() in ("en", "de") else f["name_zh"],
+             "title": f["name_zh"] if lang == "en" or _lang() in ("en", "de") else f["name_en"], "count": counts.get(fid, 0),
              "retired": f["status"] == "retired"}
             for fid, f in fields.items() if counts.get(fid) or f["status"] == "active"
         ]

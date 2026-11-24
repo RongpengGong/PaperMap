@@ -17,8 +17,8 @@ class L(str):
     values of this type when rendered; ordinary strings - papers, notes, titles - never are."""
     __slots__ = ()
 
-LANGUAGES = {"zh-CN": "简体中文", "zh-TW": "繁體中文", "en": "English", "ja": "日本語"}
-HTML_LANG = {"zh-CN": "zh-Hans", "zh-TW": "zh-Hant", "en": "en", "ja": "ja"}
+LANGUAGES = {"zh-CN": "简体中文", "zh-TW": "繁體中文", "en": "English", "de": "Deutsch"}
+HTML_LANG = {"zh-CN": "zh-Hans", "zh-TW": "zh-Hant", "en": "en", "de": "de"}
 
 
 def normalize(code) -> str:

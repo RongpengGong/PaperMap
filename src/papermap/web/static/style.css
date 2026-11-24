@@ -239,6 +239,13 @@ textarea.notes { width:100%; min-height:45vh; padding:14px; font:13px/1.75 ui-mo
 .empty-state p { max-width:370px; font-size:12.5px; line-height:1.8; }
 .unread-dot { display:inline-block; width:6px; height:6px; margin-right:6px; border-radius:50%; background:var(--accent); vertical-align:middle; }
 .star-mark { margin-right:4px; color:var(--map-topic); font-style:normal; }
+/* star in the paper list: loud when set, a faint outline on hover otherwise (click toggles) */
+.paper-row .row-star { font-style:normal; cursor:pointer; border-radius:5px; padding:0 5px; font-size:11px; line-height:18px; }
+.paper-row .row-star.on { color:#b7791f; background:color-mix(in srgb, #f6c343 26%, transparent); font-weight:600; }
+.paper-row .row-star:not(.on) { color:var(--muted); opacity:0; padding:0 2px; }
+.paper-row:hover .row-star:not(.on), .paper-row.selected .row-star:not(.on) { opacity:.75; }
+.paper-row .row-star:hover { color:#b7791f; opacity:1; }
+.paper-row:has(.row-star.on) { box-shadow:inset 3px 0 0 #f0b429; }
 .star-btn { margin:0; padding:0 4px; border:0; background:none; color:var(--muted); box-shadow:none; font-size:20px; line-height:1.2; }
 .star-btn:hover { background:var(--side-hover); } .star-btn.on { color:var(--map-topic); }
 .seg { display:inline-flex; gap:2px; padding:2px; border:1px solid var(--line); border-radius:7px; background:var(--side); }

@@ -439,6 +439,18 @@
     if (t) { const box = t.closest(".panel").querySelector("[data-figures]"); box && loadFigures(box); }
   });
 
+  // star straight from the paper list (capture phase so the row link doesn't open)
+  document.addEventListener("click", async e => {
+    const st = e.target.closest("[data-row-star]"); if (!st) return;
+    e.preventDefault(); e.stopPropagation();
+    const pid = st.closest(".paper-row").dataset.id;
+    if ((await api(`/paper/${pid}/meta`, { starred: st.dataset.rowStar !== "1" })).ok) {
+      refreshList();
+      const panel = document.querySelector(`.panel[data-paper="${pid}"]`);
+      if (panel) openPaper(pid, false);
+    }
+  }, true);
+
   // reading status + star (panel header)
   document.addEventListener("click", async e => {
     const star = e.target.closest(".star-btn"), seg = e.target.closest("[data-rs-val]");
