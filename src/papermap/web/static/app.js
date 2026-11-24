@@ -180,6 +180,7 @@
     };
     panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { showTab(tab.dataset.tab); pref("pm_side_tab", tab.dataset.tab); }));
     showTab(pref("pm_side_tab") || "card");
+    if (window.pmChatInit) window.pmChatInit(panel);
     const figBox = panel.querySelector("[data-figures]");
     if (figBox && pref("pm_side_tab") === "figures") loadFigures(figBox);
     // PDF column
@@ -298,7 +299,7 @@
         await refreshList();
         const panel = document.querySelector(".panel");
         const ae = document.activeElement;
-        const typing = (ae && (ae.classList.contains("notes") || ae.closest(".ProseMirror"))) || document.querySelector(".card-editing");
+        const typing = (ae && (ae.classList.contains("notes") || ae.closest(".ProseMirror") || ae.closest(".chat-body"))) || document.querySelector(".card-editing, .chat-busy, .chat-summary:not([hidden])");
         if (panel && !typing) openPaper(panel.dataset.paper, false);
       }
       lastEvent = ver;

@@ -69,6 +69,7 @@
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="card" type="button">{{ _("卡片") }}</button>
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">{{ _("我的笔记") }}</button>{% endif %}
+      {% if notes_text is not none %}<button class="tab" data-tab="chat" type="button" title="{{ _("和模型一起讨论这篇论文") }}">{{ _("AI 对话") }}</button>{% endif %}
       {% if translation %}<button class="tab" data-tab="translation" type="button">{{ _("译文对照") }}</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
       {% if has_pdf and p.status == 'done' %}<button class="tab" data-tab="updates" type="button" title="{{ _("这篇论文对你的研究问题改变了什么") }}">{{ _("变化") }}{% if update_pending %} <b class="badge">{{ update_pending }}</b>{% endif %}</button>{% endif %}
@@ -94,6 +95,36 @@
     <div class="notes-preview md" hidden></div>
     <p class="muted small" data-notes-status>{{ _("保存在这篇论文的文件夹里，PaperMap 永远不会改动它。⌘S 立即保存。") }}</p>
     {% if backlinks %}<h3>{{ _("提到这篇论文的地方") }}</h3><ul class="backlinks">{% for b in backlinks %}<li>{% if b.paper_id %}<a href="/?id={{ b.paper_id }}">{{ b.label }}</a>{% else %}{{ b.label }}{% endif %}<br><span class="muted small">{{ b.snippet }}</span></li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endif %}
+  {% if notes_text is not none %}
+  <div class="tab-body chat-body" data-body="chat" data-chat="{{ p.id }}" hidden>
+    <div class="chat-top">
+      <select data-chat-model title="{{ _("用哪个模型讨论（在设置里配置过的都可以选）") }}"></select>
+      <span class="grow"></span>
+      <button type="button" class="ghost-btn" data-chat-new title="{{ _("清空这次对话，重新开始") }}">{{ _("新对话") }}</button>
+    </div>
+    <div class="chat-log" data-chat-log></div>
+    <div class="chat-summary" data-chat-summary hidden>
+      <p class="small"><b>{{ _("讨论要点（写入前可以修改）") }}</b></p>
+      <textarea rows="8" data-chat-summary-text></textarea>
+      <div class="chat-summary-foot">
+        <label class="inline small"><input type="checkbox" data-chat-clear checked> {{ _("写入后清空这次对话") }}</label>
+        <span class="grow"></span>
+        <button type="button" class="ghost" data-chat-summary-cancel>{{ _("取消") }}</button>
+        <button type="button" data-chat-write>{{ _("写入笔记") }}</button>
+      </div>
+    </div>
+    <div class="chat-compose">
+      <div class="chat-quote" data-chat-quote hidden><span data-chat-quote-text></span><button type="button" class="icon-btn" data-chat-quote-x title="{{ _("去掉引用") }}">×</button></div>
+      <textarea rows="2" data-chat-text placeholder="{{ _("问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送") }}"></textarea>
+      <div class="chat-compose-foot">
+        <button type="button" class="ghost-btn" data-chat-end title="{{ _("让模型总结这次讨论，你确认后追加到「我的笔记」") }}">{{ _("结束讨论，总结到笔记") }}</button>
+        <span class="grow"></span>
+        <button type="button" data-chat-send>{{ _("发送") }}</button>
+      </div>
+      <p class="muted small chat-privacy">{{ _("论文全文、卡片和你的笔记会发给所选模型的服务商；费用计入费用页。") }}</p>
+    </div>
   </div>
   {% endif %}
   {% if translation %}

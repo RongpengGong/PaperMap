@@ -90,9 +90,10 @@ class LLMClient:
 
     def chat_text(self, system: str, user: str, purpose: str, paper_id: int | None = None,
                   max_tokens: int = 8192, eff: dict | None = None, client: Any = None,
-                  images: list[bytes] | None = None) -> LLMResult:
+                  images: list[bytes] | None = None, history: list[dict] | None = None) -> LLMResult:
         """Free-text answer (Markdown). ``eff``/``client`` select another endpoint (custom services);
-        ``images`` (PNG bytes) are sent with the user message (vision models)."""
+        ``images`` (PNG bytes) are sent with the user message (vision models); ``history`` holds
+        earlier {role, content} turns of a conversation, placed before ``user``."""
         eff = eff or self.config.effective_llm()
         client = client or self._get_client(eff)
         self.check_budget(eff)
@@ -103,7 +104,10 @@ class LLMClient:
             content = [{"type": "text", "text": user}] + [
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(img).decode()}}
                 for img in images]
-        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
+        turns = [{"role": m["role"], "content": m["content"]} for m in (history or [])
+                 if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
+        messages = (([{"role": "system", "content": system}] if system else []) + turns
+                    + [{"role": "user", "content": content}])
         kwargs: dict[str, Any] = {"model": eff["model"], "messages": messages,
                                   "max_tokens": max(max_tokens, int(eff.get("min_max_tokens") or 0))}
         if not eff.get("no_temperature"):

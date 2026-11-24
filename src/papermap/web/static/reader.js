@@ -192,6 +192,11 @@
     progress.start();
   }
 
+  window.pmGotoPage = i => goto(i);
+  try {  // "Ask AI" only when the reader sits in the paper panel next to the chat
+    const ask = document.querySelector('#sel_toolbar [data-act="ask"]');
+    if (ask && window.parent !== window && window.parent.pmChatAsk) ask.hidden = false;
+  } catch (err) { /* cross-origin parent */ }
   function goto(i, rect) {
     const el = pageEls[i]; if (!el) return;
     const s = ps(i);
@@ -416,6 +421,10 @@
       selInfo = keep; if (note) addAnnotation("yellow", note);
     }
     if (b.dataset.act === "translate") translateSelection();
+    if (b.dataset.act === "ask") {
+      const keep = selInfo; hideToolbar(); window.getSelection().removeAllRanges();
+      try { window.parent.pmChatAsk(pid, keep.text, keep.page + 1); } catch (err) { /* not embedded */ }
+    }
   });
 
   // ------------------------------------------------------- select-to-translate

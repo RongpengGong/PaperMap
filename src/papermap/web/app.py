@@ -2042,6 +2042,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .tracking_routes import mount_tracking
 
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
+    from .chat_routes import mount_chat
+
+    mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
 
