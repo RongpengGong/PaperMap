@@ -1,6 +1,7 @@
 {% from "_chat_box.html" import chat_inner %}
 {% from "_update_cards.html" import ucard %}
 {% from "_gap_hits.html" import ghit %}
+{% from "_version_checks.html" import vcheck %}
 {% set jobnames = {'translate': _('翻译'), 'skill': _('技能解读'), 'update': _('判断「这篇论文改变了什么」'), 'zotero': _('Zotero 导入')} %}
 {% set names = {'new':_('等待处理'),'extracting':_('处理中…'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料（已跳过）'),'error':_('出错'),'done':_('已完成')} %}
 <article class="panel {{ 'has-pdf' if has_pdf }}" data-paper="{{ p.id }}">
@@ -25,6 +26,15 @@
       <summary>{{ _("这篇可能回答了你的问题") }}（{{ open_hits|length }}）</summary>
       {% for h in open_hits %}{{ ghit(h, 'question') }}{% endfor %}
     </details>{% endif %}
+    {% if pdf_versions|length > 1 %}{% set vopen = version_checks|rejectattr('decided')|list %}
+    <details class="version-alert {{ 'attn' if vopen }}" {{ 'open' if vopen }}>
+      <summary>{{ _("这篇有多个版本：") }}{% for v in pdf_versions %}{{ _(kind_label(v.kind)) }}{% if v.doi %} <code>{{ v.doi }}</code>{% endif %}{% if loop.first %} {{ _("（默认显示）") }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if vopen %}<b> — {{ vopen|length }} {{ _("处要核对") }}</b>{% endif %}</summary>
+      <p class="muted small">{{ _("旧版本的 PDF 原样保留：你在它上面做的摘录和标注仍然指向原来那一页。下面把它们逐段对照了新版本；措辞改了或找不到的，请读一下再点「已核对」。") }}
+        {% set same = version_checks|selectattr('status', 'in', ['same', 'moved'])|list %}{% if same %}{{ _("原文没变的") }} {{ same|length }} {{ _("处已自动标好新页码。") }}{% endif %}</p>
+      {% for c in version_checks if c.status in ('changed', 'missing') or not c.decided %}{{ vcheck(c) }}{% endfor %}
+      {% for c in version_checks if c.status in ('same', 'moved') and c.decided %}{% if loop.first %}<details class="vcheck-same"><summary class="small muted">{{ _("没变的段落") }}</summary>{% endif %}{{ vcheck(c) }}{% if loop.last %}</details>{% endif %}{% endfor %}
+    </details>{% endif %}
     <div class="chips-row">
       {% for l in plabels %}<a class="label {{ l.status }} {{ l.axis }}" href="/field/{{ l.slug }}" title="{{ l.reason or '' }}">{{ fname(l) }}<small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.status == 'suggested' %} {{ _("· 待审核") }}{% endif %}{% if l.is_primary and l.axis == 'method' %} {{ _("· 主要") }}{% endif %}</small></a>{% endfor %}
       {% for t in ptags[:12] %}<a class="tag-chip" href="/?q={{ t|urlencode }}" title="{{ _("Zotero 标签") }}">#{{ t }}</a>{% endfor %}
@@ -39,6 +49,11 @@
         </select>
         {% endif %}
       </span>
+    </div>
+    <div class="purpose-row" data-purposes>
+      <span class="muted small" title="{{ _("这篇论文对你有什么用；只用于整理和导出，不影响证据判断") }}">{{ _("用途") }}</span>
+      {% for u in all_purposes %}<button type="button" class="purpose-chip {{ 'on' if u.tag in ppurposes }}" data-purpose="{{ u.tag }}">{{ u.label }}</button>{% endfor %}
+      <button type="button" class="purpose-chip add" data-purpose-add title="{{ _("自定义用途") }}">＋</button>
     </div>
     <div class="action-row">
       {% if p.status == 'done' %}<span class="seg" data-read>{% for k, v in [('unread',_('未读')),('reading',_('在读')),('read',_('已读'))] %}<button type="button" data-rs-val="{{ k }}" class="{{ 'on' if p.read_status == k }}">{{ v }}</button>{% endfor %}</span>{% endif %}

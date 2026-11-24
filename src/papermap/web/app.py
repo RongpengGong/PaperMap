@@ -32,6 +32,11 @@ from .. import reader as reader_mod
 from ..llm import check_connection, list_chatgpt_model_options, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry, now_iso
+from .. import purposes as _purposes
+from .. import versions as _versions
+import contextvars
+
+_PDF_VERSION: contextvars.ContextVar[int | None] = contextvars.ContextVar("pdf_version", default=None)
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
 from ..i18n import L
 
@@ -59,6 +64,18 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
+    _purposes.ensure_schema(registry)
+    _versions.ensure_schema(registry)
+
+    @app.middleware("http")
+    async def pdf_version_param(request: Request, call_next):
+        """?pv=<file id> picks one version of a paper's PDF for the reader and its API."""
+        pv = request.query_params.get("pv", "")
+        token = _PDF_VERSION.set(int(pv) if pv.isdigit() and len(pv) < 18 else None)
+        try:
+            return await call_next(request)
+        finally:
+            _PDF_VERSION.reset(token)
 
     def _hl(text: str, terms: list[str]):
         from markupsafe import Markup, escape
@@ -167,6 +184,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             unfiled_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored' AND id NOT IN "
                                    "(SELECT paper_id FROM paper_collections)")["n"],
             all_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored'")["n"],
+            starred_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored' AND starred=1")["n"],
+            purpose_counts=_purposes.counts(registry),
             budget_ratio=(registry.month_cost() / float(config.llm.get("monthly_budget_usd") or 0))
             if float(config.llm.get("monthly_budget_usd") or 0) and not is_subscription else 0,
             busy=bool(busy),
@@ -178,6 +197,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                        else "SELECT * FROM papers WHERE status != 'ignored'"), []
         if c == "none":
             sql += " AND id NOT IN (SELECT paper_id FROM paper_collections)"
+        elif c == "star":
+            sql += " AND starred=1"
+        elif c.startswith("u:"):  # a purpose tag
+            sql += " AND id IN (SELECT paper_id FROM paper_purposes WHERE tag=?)"
+            params.append(c[2:])
         elif c.isdigit():  # a group shows its own papers and those of its subgroups
             ids = registry.collection_descendants(int(c))
             sql += f" AND id IN (SELECT paper_id FROM paper_collections WHERE collection_id IN ({','.join('?' * len(ids))}))"
@@ -204,6 +228,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return rows, labels
 
     def pdf_file(row) -> Path | None:
+        pref = _versions.preferred(config.knowledge_dir, registry, row["id"])
+        if pref:
+            return pref[0]
         if row["kb_path"] and row["kb_path"].count("/") >= 2:
             p = library.pdf_path(config.knowledge_dir, row["kb_path"])
             if p.exists():
@@ -267,6 +294,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 "tr_ack": bool(tr_cfg.get("privacy_ack")),
                 "plabels": registry.paper_field_rows(paper_id), "files": registry.paper_file_paths(paper_id),
                 "ptags": json.loads(row["tags_json"] or "[]"),
+                "ppurposes": _purposes.of_paper(registry, paper_id), "all_purposes": _purposes.all_tags(registry),
+                "pdf_versions": _versions.versions(config.knowledge_dir, registry, paper_id),
+                "version_checks": _versions.checks(registry, paper_id), "kind_label": _versions.kind_label,
                 "pcollections": [{"id": r["id"], "path": registry.collection_path(r["id"])}
                                  for r in registry.paper_collections(paper_id)],
                 "all_collections": _flat_tree(registry.collection_tree()),
@@ -286,6 +316,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       recent_reading=reading_progress.recent(registry) if not c else [],
                       plugin_exports=[{"id": key, "name": item["name"], "extension": item.get("extension", "md")}
                                       for key, item in export_templates(config).items()],
+                      purposes_menu=_purposes.all_tags(registry),
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
                       **((paper_panel_ctx(selected) or {}) if selected else {}))
@@ -849,10 +880,23 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     # ------------------------------------------------------------------ reader
     def reader_pdf(paper_id: int) -> Path:
         row = registry.get_paper(paper_id)
+        pv = _PDF_VERSION.get()
+        if row is not None and pv is not None:
+            f = _versions.file_path(config.knowledge_dir, registry, paper_id, pv)
+            if f is not None:
+                return f
         f = pdf_file(row) if row else None
         if f is None:
             raise HTTPException(404)
         return f
+
+    def shown_version(paper_id: int) -> int | None:
+        """files.id of the PDF the reader shows, when the paper has several versions."""
+        vs = _versions.versions(config.knowledge_dir, registry, paper_id)
+        if len(vs) < 2:
+            return None
+        pv = _PDF_VERSION.get()
+        return pv if pv in {v["file_id"] for v in vs} else vs[0]["file_id"]
 
     @app.get("/reader/{paper_id}", response_class=HTMLResponse)
     def reader_page(request: Request, paper_id: int, embed: int = 0, page: int | None = None, q: str = "",
@@ -869,8 +913,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if embed and request.headers.get("sec-fetch-dest") == "document":
             return RedirectResponse(request.url.remove_query_params("embed"), status_code=307,
                                     headers={"Vary": "Sec-Fetch-Dest"})
+        vs = _versions.versions(config.knowledge_dir, registry, paper_id)
         response = render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page,
-                          find=q, colors=reader_mod.COLORS)
+                          find=q, colors=reader_mod.COLORS, pdf_versions=vs if len(vs) > 1 else [],
+                          shown_version=shown_version(paper_id), kind_label=_versions.kind_label)
         if embed:
             response.headers.add_vary_header("Sec-Fetch-Dest")
         return response
@@ -899,7 +945,13 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         path = reader_pdf(paper_id)
         data = reader_mod.info(path)
         data.update(revision=document_revision(path), ocr_available=ocr.available())
-        data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in registry.annotations(paper_id)]
+        shown = shown_version(paper_id)
+        anns = registry.annotations(paper_id)
+        if shown is not None:  # highlights belong to the version they were made on
+            original = min(v["file_id"] for v in _versions.versions(config.knowledge_dir, registry, paper_id))
+            anns = [r for r in anns if (r["pdf_file"] or original) == shown]
+        data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in anns]
+        data["pdf_version"] = shown
         return data
 
     @app.get("/api/reader/{paper_id}/page/{n}.png")
@@ -956,7 +1008,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": "没有选中任何文字"}
         color = body.get("color") if body.get("color") in reader_mod.COLORS else "yellow"
         aid = registry.add_annotation(paper_id, int(body.get("page", 0)), json.dumps(rects),
-                                      str(body.get("text", ""))[:4000], color, str(body.get("note", ""))[:4000])
+                                      str(body.get("text", ""))[:4000], color, str(body.get("note", ""))[:4000],
+                                      shown_version(paper_id))
         annotations_changed(paper_id)
         return {"ok": True, "id": aid}
 
@@ -1222,6 +1275,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             raise HTTPException(404)
         return RedirectResponse(f"/?id={paper_id}", status_code=307)
 
+    @app.post("/api/version-checks/{check_id}")
+    async def version_check_decide(check_id: int, request: Request):
+        await json_body(request)
+        _versions.decide(registry, check_id)
+        return {"ok": True}
+
+    @app.post("/api/purposes")
+    async def api_purposes(request: Request):
+        """Turn a purpose tag on/off for one or several papers."""
+        body = await json_body(request)
+        try:
+            n = _purposes.set_tag(registry, ids_of(body), str(body.get("tag", "")), bool(body.get("on", True)))
+        except ValueError as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
+        return {"ok": True, "changed": n}
+
     @app.post("/api/papers/delete")
     async def papers_delete(request: Request):
         """Move papers to the trash (data_dir/trash); restorable from the deleted-papers filter."""
@@ -1234,7 +1303,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 await run_in_threadpool(trash.delete_paper, pipeline, pid)
                 done += 1
             except (ValueError, OSError) as exc:
-                errors.append(str(exc))
+                errors.append(_gettext(str(exc)))
         return {"ok": not errors, "deleted": done, "message": "; ".join(errors)}
 
     @app.post("/paper/{paper_id}/restore")
@@ -1245,7 +1314,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         try:
             await run_in_threadpool(trash.restore_paper, pipeline, paper_id)
         except (ValueError, OSError) as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": _gettext(str(exc))}
         return {"ok": True}
 
     @app.post("/paper/{paper_id}/retry")
@@ -1380,7 +1449,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         return render(request, "review.html", unverified=unverified, items=items, pending=pending,
                       update_cards=upd.pending(registry), update_outcomes=upd.OUTCOMES,
-                      gap_hits=gapmod.new_hits(registry),
+                      gap_hits=gapmod.new_hits(registry), version_checks=_versions.checks(registry, open_only=True),
                       threshold=pipeline.new_field_threshold,
                       all_fields=registry.active_fields(), error=error,
                       accept=float(config.classification.get("accept_confidence", 0.6)))
@@ -2132,7 +2201,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
     from .chat_routes import mount_chat
 
-    mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path)
+    mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path, _gettext)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
 
@@ -2221,7 +2290,9 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
 
     from ..gaps import new_count
 
-    return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry)
+    from ..versions import open_count
+
+    return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry) + open_count(registry)
 
 
 def _safe(fn):

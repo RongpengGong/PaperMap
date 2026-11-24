@@ -64,6 +64,8 @@
     <a class="coll-root {{ 'active' if path == '/' and not cur_c }}" href="/" data-cid="root">{{ icon('papers') }}<span>{{ _("全部论文") }}</span><i class="n">{{ all_n }}</i></a>
     <div class="collections" id="collections">
       <a class="coll {{ 'active' if path == '/' and cur_c == 'none' }}" href="/?c=none" data-cid="none" style="--d:0"><span class="caret"></span>{{ icon('inbox') }}<span class="name">{{ _("未分组") }}</span><i class="n">{{ unfiled_n }}</i></a>
+      <a class="coll coll-star {{ 'active' if path == '/' and cur_c == 'star' }}" href="/?c=star" data-cid="star" style="--d:0" title="{{ _("星标：表示你关心这篇，只影响展示和阅读顺序，不影响证据强弱") }}"><span class="caret"></span><span class="coll-ic star">★</span><span class="name">{{ _("星标") }}</span><i class="n">{{ starred_n }}</i></a>
+      {% for u in purpose_counts %}<a class="coll coll-purpose {{ 'active' if path == '/' and cur_c == 'u:' ~ u.tag }}" href="/?c={{ ('u:' ~ u.tag)|urlencode }}" data-cid="u:{{ u.tag }}" style="--d:0" title="{{ _("用途") }}：{{ u.label }}"><span class="caret"></span><span class="coll-ic">#</span><span class="name">{{ u.label }}</span><i class="n">{{ u.n }}</i></a>{% endfor %}
       {%- for node in collection_tree recursive %}
       <a class="coll {{ 'active' if path == '/' and cur_c == node.id|string }}" href="/?c={{ node.id }}" data-cid="{{ node.id }}" data-parent="{{ node.parent_id or '' }}" draggable="true" style="--d:{{ node.depth }}" title="{{ node.name }}">
         <span class="caret {{ 'has' if node.children }}" data-toggle="{{ node.id }}"></span>{{ icon('folder') }}<span class="name">{{ node.name }}</span><i class="n">{{ node.n }}</i></a>

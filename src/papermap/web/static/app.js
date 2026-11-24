@@ -233,6 +233,17 @@
         document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
       });
     }
+    const purposeBox = panel.querySelector("[data-purposes]");
+    purposeBox && purposeBox.addEventListener("click", async e => {
+      const chip = e.target.closest("[data-purpose]"), add = e.target.closest("[data-purpose-add]");
+      if (chip) {
+        const on = !chip.classList.contains("on");
+        if ((await api("/api/purposes", { paper_ids: [id], tag: chip.dataset.purpose, on })).ok) { chip.classList.toggle("on", on); refreshSidebarCounts(); }
+      } else if (add) {
+        const tag = await dialog(t("自定义用途（例如：基金申请、综述第 3 节）："), { input: true, okText: t("添加") });
+        if (tag && (await api("/api/purposes", { paper_ids: [id], tag, on: true })).ok) openPaper(id, false), refreshSidebarCounts();
+      }
+    });
     const del = panel.querySelector('[data-action="delete-paper"]');
     del && del.addEventListener("click", () => window.pmDeletePapers([id]));
     const restore = panel.querySelector('[data-action="restore-paper"]');
@@ -372,6 +383,13 @@
     const j = await r.json().catch(() => ({ ok: false, message: "HTTP " + r.status }));
     if (!j.ok && !j.need_ack) toast(j.message || t("操作失败"));
     return j;
+  }
+  // Only the sidebar's counts and entries (keeps the open paper as it is).
+  async function refreshSidebarCounts() {
+    if (settingsPage || !sidebar) return;
+    const doc = new DOMParser().parseFromString(await (await fetch(location.href)).text(), "text/html");
+    const fresh = doc.querySelector("#collections"), cur = document.getElementById("collections");
+    if (fresh && cur) { cur.innerHTML = fresh.innerHTML; applyCollapsed(); }
   }
   async function refreshSidebar() {
     if (settingsPage || !sidebar) return;
@@ -585,6 +603,14 @@
       ]);
       return;
     }
+    if (g && (g.dataset.cid === "star" || g.dataset.cid.startsWith("u:"))) {  // export a starred / purpose list
+      e.preventDefault();
+      const scopeQ = "c=" + encodeURIComponent(g.dataset.cid), name = g.querySelector(".name").textContent;
+      showMenu(e.clientX, e.clientY, [{ label: `${t("导出")}「${name}」` },
+        { text: "BibTeX（.bib）", run: () => exportRefs("bib", scopeQ) },
+        { text: "RIS（EndNote / Zotero）", run: () => exportRefs("ris", scopeQ) }]);
+      return;
+    }
     const row = e.target.closest(".paper-row");
     if (row && list) {
       e.preventDefault();
@@ -600,6 +626,13 @@
       items.push("-", { text: t("导出参考文献…"), run: () => exportMenu(e.clientX, e.clientY, ids) });
       items.push({ text: ids.length > 1 ? `${t("删除所选")} ${ids.length} ${t("篇…")}` : t("删除这篇论文…"), danger: true, run: () => window.pmDeletePapers(ids) });
       if (ids.length > 1) items.push({ text: `${t("对比所选")} ${ids.length} ${t("篇论文")}`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
+      const tags = JSON.parse(document.getElementById("purpose_tags")?.textContent || "[]");
+      if (tags.length) {
+        items.push("-", { label: t("标记用途") });
+        tags.forEach(u => items.push({ text: "#" + u.label, run: async () => {
+          if ((await api("/api/purposes", { paper_ids: ids, tag: u.tag, on: true })).ok) { toast(`${t("已标记")}「${u.label}」`); refreshSidebar(); }
+        } }));
+      }
       if (/^\d+$/.test(cur || "")) {
         items.push("-", { text: t("从当前分组移除"), run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });
       }
@@ -627,7 +660,7 @@
   document.addEventListener("dragover", e => {
     const t = targetOf(e); if (!t) return;
     const types = [...e.dataTransfer.types];
-    const okPapers = types.includes(PAPERS) && /^\d+$/.test(t.dataset.cid || "");
+    const okPapers = types.includes(PAPERS) && /^(\d+|star|u:.+)$/.test(t.dataset.cid || "");
     const okGroup = types.includes(GROUP) && (/^\d+$/.test(t.dataset.cid || "") || t.dataset.cid === "root");
     if (okPapers || okGroup) { e.preventDefault(); t.classList.add("drop-target"); }
   });
@@ -636,7 +669,14 @@
     const t = targetOf(e); if (!t) return;
     t.classList.remove("drop-target");
     const papers = e.dataTransfer.getData(PAPERS), group = e.dataTransfer.getData(GROUP);
-    if (papers && /^\d+$/.test(t.dataset.cid)) {
+    if (papers && (t.dataset.cid === "star" || (t.dataset.cid || "").startsWith("u:"))) {
+      e.preventDefault();
+      const ids = JSON.parse(papers), name = t.querySelector(".name").textContent;
+      const j = t.dataset.cid === "star"
+        ? await Promise.all(ids.map(id => api(`/paper/${id}/meta`, { starred: true }))).then(rs => ({ ok: rs.every(r => r.ok) }))
+        : await api("/api/purposes", { paper_ids: ids, tag: t.dataset.cid.slice(2), on: true });
+      if (j.ok) { toast(`${t("已加入「")}${name}」`); refreshSidebar(); }
+    } else if (papers && /^\d+$/.test(t.dataset.cid)) {
       e.preventDefault();
       const ids = JSON.parse(papers), name = t.querySelector(".name").textContent;
       const j = await api(`/api/collections/${t.dataset.cid}/add`, { paper_ids: ids });
@@ -659,4 +699,14 @@ document.addEventListener("click", e => {
   form.hidden = !!cancel || !form.hidden;
   item.querySelector("[data-pf-open]").classList.toggle("open", !form.hidden);
   if (!form.hidden) form.querySelector("input[name=name_zh]").focus();
+});
+
+// "Checked" on a passage that changed between a preprint and its published version.
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-vcheck]"); if (!b) return;
+  b.disabled = true;
+  const r = await fetch(`/api/version-checks/${b.dataset.vcheck}`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csrf: document.body.dataset.csrf }) }).then(x => x.json()).catch(() => ({}));
+  if (r.ok) { const item = b.closest("[data-vcheck-item]"); item.classList.add("done"); b.replaceWith(Object.assign(document.createElement("span"), { className: "muted small", textContent: (window.t ? t("已核对") : "已核对") })); }
+  else b.disabled = false;
 });

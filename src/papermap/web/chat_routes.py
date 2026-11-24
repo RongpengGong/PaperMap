@@ -9,7 +9,11 @@ from ..kb_writer import editable_part
 from ..llm import BudgetExceeded, LLMNotConfigured
 
 
-def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, kb_notes_path):
+def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, kb_notes_path, tr=lambda s: s):
+    def models():
+        """The picker's labels ("主模型 · ChatGPT 订阅 · gpt-x") in the interface language."""
+        return [{**m, "label": " · ".join(tr(part) for part in m["label"].split(" · "))} for m in chat.model_choices(config)]
+
     def paper(paper_id: int):
         row = registry.get_paper(paper_id)
         if row is None or not row["kb_path"] or row["kb_path"].count("/") < 2:
@@ -24,7 +28,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
 
     def error(exc: Exception) -> dict:
         if isinstance(exc, (ValueError, LLMNotConfigured, BudgetExceeded)):
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": tr(str(exc))}
         return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}
 
     @app.get("/api/paper/{paper_id}/chat")
@@ -32,7 +36,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         _, card = paper(paper_id)
         data = chat.load(chat.chat_path(card))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
-                "models": chat.model_choices(config), "model": data.get("model") or "main",
+                "models": models(), "model": data.get("model") or "main",
                 "effort": data.get("effort") or ""}
 
     @app.post("/api/paper/{paper_id}/chat")
@@ -72,7 +76,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
             notes = chat.append_to_notes(config, library.notes_path(config.knowledge_dir, row["kb_path"]),
                                          str(body.get("text", "")))
         except ValueError as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": tr(str(exc))}
         if body.get("clear"):
             chat.clear(chat.chat_path(card))
         background("reindex", pipeline.reindex, paper_id)
@@ -96,7 +100,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
     def page_chat_get(key: str):
         data = chat.load(chat.page_store(config.data_dir, page_key(key)))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
-                "models": chat.model_choices(config), "model": data.get("model") or "main",
+                "models": models(), "model": data.get("model") or "main",
                 "effort": data.get("effort") or ""}
 
     @app.post("/api/page-chat")
@@ -137,7 +141,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
             else:
                 where = chat.append_to_discussion(config, str(body.get("title") or key)[:200], key, str(body.get("text", "")))
         except ValueError as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": tr(str(exc))}
         pipeline.kb_commit(f"AI discussion notes for {key}")
         if body.get("clear"):
             chat.clear(chat.page_store(config.data_dir, key))

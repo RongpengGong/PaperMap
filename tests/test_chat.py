@@ -109,3 +109,14 @@ def test_subscription_models_offer_reasoning_effort(config, monkeypatch):
     with pytest.raises(ValueError):
         chat.resolve(config, "claude_cli|opus", "turbo")
     assert not ch.get("main", {}).get("efforts")  # the default test model (DeepSeek) has none
+
+
+def test_model_picker_follows_interface_language(config, registry, pdfs):
+    from .test_reader import client as reader_client
+
+    c, _, _ = reader_client(config, registry, pdfs)
+    config.raw.setdefault("appearance", {})["language"] = "en"
+    got = c.get("/api/page-chat", params={"key": "/map"}).json()
+    assert got["models"][0]["label"] == "Main model · DeepSeek (official) · deepseek-flash"
+    r = c.post("/api/page-chat", json={"csrf": _token(c), "key": "/map", "text": "x", "model": "nope|x"}).json()
+    assert r["message"] == "This model is not set up in Settings yet"

@@ -258,8 +258,29 @@ class Pipeline:
                 openalex_id=meta.get("openalex_id") or paper["openalex_id"],
             )
         self.registry.log("info", f"Linked {kind} version {new_doi} to existing paper #{pid}", pid)
+        self._new_version(pid, old_meta, meta, sha, kind, new_doi)
         self._refresh_card(pid)
         return self._resume_if_pending(pid) or "same_work"
+
+    def _new_version(self, pid: int, old_meta: dict, meta: dict, sha: str, kind: str, doi: str) -> None:
+        """Keep the other version's PDF next to the first one and check the user's excerpts against it."""
+        from . import versions
+
+        f = self.registry.one("SELECT id FROM files WHERE sha256=?", (sha,))
+        if f is None or not self.registry.one("SELECT 1 FROM files WHERE paper_id=? AND id != ?", (pid, f["id"])):
+            return
+        try:
+            self.place_pdfs(pid)
+            stats = versions.on_new_version(self.config.knowledge_dir, self.registry, pid, old_meta, meta,
+                                            int(f["id"]), kind, doi)
+        except Exception as exc:  # noqa: BLE001 - linking the versions must not fail the import
+            self.registry.log("warning", f"Could not compare the versions of paper #{pid}: {exc}", pid)
+            return
+        changed = stats.get("changed", 0) + stats.get("missing", 0)
+        if stats:
+            self.registry.log("warning" if changed or "abstract" in stats else "info",
+                              f"New {kind} version of paper #{pid}: {stats.get('same', 0) + stats.get('moved', 0)} "
+                              f"excerpt(s) unchanged, {changed} to check" + (", abstract changed" if "abstract" in stats else ""), pid)
 
     def _doi_unverified(self, p: Path, sha: str, st, info, candidates) -> str:
         best = candidates[0]
@@ -699,7 +720,7 @@ class Pipeline:
         if row is None or row["status"] != "done" or not row["kb_path"] or row["kb_path"].count("/") < 2:
             raise ValueError("the paper needs a finished card first")
         card = self.config.knowledge_dir / row["kb_path"]
-        pdf = library.pdf_path(self.config.knowledge_dir, row["kb_path"])
+        pdf = self.pdf_for(paper_id) or library.pdf_path(self.config.knowledge_dir, row["kb_path"])
         if not pdf.exists():
             pdf = next((Path(f) for f in self.registry.paper_file_paths(paper_id) if Path(f).exists()), None)
         if pdf is None:
@@ -805,9 +826,14 @@ class Pipeline:
 
     # --------------------------------------------------------- full-text search
     def pdf_for(self, paper_id: int) -> Path | None:
+        from . import versions
+
         row = self.registry.get_paper(paper_id)
         if row is None:
             return None
+        pref = versions.preferred(self.config.knowledge_dir, self.registry, paper_id)
+        if pref:
+            return pref[0]
         if row["kb_path"] and row["kb_path"].count("/") >= 2:
             p = library.pdf_path(self.config.knowledge_dir, row["kb_path"])
             if p.exists():

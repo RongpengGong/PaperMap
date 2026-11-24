@@ -217,6 +217,7 @@ MIGRATIONS = {
                "tags_json": "TEXT", "zotero_key": "TEXT",
                "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER",
                "card_override": "TEXT", "trash_path": "TEXT", "deleted_status": "TEXT"},  # the user's own edit of the card body (kept over regeneration)
+    "annotations": {"pdf_file": "INTEGER"},  # which version of the PDF (files.id) when a paper has several
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
     "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
     # research questions: user-made are active at once; model-proposed ones wait as 'suggested'
@@ -592,11 +593,12 @@ class Registry:
     def annotations(self, paper_id: int) -> list[sqlite3.Row]:
         return self.query("SELECT * FROM annotations WHERE paper_id=? ORDER BY page, id", (paper_id,))
 
-    def add_annotation(self, paper_id: int, page: int, rects_json: str, text: str, color: str, note: str) -> int:
+    def add_annotation(self, paper_id: int, page: int, rects_json: str, text: str, color: str, note: str,
+                       pdf_file: int | None = None) -> int:
         ts = now_iso()
         cur = self.execute(
-            "INSERT INTO annotations(paper_id, page, rects_json, text, color, note, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?)", (paper_id, page, rects_json, text, color, note, ts, ts))
+            "INSERT INTO annotations(paper_id, page, rects_json, text, color, note, created_at, updated_at, pdf_file) "
+            "VALUES (?,?,?,?,?,?,?,?,?)", (paper_id, page, rects_json, text, color, note, ts, ts, pdf_file))
         return int(cur.lastrowid)
 
     def update_annotation(self, ann_id: int, **cols: Any) -> None:

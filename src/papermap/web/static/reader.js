@@ -44,7 +44,8 @@
     const scale = [1, 1.5, 2, 2.5, 3].reduce((a, b) => Math.abs(b - want) < Math.abs(a - want) ? b : a);
     if (!force && el.dataset.imgScale == scale) return;
     el.dataset.imgScale = scale;
-    el.querySelector("img").src = `/api/reader/${pid}/page/${i}.png?scale=${scale}&revision=${encodeURIComponent(info.revision)}`;
+    const pv = new URLSearchParams(location.search).get("pv");
+    el.querySelector("img").src = `/api/reader/${pid}/page/${i}.png?scale=${scale}&revision=${encodeURIComponent(info.revision)}${pv ? "&pv=" + encodeURIComponent(pv) : ""}`;
   }
   function setPageWords(i, result) {
     const el = pageEls[i];
@@ -193,6 +194,11 @@
   }
 
   window.pmGotoPage = i => goto(i);
+  const versionSel = document.getElementById("pdf_version");
+  versionSel && versionSel.addEventListener("change", () => {
+    const u = new URL(location.href); u.searchParams.set("pv", versionSel.value);
+    ["evidence", "update", "anchor", "page"].forEach(k => u.searchParams.delete(k)); location.href = u.href;
+  });
   try {  // "Ask AI" only when the reader sits in the paper panel next to the chat
     const ask = document.querySelector('#sel_toolbar [data-act="ask"]');
     if (ask && window.parent !== window && window.parent.pmChatAsk) ask.hidden = false;
@@ -211,6 +217,10 @@
       const response = await fetch(url || `/api/reader/${pid}/evidence/${encodeURIComponent(id)}`);
       const entry = await response.json();
       if (!response.ok || !entry.ok) throw Error(typeof entry.detail === "string" ? entry.detail : t("原文位置已不可用。"));
+      const shownPv = new URLSearchParams(location.search).get("pv");
+      if (entry.pv && String(entry.pv) !== shownPv) {  // taken from another version of this paper: open that one
+        const u = new URL(location.href); u.searchParams.set("pv", entry.pv); location.replace(u.href); return;
+      }
       activeEvidence = entry;
       const rect = entry.rects[0];
       if (entry.back) document.getElementById("evidence_location_back").textContent = t("返回论文");

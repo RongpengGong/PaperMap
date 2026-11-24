@@ -5,6 +5,13 @@
 {% if error %}<div class="notice">{{ error }}</div>{% endif %}
 {% if busy %}<div class="notice ok">{{ _("后台正在处理，稍后刷新页面查看结果。") }}</div>{% endif %}
 
+{% if version_checks %}
+{% from "_version_checks.html" import vcheck %}
+<h3>{{ _("新版本里改动了的原文（") }}{{ version_checks|length }}）</h3>
+<p class="muted small">{{ _("预印本出了正式版（或反过来）。你在旧版本上摘录或标注过的这些段落，在新版本里措辞改了或没找到。旧版本原样保留，点左边仍回到原来那一页；读过后点「已核对」。") }}</p>
+{% for c in version_checks %}{{ vcheck(c, true) }}{% endfor %}
+{% endif %}
+
 {% if gap_hits %}
 {% from "_gap_hits.html" import ghit %}
 <h3>{{ _("可能回答你问题的论文（") }}{{ gap_hits|length }}）</h3>

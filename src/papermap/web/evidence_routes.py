@@ -8,7 +8,7 @@ import pymupdf
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .. import evidence
+from .. import evidence, versions
 from .. import gaps as gapmod
 from .. import questions as qmod
 from .. import updates as upd
@@ -118,9 +118,12 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         row = registry.one("SELECT * FROM evidence_entries WHERE id=? AND paper_id=?", (eid, pid))
         if not row:
             raise HTTPException(404, "未找到这条摘录，请在证据笔记中查看。")
+        pv = None
         if evidence.document_revision(reader_pdf(pid)) != row["revision"]:
-            raise HTTPException(409, "PDF 版本已更换，请对照笔记重新核对摘录位置。")
-        return {"ok": True, "id": eid, "question_id": row["question_id"], "page": row["page"],
+            pv = versions.find_revision(config.knowledge_dir, registry, pid, row["revision"])
+            if pv is None:
+                raise HTTPException(409, "PDF 版本已更换，请对照笔记重新核对摘录位置。")
+        return {"ok": True, "id": eid, "pv": pv, "question_id": row["question_id"], "page": row["page"],
                 "rects": json.loads(row["rects_json"]), "quote": row["quote"], "source": row["source"]}
 
     @app.get("/api/reader/{pid}/update/{cid}/{k}")
@@ -130,9 +133,12 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         row = upd.anchor(registry, cid, pid, k)
         if row is None:
             raise HTTPException(404, "未找到这句原文，请回到论文的「变化」标签查看。")
+        pv = None
         if evidence.document_revision(reader_pdf(pid)) != row["revision"]:
-            raise HTTPException(409, "PDF 版本已更换，请重新生成这张更新卡。")
-        return {"ok": True, "id": f"u{cid}-{k}", "question_id": row["question_id"], "page": row["page"],
+            pv = versions.find_revision(config.knowledge_dir, registry, pid, row["revision"])
+            if pv is None:
+                raise HTTPException(409, "PDF 版本已更换，请重新生成这张更新卡。")
+        return {"ok": True, "id": f"u{cid}-{k}", "pv": pv, "question_id": row["question_id"], "page": row["page"],
                 "rects": row["rects"], "quote": row["quote"], "source": "native", "back": f"/?id={pid}"}
 
     @app.post("/api/evidence/entries/{eid}/{action}")

@@ -54,6 +54,9 @@ def _subscription_ready(config: Config, pid: str) -> bool:
 
 
 _CATALOG: dict[str, tuple[float, list[dict]]] = {}
+# Provider names shown in the model picker; listed here so the UI catalogs translate them.
+PROVIDER_LABELS = ("主模型", "自定义", "DeepSeek 官方", "ChatGPT 订阅", "Claude 订阅（Claude Code）", "Kimi 开放平台",
+                   "智谱开放平台（GLM）", "阿里云百炼（通义千问）")
 
 
 def _chatgpt_catalog(config: Config) -> list[dict]:

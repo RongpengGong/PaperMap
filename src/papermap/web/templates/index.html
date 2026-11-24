@@ -4,6 +4,7 @@
 {% block scripts %}<script src="/static/resume.js?v={{ static_v }}"></script>{% endblock %}
 {% block content_class %}split-content{% endblock %}
 {% block content %}
+<script type="application/json" id="purpose_tags">[{% for u in purposes_menu %}{{ {"tag": u.tag, "label": _(u.label|string)}|tojson }}{% if not loop.last %},{% endif %}{% endfor %}]</script>
 <script type="application/json" id="plugin_exports">{{ plugin_exports|tojson }}</script>
 <div class="split">
   <section class="list-pane" id="paper-list-pane">

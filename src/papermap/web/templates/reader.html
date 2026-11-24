@@ -1,6 +1,18 @@
 {% extends ("bare.html" if embed else "base.html") %}
 {% block title %}{{ p.title }} {{ _("- 阅读") }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">{% if embed %}
+{% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">
+<script>
+  // One version of the PDF (?pv=file id) for every reader request on this page.
+  (function () {
+    const pv = new URLSearchParams(location.search).get("pv");
+    if (!pv) return;
+    const f = window.fetch.bind(window);
+    window.fetch = (u, o) => {
+      if (typeof u === "string" && u.startsWith("/api/reader/")) u += (u.includes("?") ? "&" : "?") + "pv=" + encodeURIComponent(pv);
+      return f(u, o);
+    };
+  })();
+</script>{% if embed %}
 <script>
   // A standalone window always needs library navigation, even on WebViews
   // that omit the request destination header.
@@ -33,6 +45,9 @@
       <button type="button" class="icon-btn" id="toggle_side" title="{{ _("显示/隐藏侧栏") }}">☰</button>
       {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}" data-show-library-list>{{ _("← 返回论文列表") }}</a>{% endif %}
       <span class="reader-title" title="{{ p.title }}">{{ p.title }}</span>
+      {% if pdf_versions %}<select class="ghost-select version-select" id="pdf_version" title="{{ _("这篇论文有多个版本；你在哪个版本上做的摘录和标注，就在哪个版本上显示") }}">
+        {% for v in pdf_versions %}<option value="{{ v.file_id }}" {{ 'selected' if v.file_id == shown_version }}>{{ _(kind_label(v.kind)) }}{% if v.doi %} · {{ v.doi }}{% endif %}</option>{% endfor %}
+      </select>{% endif %}
       <span class="grow"></span>
       <button type="button" class="ghost-btn" id="reader_ocr" hidden title="{{ _("用 Mac 本机文字识别处理当前页") }}">{{ _("识别本页") }}</button>
       <span class="page-ind"><input type="number" id="page_no" min="1" value="1"> / <span id="page_total">–</span></span>
