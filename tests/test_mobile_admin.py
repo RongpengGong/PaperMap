@@ -21,19 +21,22 @@ def phone_controls(config, registry, monkeypatch):
         def __init__(self, config, registry):
             self.shared = []
             self.code = None
+            self.processing = False
 
         def addresses(self):
             return self.ips
 
         def status(self):
-            return {"active": bool(self.shared), "address": self.ips[0] if self.ips else "", "paperIds": self.shared}
+            return {"active": bool(self.code), "address": self.ips[0] if self.ips else "",
+                    "paperIds": self.shared, "processing": self.processing}
 
-        def start(self, address, ids):
-            if not ids:
+        def start(self, address, ids, *, processing=False):
+            if not ids and not processing:
                 raise ValueError("请选择要共享的论文。")
             if address not in self.ips:
                 raise ValueError("请选择此电脑的局域网 IPv4 地址。")
             self.shared = list(ids)
+            self.processing = processing
             _, ca, pin = mobile_lan._identity(address)
             self.code = {"v": 1, "url": "https://192.168.1.2:12345", "libraryId": str(uuid.uuid4()),
                          "token": "S" * 43, "pin": pin, "ca": ca}
@@ -42,6 +45,7 @@ def phone_controls(config, registry, monkeypatch):
         def stop(self):
             self.shared = []
             self.code = None
+            self.processing = False
 
         def pairing(self):
             if not self.code:
@@ -95,6 +99,19 @@ def test_empty_library_and_missing_network(phone_controls):
     assert "暂无已入库的论文" in page
     form = nodes(page).all(lambda n: n.attrs.get("action") == "/settings/mobile/start")[0]
     assert "disabled" in form.all(lambda n: n.tag == "button")[0].attrs
+
+
+def test_processing_requires_explicit_consent_and_supports_import_into_empty_library(phone_controls):
+    web, controls = phone_controls
+    form = nodes(web.get("/settings/mobile/panel").text)
+    option = form.all(lambda n: n.attrs.get("name") == "processing")[0]
+    assert "checked" not in option.attrs
+    start = web.post("/settings/mobile/start", headers=FRAGMENT,
+                     data={"csrf": _token(web), "address": controls.ips[0], "processing": "true"})
+    assert controls.processing and not controls.shared
+    assert "本次配对已允许" in start.text
+    assert web.post("/settings/mobile/stop", data={"csrf": _token(web)}, follow_redirects=False).status_code == 303
+    assert not controls.processing
 
 
 def test_pairing_qr_decodes_to_exact_displayed_payload(phone_controls, registry):

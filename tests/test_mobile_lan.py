@@ -84,11 +84,17 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         revision = listing['papers'][0]['revision']
         base = '/v1/papers/1/' + revision
         other = '/v1/papers/2/' + hashlib.sha256(pdfs['refs_only'].read_bytes()).hexdigest()
-        for path in ('/settings', '/mcp', '/api/state', '/docs', '/v1/papers/', other, other + '/pdf'):
+        for path in ('/settings', '/mcp', '/api/state', '/docs', '/v1/papers/', other, other + '/pdf',
+                     other + '/companion'):
             assert web.get(path).status_code == 404
         assert web.get('/v1/papers/1/' + '0' * 64).status_code == 409
         paper = web.get(base).json()
         assert paper['revision'] == revision
+        companion = web.get(base + '/companion').json()
+        assert companion == {'id': 1, 'revision': revision, 'card': '',
+                             'version': listing['papers'][0]['companionVersion'],
+                             'translation': {'state': 'missing', 'paragraphs': []}}
+        assert paper['companionVersion'] == companion['version']
         pdf = pdfs['paper'].read_bytes()
         assert web.get(base+'/pdf').content == pdf
         for header, start, end in [('bytes=0-31', 0, 31), ('bytes=32-', 32, len(pdf)-1),
@@ -115,6 +121,7 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         assert web.get('/v1/papers').json()['papers'] == []
         assert web.get('/v1/papers/1/'+next_revision+'/pdf').status_code == 409
         assert web.get(base+'/pdf').status_code == 409
+        assert web.get(base+'/companion').status_code == 409
         lan.stop()
         assert lan.status() == {'active': False}
         with pytest.raises(httpx.ConnectError):

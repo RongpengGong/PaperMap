@@ -84,11 +84,11 @@ _AFTER_REFS = re.compile(r"(online )?methods|materials and methods|data availabi
                          r"acknowledg(e)?ments|author contributions|supplementary information|extended data", re.I)
 
 
-def _blocks(pdf: str | Path, cache: Path | None = None) -> list[list[dict]]:
+def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool = True) -> list[list[dict]]:
     """Per page: text blocks with their dominant font size and boldness."""
     pages = []
     with pymupdf.open(pdf) as doc:
-        auto = cache is not None and ocr.scanned_document(doc)
+        auto = automatic_ocr and cache is not None and ocr.scanned_document(doc)
         for i in range(min(doc.page_count, MAX_PAGES_FOR_LLM)):
             blocks = []
             page = doc[i]
@@ -122,13 +122,13 @@ def _blocks(pdf: str | Path, cache: Path | None = None) -> list[list[dict]]:
     return pages
 
 
-def paragraphs(pdf: str | Path, cache: Path | None = None) -> list[dict]:
+def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool = True) -> list[dict]:
     """Reading-order paragraphs of the article text.
 
     Drops running headers/footers, the reference list and the small text
     inside figures (axis labels etc.); keeps figure legends.
     """
-    pages = _blocks(pdf, cache)
+    pages = _blocks(pdf, cache, automatic_ocr=automatic_ocr)
     sizes = Counter()
     for page in pages:
         for b in page:
@@ -147,7 +147,7 @@ def paragraphs(pdf: str | Path, cache: Path | None = None) -> list[dict]:
     out: list[dict] = []
     in_refs = False
     stop = False
-    for page in pages:
+    for page_number, page in enumerate(pages):
         if stop:
             break
         for b in page:
@@ -178,14 +178,14 @@ def paragraphs(pdf: str | Path, cache: Path | None = None) -> list[dict]:
             if heading_like and not legend:
                 t = _clean(raw)
                 if 6 <= len(t) <= 160 and re.search(r"[A-Za-z]{3,}", t):  # not panel letters like "d e"
-                    out.append({"kind": "heading", "src": t})
+                    out.append({"kind": "heading", "src": t, "page": page_number, "endPage": page_number})
                 continue
             lines = list(b["lines"])
             head = []  # bold first line(s) of a body block = inline subsection heading
             while lines and lines[0][1] and not legend and len(lines) > 1 and len(lines[0][0]) < 120:
                 head.append(lines.pop(0)[0])
             if head and re.search(r"[A-Za-z]{3,}", " ".join(head)):
-                out.append({"kind": "heading", "src": _clean("\n".join(head))})
+                out.append({"kind": "heading", "src": _clean("\n".join(head)), "page": page_number, "endPage": page_number})
             kept: list[str] = []
             for t, _ in lines:
                 st = t.strip()
@@ -200,7 +200,7 @@ def paragraphs(pdf: str | Path, cache: Path | None = None) -> list[dict]:
             for piece in re.split(r"\n\s*\n", "\n".join(kept)):
                 t = _clean(piece)
                 if len(t) >= 25:
-                    out.append({"kind": "para", "src": t})
+                    out.append({"kind": "para", "src": t, "page": page_number, "endPage": page_number})
     return [dict(p, kind="meta") if p["kind"] in ("para", "heading") and is_meta(p["src"]) else p for p in _merge(out)]
 
 
@@ -214,6 +214,7 @@ def _merge(out: list[dict]) -> list[dict]:
         if (prev and prev["kind"] == "para" and p["kind"] == "para" and not _LEGEND_RE.match(p["src"])
                 and not re.search(r"[.!?:)\]]$", prev["src"]) and p["src"][:1].islower()):
             prev["src"] = (prev["src"][:-1] if prev["src"].endswith("-") else prev["src"] + " ") + p["src"]
+            prev["endPage"] = p["endPage"]
         else:
             merged.append(dict(p))
     return merged

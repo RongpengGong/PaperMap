@@ -66,7 +66,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .plugin_api import mount_api
 
     hooks = PluginHooks(config, registry)
-    mobile = MobileLan(config, registry)
+    mobile = MobileLan(config, registry, pipeline)
     @asynccontextmanager
     async def lifespan(app):
         async with hooks.lifespan(app), mcp_api.lifespan(registry) as transport:
@@ -2252,6 +2252,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         try:
             # A restore can replace both the library identity and internal paper IDs.
             await run_in_threadpool(mobile.stop)
+            if registry.one("SELECT 1 FROM jobs WHERE status IN ('queued','running') LIMIT 1"):
+                return {"ok": False, "message": "还有翻译、解读或批量任务在运行，请等它们完成后再恢复"}
             res = await run_in_threadpool(backup_mod.restore, config, registry, str(body.get("name", "")),
                                           pipeline._lock)
         except (ValueError, OSError) as exc:

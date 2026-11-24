@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import evidence, library, ocr, versions
+from . import evidence, library, mobile_companion, ocr, versions
 from .registry import now_iso
 
 
@@ -116,7 +116,17 @@ def capture(config, registry, paper_id) -> dict:
         row = _paper(registry, paper_id)
         return {"id": paper_id, "title": row["title"] or "PDF", "revision": revision,
                 "pageCount": count, "byteSize": size, "progress": _progress(row, count),
-                "notes": _notes(registry.conn, paper_id, revision)}
+                "notes": _notes(registry.conn, paper_id, revision),
+                "companionVersion": mobile_companion.version(config, row, revision)}
+
+
+def read_companion(config, registry, paper_id, revision):
+    path = pdf_path(config, registry, paper_id, revision)
+    with _document(path) as doc:
+        count = doc.page_count
+    result = mobile_companion.read(config, _paper(registry, paper_id), revision, path, count)
+    pdf_path(config, registry, paper_id, revision)
+    return result
 
 
 def _source_segments(config, revision, page):

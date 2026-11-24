@@ -129,17 +129,21 @@ class Pipeline:
                 self.registry.log("error", f"Unexpected error on {p.name}: {type(exc).__name__}: {exc}")
                 return "error"
 
-    def _handle_path(self, p: Path) -> str:
+    def _handle_path(self, p: Path, *, register_only: bool = False) -> str:
         if not p.is_file() or not is_candidate_file(p, self.config):
             return "excluded"
         st = p.stat()
         known = self.registry.file_by_path_stat(str(p), st.st_size, st.st_mtime)
         if known is not None and known["paper_id"] is not None:
+            if register_only:
+                return "existing"
             return self._resume_if_pending(known["paper_id"]) or "known"
 
         sha = document_revision(p)
         row = self.registry.file_by_sha(sha)
         if row is not None and row["paper_id"] is not None:
+            if register_only:
+                return "existing"
             new_path = row["path"] != str(p) and str(p) not in self.registry.paper_file_paths(row["paper_id"])
             self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, row["paper_id"])
             if new_path:
@@ -174,13 +178,15 @@ class Pipeline:
         if verified is None:
             if candidates:
                 return self._doi_unverified(p, sha, st, info, candidates)
-            return self._no_doi(p, sha, st, info)
+            return self._no_doi(p, sha, st, info, register_only=register_only)
 
         assert meta is not None
         existing = self.registry.paper_by_doi(verified) or (
             self.registry.paper_by_openalex(meta["openalex_id"]) if meta.get("openalex_id") else None
         )
         if existing is not None:
+            if register_only:
+                return "existing"
             kind = "preprint" if meta.get("type") == "posted-content" else "published"
             self.registry.add_doi(existing["id"], verified, kind)
             self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, existing["id"])
@@ -190,6 +196,8 @@ class Pipeline:
 
         related = self._find_related_work(meta)
         if related is not None:
+            if register_only:
+                return "existing"
             return self._attach_version(related, verified, meta, p, sha, st)
 
         pid = self.registry.create_paper(
@@ -202,7 +210,7 @@ class Pipeline:
         self.registry.add_doi(pid, verified, "preprint" if meta.get("type") == "posted-content" else "published")
         self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, pid)
         self.registry.log("info", f"New paper: {meta.get('title', '')[:120]} ({verified}, via {source})", pid)
-        return self.process_paper(pid)
+        return "registered" if register_only else self.process_paper(pid)
 
     # ------------------------------------------------------------ DOI checks
     def _verify(self, candidates, pdf_title: str, first_text: str):
@@ -292,11 +300,13 @@ class Pipeline:
         self.registry.log("warning", f"DOI not verified for {p.name}; candidate {best.doi} needs review", pid)
         return "doi_unverified"
 
-    def _no_doi(self, p: Path, sha: str, st, info) -> str:
+    def _no_doi(self, p: Path, sha: str, st, info, *, register_only: bool = False) -> str:
         title = info.title_guess or p.stem
         if info.title_guess:
             for row in self.registry.papers_without_doi():
                 if fuzz.token_sort_ratio(_norm_text(row["title"]), _norm_text(title)) >= 95:
+                    if register_only:
+                        return "existing"
                     self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, row["id"])
                     self.registry.log("info", f"No-DOI duplicate of paper #{row['id']} by title: {p.name}", row["id"])
                     self._refresh_card(row["id"])
@@ -305,7 +315,7 @@ class Pipeline:
         pid = self.registry.create_paper(title=title, meta_json=meta, status="new", status_detail="No DOI found")
         self.registry.upsert_file(sha, str(p), st.st_size, st.st_mtime, pid)
         self.registry.log("info", f"New paper without DOI: {title[:120]}", pid)
-        return self.process_paper(pid)
+        return "registered" if register_only else self.process_paper(pid)
 
     # ------------------------------------------------------------- LLM step
     def _resume_if_pending(self, paper_id: int) -> str | None:
@@ -315,7 +325,7 @@ class Pipeline:
             return None if outcome == "held" else outcome
         return None
 
-    def process_paper(self, paper_id: int, force: bool = False) -> str:
+    def process_paper(self, paper_id: int, force: bool = False, *, source_pdf: Path | None = None) -> str:
         row = self.registry.get_paper(paper_id)
         if row is None:
             return "missing"
@@ -328,10 +338,11 @@ class Pipeline:
         meta = json.loads(row["meta_json"] or "{}")
         meta.setdefault("title", row["title"])
         meta["doi"] = row["doi"]
-        path = next((x for x in self.registry.paper_file_paths(paper_id) if Path(x).exists()), None)
+        path = source_pdf or next((x for x in self.registry.paper_file_paths(paper_id) if Path(x).exists()), None)
         if path is None:
             self.registry.update_paper(paper_id, status="error", status_detail="No readable file on disk")
             return "error"
+        original_revision = document_revision(source_pdf) if source_pdf is not None else None
         try:
             self.llm.check_budget()
             self.llm._get_client()
@@ -384,6 +395,11 @@ class Pipeline:
                               f"LLM call failed for paper #{paper_id}: {type(exc).__name__}: {exc}", paper_id)
             return "retry_later" if transient else "error"
 
+        if original_revision is not None:
+            current_pdf = self.pdf_for(paper_id)
+            if current_pdf is None or document_revision(current_pdf) != original_revision:
+                self.registry.update_paper(paper_id, status="new", status_detail="PDF changed during extraction")
+                return "retry_later"
         self.registry.update_paper(
             paper_id, card_json=result.data, prompt_version=PROMPT_VERSION, model=result.model,
             status="done", status_detail=None,
@@ -409,7 +425,8 @@ class Pipeline:
         self._match_gaps(paper_id)
         threading.Thread(target=self._fetch_citations, args=(paper_id,), daemon=True).start()
         try:
-            self._auto_jobs(paper_id)
+            if source_pdf is None:
+                self._auto_jobs(paper_id)
         except Exception as exc:  # noqa: BLE001
             self.registry.log("warning", f"Automatic translation/skill not started: {exc}", paper_id)
         self.kb_commit(f"Add paper {row['doi'] or (row['title'] or '')[:60]}")
@@ -740,14 +757,18 @@ class Pipeline:
     def jobs(self):
         if self._jobs is None:
             from .jobs import JobRunner
+            from . import mobile_work
 
             self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill,
-                                                   "zotero": self._job_zotero, "update": self._job_update})
+                                                   "zotero": self._job_zotero, "update": self._job_update,
+                                                   "mobile_import": lambda j, _: mobile_work.import_pdf(self, j),
+                                                   "mobile_card": lambda j, _: mobile_work.make_card(self, j)})
         return self._jobs
 
-    def _paper_files(self, paper_id: int) -> tuple[Path, Path]:
+    def _paper_files(self, paper_id: int, *, before_card: bool = False) -> tuple[Path, Path]:
         row = self.registry.get_paper(paper_id)
-        if row is None or row["status"] != "done" or not row["kb_path"] or row["kb_path"].count("/") < 2:
+        allowed = ("done", "new", "extracting", "error") if before_card else ("done",)
+        if row is None or row["status"] not in allowed or not row["kb_path"] or row["kb_path"].count("/") < 2:
             raise ValueError("the paper needs a finished card first")
         card = self.config.knowledge_dir / row["kb_path"]
         pdf = self.pdf_for(paper_id) or library.pdf_path(self.config.knowledge_dir, row["kb_path"])
@@ -760,14 +781,14 @@ class Pipeline:
     def _job_translate(self, job: dict, progress) -> str:
         from . import translate
 
-        pdf, card = self._paper_files(job["paper_id"])
+        pdf, card = self._paper_files(job["paper_id"], before_card=True)
         try:
             tax = self.taxonomy()
         except TaxonomyError:
             tax = None
         out = translate.translate_paper(self.config, self.registry, self.llm, job["paper_id"], pdf, card, tax,
                                         job["arg"] or None, progress, job=job,
-                                        current_pdf=lambda: self._paper_files(job["paper_id"])[0])
+                                        current_pdf=lambda: self._paper_files(job["paper_id"], before_card=True)[0])
         self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
         self.reindex(job["paper_id"])
         self.kb_commit(f"Translate paper #{job['paper_id']}")
@@ -794,11 +815,14 @@ class Pipeline:
                               opts.get("tags", True), opts.get("notes", True), progress)
         return json.dumps(r)
 
-    def submit_translation(self, paper_id: int, service_id: str = "") -> int:
+    def submit_translation(self, paper_id: int, service_id: str = "", *, revision: str | None = None) -> int:
         service = service_by_id(self.config, service_id)
         require_credentials(service)
-        pdf, _ = self._paper_files(paper_id)
-        return self.jobs.submit("translate", paper_id, service["id"], options=translation_options(self.config, service, pdf))
+        pdf, _ = self._paper_files(paper_id, before_card=True)
+        options = translation_options(self.config, service, pdf)
+        if revision is not None and revision != options["revision"]:
+            raise ValueError("PDF revision changed")
+        return self.jobs.submit("translate", paper_id, service["id"], options=options)
 
     def _job_update(self, job: dict, progress) -> str:
         from . import updates
@@ -907,9 +931,10 @@ class Pipeline:
 
     def background_maintenance(self) -> None:
         """Startup: search index, then citation data older than 30 days."""
-        from . import citations
+        from . import citations, mobile_work
 
         self.jobs.recover()
+        mobile_work.reap_uploads(self)
         self.reindex_all()
         try:
             citations.fetch_missing(self.registry, self.metadata)

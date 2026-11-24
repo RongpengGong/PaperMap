@@ -26,11 +26,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from . import mobile_sync
+from . import mobile_sync, mobile_work
 
 _PRIVATE = tuple(ipaddress.ip_network(s) for s in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
-_PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|pages/(0|[1-9][0-9]{0,8})))?')
+_PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|companion|pages/(0|[1-9][0-9]{0,8})))?')
 _MAX_BODY = 256 * 1024
+_UPLOAD_ROUTE = re.compile(r'/v1/uploads/([a-f0-9]{64})(?:/chunks/(0|[1-9][0-9]{0,8}))?')
+_TASK_ROUTE = re.compile(r'/v1/tasks/([a-f0-9-]{36})')
 _MAX_CLIENTS = 8
 _LOG = logging.getLogger(__name__)
 
@@ -97,7 +99,7 @@ class _Listener(ThreadingHTTPServer):
     daemon_threads = False
     allow_reuse_address = False
 
-    def __init__(self, address, network, context, info, config, registry, revisions):
+    def __init__(self, address, network, context, info, config, registry, revisions, processor=None):
         self.network = network
         self.context = context
         self.info = info
@@ -106,6 +108,7 @@ class _Listener(ThreadingHTTPServer):
         self.revisions = revisions
         self.slots = threading.BoundedSemaphore(_MAX_CLIENTS)
         self.stopped = threading.Event()
+        self.work = mobile_work.MobileWork(processor, revisions, self.stopped) if processor else None
         self.guard = threading.Lock()
         self.clients = set()
         self.failed = deque()
@@ -165,6 +168,8 @@ class _Listener(ThreadingHTTPServer):
                     pass
         self.shutdown()
         self.server_close()
+        if self.work:
+            self.work.close()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -209,25 +214,49 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         return False
 
-    def _body(self):
+    def _body(self, *, chunk=False):
         lengths = self.headers.get_all('Content-Length', [])
         if self.headers.get('Transfer-Encoding') or len(lengths) != 1 or not re.fullmatch(r'[0-9]{1,9}', lengths[0]):
             self._error(400, 'invalid_length')
             return None
         size = int(lengths[0])
-        if size > _MAX_BODY:
-            self._error(413, 'changes_too_large')
+        if size > (mobile_work.CHUNK if chunk else _MAX_BODY):
+            self._error(413, 'chunk_too_large' if chunk else 'changes_too_large')
             return None
         raw = self.rfile.read(size)
-        if self.headers.get_content_type() != 'application/json':
-            self._error(415, 'json_required')
+        if self.headers.get_content_type() != ('application/octet-stream' if chunk else 'application/json'):
+            self._error(415, 'invalid_content_type')
             return None
         if len(raw) != size:
             raise ValueError('incomplete changes')
+        if chunk:
+            return raw
         value = json.loads(raw)
         if not isinstance(value, dict):
             raise ValueError('invalid changes')
         return value
+
+    def _processing(self):
+        work = self.server.work
+        if work is None:
+            self._error(403, 'processing_disabled')
+            return
+        upload = _UPLOAD_ROUTE.fullmatch(self.path)
+        task = _TASK_ROUTE.fullmatch(self.path)
+        if upload and self.command == 'POST':
+            body = self._body(chunk=upload[2] is not None)
+            if body is not None:
+                result = (work.chunk(upload[1], int(upload[2]), body) if upload[2] is not None
+                          else work.begin(upload[1], body.get('byteSize')))
+                self._json(200, result)
+        elif self.command == 'POST' and self.path == '/v1/tasks':
+            body = self._body()
+            if body is not None:
+                self._json(200, work.submit(body))
+        elif task and self.command == 'GET':
+            self._json(200, work.status(task[1]))
+        else:
+            self._error(404, 'not_available')
 
     def _pdf(self, source, pid, revision):
         # Hash the open handle once per file identity, including after an in-place edit.
@@ -278,14 +307,19 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if self.path == '/v1/papers' and self.command == 'GET':
             result = []
-            for pid, revision in sorted(server.revisions.items()):
+            for pid, revision in sorted(server.revisions.copy().items()):
                 try:
                     paper = mobile_sync.capture(server.config, server.registry, pid)
                 except (LookupError, ValueError, FileNotFoundError):
                     continue  # Papers removed or replaced during this session may no longer be readable.
                 if paper['revision'] == revision:
-                    result.append({key: paper[key] for key in ('id', 'title', 'revision', 'pageCount', 'byteSize')})
-            self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result})
+                    result.append({key: paper[key] for key in
+                                   ('id', 'title', 'revision', 'pageCount', 'byteSize', 'companionVersion')})
+            self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
+                             'processing': server.work is not None})
+            return
+        if self.path == '/v1/tasks' or self.path.startswith(('/v1/uploads/', '/v1/tasks/')):
+            self._processing()
             return
         route = _PAPER_ROUTE.fullmatch(self.path)
         if not route or int(route[1]) not in server.revisions:
@@ -306,6 +340,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._error(409, 'revision_changed')
             else:
                 self._json(200, paper)
+        elif self.command == 'GET' and resource == 'companion':
+            self._json(200, mobile_sync.read_companion(*args, revision))
         elif self.command == 'GET' and resource == 'pdf':
             self._pdf(mobile_sync.pdf_path(*args, revision), pid, revision)
         elif self.command == 'GET' and page is not None:
@@ -316,6 +352,8 @@ class _Handler(BaseHTTPRequestHandler):
     def _dispatch(self):
         try:
             self._route()
+        except mobile_work.WorkError as exc:
+            self._error(exc.status, exc.code)
         except mobile_sync.RevisionConflict:
             self._error(409, 'revision_changed')
         except (LookupError, FileNotFoundError):
@@ -346,18 +384,21 @@ def _byte_range(header: str, size: int) -> tuple[int, int] | None:
 
 
 class MobileLan:
-    def __init__(self, config, registry):
+    def __init__(self, config, registry, pipeline=None):
         self.config = config
         self.registry = registry
+        self.pipeline = pipeline
         self._mutex = threading.Lock()
         self._listener = None
         self._thread = None
 
     addresses = staticmethod(addresses)
 
-    def start(self, address: str, selected_ids) -> dict:
-        if not isinstance(selected_ids, (list, tuple, set)) or not selected_ids:
+    def start(self, address: str, selected_ids, *, processing=False) -> dict:
+        if not isinstance(selected_ids, (list, tuple, set)) or not (selected_ids or processing):
             raise ValueError('请选择要共享的论文。')
+        if processing and not self.pipeline:
+            raise ValueError('电脑处理服务尚未就绪。')
         if not all(type(pid) is int and 0 < pid < 10**18 for pid in selected_ids):
             raise ValueError('论文编号无效。')
         with self._mutex:
@@ -375,7 +416,8 @@ class MobileLan:
             context, ca, pin = _identity(address)
             info = {'v': 1, 'token': secrets.token_urlsafe(32), 'ca': ca, 'pin': pin,
                     'libraryId': mobile_sync.library_id(self.registry)}
-            server = _Listener(address, network, context, info, self.config, self.registry, revisions)
+            server = _Listener(address, network, context, info, self.config, self.registry, revisions,
+                               self.pipeline if processing else None)
             info['url'] = f'https://{address}:{server.server_port}'
             thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .1},
                                       daemon=True, name='papermap-mobile-lan')
@@ -398,7 +440,8 @@ class MobileLan:
         with self._mutex:
             if self._listener:
                 return {'active': True, 'address': self._listener.server_address[0],
-                        'paperIds': sorted(self._listener.revisions)}
+                        'paperIds': sorted(self._listener.revisions.copy()),
+                        **({'processing': True} if self._listener.work else {})}
             return {'active': False}
 
     def pairing(self) -> dict:

@@ -17,12 +17,14 @@ def _pairing_image(text):
 
 
 def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
-    def context(pairing=None, error="", selected_address="", selected_ids=()):
-        rows = registry.query("SELECT id,title FROM papers WHERE status='done' ORDER BY title COLLATE NOCASE, id")
+    def context(pairing=None, error="", selected_address="", selected_ids=(), processing=False):
+        rows = registry.query("""SELECT id,title FROM papers WHERE status='done'
+            OR (status IN ('new','extracting','error') AND kb_path IS NOT NULL)
+            ORDER BY title COLLATE NOCASE, id""")
         code = json.dumps(pairing, separators=(",", ":")) if pairing else ""
         return dict(lan=mobile.status(), addresses=mobile.addresses(), papers=rows, code=code,
                     qr=_pairing_image(code) if code else "", error=error,
-                    selected_address=selected_address, selected_ids=selected_ids)
+                    selected_address=selected_address, selected_ids=selected_ids, processing=processing)
 
     def page(request, **kwargs):
         fragment = request.headers.get("x-papermap-panel") == "mobile"
@@ -38,12 +40,12 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
 
     @app.post("/settings/mobile/start")
     def start(request: Request, csrf: str = Form(...), address: str = Form(""),
-              paper_id: list[int] = Form(default=[])):
+              paper_id: list[int] = Form(default=[]), processing: bool = Form(False)):
         check_csrf(csrf, csrf_token)
         try:
-            return page(request, pairing=mobile.start(address, paper_id))
+            return page(request, pairing=mobile.start(address, paper_id, processing=processing))
         except (OSError, LookupError, ValueError, RuntimeError) as exc:
-            return page(request, error=str(exc), selected_address=address, selected_ids=paper_id)
+            return page(request, error=str(exc), selected_address=address, selected_ids=paper_id, processing=processing)
 
     @app.post("/settings/mobile/show")
     def show(request: Request, csrf: str = Form(...)):

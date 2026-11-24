@@ -3,9 +3,10 @@
     <section class="card">
       <h2>{{ _("正在共享") }}</h2>
       <p>{{ lan.address }} · {{ lan.paperIds|length }} {{ _("篇论文") }}</p>
+      {% if lan.processing %}<p>{{ _("本次配对已允许手机导入 PDF、请求生成卡片和译文。") }}</p>{% endif %}
       <ul class="small">{% for p in papers if p.id in lan.paperIds %}<li>{{ p.title }}</li>{% endfor %}</ul>
       {% if code %}
-      <p>{{ _("让手机和电脑连上同一 Wi-Fi，在鸿蒙版「电脑同步」中扫描此码。") }}</p>
+      <p>{{ _("让手机或平板与电脑连上同一 Wi-Fi，在鸿蒙版文献库点「扫描电脑二维码」。") }}</p>
       <img src="{{ qr }}" alt="{{ _('手机配对二维码') }}" style="display:block;width:min(100%,390px);background:white">
       <details><summary>{{ _("复制配对信息") }}</summary><textarea readonly rows="4" style="width:100%" onclick="this.select()" spellcheck="false">{{ code }}</textarea></details>
       {% else %}
@@ -17,7 +18,7 @@
     {% else %}
     <form class="card" action="/settings/mobile/start" method="post">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <p>{{ _("只共享你勾选的论文、对应的证据摘录和阅读位置。配对的手机可以传回新摘录和阅读进度。") }}</p>
+      <p>{{ _("勾选的论文将共享正文 PDF、已有译文、论文卡片、证据摘录和阅读位置。配对设备可以传回新摘录和阅读进度。") }}</p>
       <label>{{ _("电脑的局域网地址") }}
         <select name="address" required>{% for addr in addresses %}<option value="{{ addr }}" {% if addr == selected_address %}selected{% endif %}>{{ addr }}</option>{% endfor %}</select>
       </label>
@@ -25,6 +26,9 @@
       <fieldset style="margin:1rem 0;max-height:38vh;overflow:auto"><legend>{{ _("选择要在手机上阅读的论文") }}</legend>
         {% for p in papers %}<label class="inline" style="display:flex;margin:.5rem 0"><input type="checkbox" name="paper_id" value="{{ p.id }}" {% if p.id in selected_ids %}checked{% endif %}> {{ p.title }}</label>{% else %}<p>{{ _("暂无已入库的论文") }}</p>{% endfor %}
       </fieldset>
-      <button {% if not addresses or not papers %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
+      <label class="inline"><input type="checkbox" name="processing" value="true" {% if processing %}checked{% endif %}>
+        {{ _("允许本次配对的设备导入 PDF，并使用电脑服务生成译文和论文卡片") }}</label>
+      <p class="muted">{{ _("生成任务会使用电脑已配置的模型或翻译服务，可能发送论文内容并产生费用。关闭共享后，已提交的任务会继续处理。") }}</p>
+      <button {% if not addresses %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
     </form>
     {% endif %}
