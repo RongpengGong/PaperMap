@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS evidence_entries (
     stance TEXT NOT NULL, note TEXT NOT NULL, anchor_key TEXT NOT NULL,
     created_at TEXT NOT NULL, UNIQUE(question_id, paper_id, anchor_key)
 );
+CREATE TABLE IF NOT EXISTS update_cards (  -- "what does this paper change" (stage 7 task 3)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id INTEGER NOT NULL REFERENCES papers(id),
+    question_id INTEGER NOT NULL REFERENCES evidence_questions(id) ON DELETE CASCADE,
+    outcome TEXT NOT NULL, headline TEXT NOT NULL, claims_json TEXT NOT NULL,
+    comparability TEXT NOT NULL DEFAULT 'comparable', comparability_note TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending / confirmed / rewritten / kept / dismissed
+    user_text TEXT, user_outcome TEXT, revision TEXT NOT NULL,
+    model TEXT, prompt_version TEXT, created_at TEXT NOT NULL, decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_update_cards_question ON update_cards(question_id, status);
 CREATE TABLE IF NOT EXISTS annotations (
     id INTEGER PRIMARY KEY,
     paper_id INTEGER NOT NULL REFERENCES papers(id),
@@ -277,6 +288,7 @@ class Registry:
             self.conn.execute("UPDATE evidence_entries SET merged_from=COALESCE(merged_from,paper_id), paper_id=? "
                               "WHERE paper_id=?", (existing_id, paper_id))
             self.conn.execute("UPDATE files SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
+            self.conn.execute("UPDATE update_cards SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
             self.conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
 
     # -- events ------------------------------------------------------------

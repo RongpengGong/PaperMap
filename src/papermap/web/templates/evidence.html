@@ -2,6 +2,7 @@
 {% block title %}证据笔记 - PaperMap{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">{% endblock %}
 {% block content %}
+{% from "_update_cards.html" import ucard %}
 <div id="evidence-notebook" class="evidence-notebook">
   <div class="ev-heading"><h1>证据笔记</h1><button type="button" class="secondary" id="new-question">新建研究问题</button></div>
   <form id="new-question-form" class="ev-create" hidden>
@@ -42,6 +43,8 @@
     </form>
   </article>
   {% else %}<p class="ev-empty">这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。</p>{% endfor %}
+  {% if update_cards %}<h2 class="ev-question-title">新论文带来的变化</h2>
+  {% for u in update_cards %}{{ ucard(u, 'paper_only', update_outcomes) }}{% endfor %}{% endif %}
   {% else %}<p class="ev-empty">新建一个研究问题，或在阅读 PDF 时选中原文，点击「摘到证据笔记」。不同论文的摘录可以放在同一问题下。</p>{% endif %}
   <p class="err-text small" id="notebook-error" role="alert" hidden></p>
 </div>

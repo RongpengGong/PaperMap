@@ -204,7 +204,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         tr_cfg = config.raw.get("translation") or {}
         from .. import notelinks
 
+        from .. import updates as upd
+
+        ucards = upd.for_paper(registry, paper_id)
         return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+                "update_cards": ucards, "update_pending": sum(u["status"] == "pending" for u in ucards),
+                "update_questions": upd.candidate_questions(registry, paper_id), "update_outcomes": upd.OUTCOMES,
                 "backlinks": notelinks.backlinks(registry, config.knowledge_dir, paper_id),
                 "translation": translation, "skill_outputs": outputs,
                 "active_jobs": [j for j in jobs if j["status"] in ("queued", "running")],
@@ -885,6 +890,28 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
 
+    @app.post("/paper/{paper_id}/update")
+    async def paper_update(paper_id: int, request: Request):
+        body = await json_body(request)
+        qid = body.get("question_id")
+        try:
+            pipeline.submit_update(paper_id, int(qid) if str(qid).isdigit() else 0)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
+
+    @app.post("/api/updates/{card_id}")
+    async def api_update_decide(card_id: int, request: Request):
+        from .. import updates as upd
+
+        body = await json_body(request)
+        try:
+            res = upd.decide(registry, card_id, str(body.get("action", "")), body.get("text") or "",
+                             str(body.get("outcome") or ""))
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True, **res}
+
     @app.post("/paper/{paper_id}/skill")
     async def paper_skill(paper_id: int, request: Request):
         body = await json_body(request)
@@ -1059,7 +1086,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         suggested = qmod.field_questions(registry, f["id"], "suggested")
         for q in suggested:
             q["papers"] = qmod.paper_labels(registry, q["source"].get("paper_ids", []))
+        from .. import updates as upd
+
+        changes, unchanged_n = upd.confirmed_for_field(registry, f["id"])
         return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md",
+                      changes=changes, unchanged_n=unchanged_n, update_outcomes=upd.OUTCOMES,
                       field_questions=qmod.field_questions(registry, f["id"]), suggested_questions=suggested,
                       suggest_busy=("questions:" + slug) in busy,
                       has_handbook=(config.knowledge_dir / "handbooks" / f"{slug}.md").exists(),
@@ -1095,7 +1126,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         flagged = registry.query("SELECT * FROM papers WHERE status='done' AND needs_review=1 ORDER BY id DESC")
         items = [(p, registry.paper_field_rows(p["id"])) for p in flagged]
         pending = [(r, registry.pending_papers(r["id"])) for r in registry.pending_fields("open")]
+        from .. import updates as upd
+
         return render(request, "review.html", unverified=unverified, items=items, pending=pending,
+                      update_cards=upd.pending(registry), update_outcomes=upd.OUTCOMES,
                       threshold=pipeline.new_field_threshold,
                       all_fields=registry.active_fields(), error=error,
                       accept=float(config.classification.get("accept_confidence", 0.6)))
@@ -1796,7 +1830,9 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
         "SELECT (SELECT count(*) FROM papers WHERE status='doi_unverified') + "
         "(SELECT count(*) FROM papers WHERE status='done' AND needs_review=1) AS n")
     ready = sum(1 for r in registry.pending_fields("open") if r["n_papers"] >= threshold)
-    return (int(row["n"]) if row else 0) + ready
+    from ..updates import pending_count
+
+    return (int(row["n"]) if row else 0) + ready + pending_count(registry)
 
 
 def _safe(fn):

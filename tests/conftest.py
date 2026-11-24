@@ -135,6 +135,10 @@ class FakeCompletions:
             content = "两篇都用了 Visium [P1][P2]。"
         elif "search keywords for a full-text index" in system:
             content = json.dumps({"keywords": ["fibroblast", "Visium", "肝癌"]})
+        elif "judge what ONE new paper changes" in system:
+            self.update_calls = getattr(self, "update_calls", 0) + 1
+            outs = getattr(self, "update_outputs", [])
+            content = json.dumps(outs.pop(0) if outs else {"outcome": "unrelated", "headline": "无关", "claims": []})
         elif "QUESTION:" in (kwargs["messages"][-1]["content"] if kwargs["messages"] else ""):
             content = "成纤维细胞位于小生境中 [S1][S2]。编造的句子 [S99]。"
         elif "【源文】" in system:  # translation via the main model (single user message)

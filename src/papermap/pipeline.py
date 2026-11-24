@@ -689,7 +689,7 @@ class Pipeline:
             from .jobs import JobRunner
 
             self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill,
-                                                   "zotero": self._job_zotero})
+                                                   "zotero": self._job_zotero, "update": self._job_update})
         return self._jobs
 
     def _paper_files(self, paper_id: int) -> tuple[Path, Path]:
@@ -748,6 +748,22 @@ class Pipeline:
         require_credentials(service)
         self._paper_files(paper_id)
         return self.jobs.submit("translate", paper_id, service["id"])
+
+    def _job_update(self, job: dict, progress) -> str:
+        from . import updates
+
+        pdf, _ = self._paper_files(job["paper_id"])
+        progress(0, 1)
+        res = updates.generate(self.config, self.registry, self.llm, job["paper_id"], pdf, int(job["arg"]))
+        progress(1, 1)
+        self.registry.log("info", f"Update card ({res['outcome']}) for question #{job['arg']}", job["paper_id"])
+        return updates.OUTCOMES[res["outcome"]]
+
+    def submit_update(self, paper_id: int, question_id: int) -> int:
+        self._paper_files(paper_id)
+        if not self.registry.one("SELECT 1 FROM evidence_questions WHERE id=? AND status='active'", (question_id,)):
+            raise ValueError("这个研究问题不存在或还没有确认")
+        return self.jobs.submit("update", paper_id, str(question_id))
 
     def submit_skill(self, paper_id: int, skill_id: str) -> int:
         self._paper_files(paper_id)

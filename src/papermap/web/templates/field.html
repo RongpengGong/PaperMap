@@ -29,6 +29,13 @@
   {% endfor %}{% endif %}
   <p class="err-text small" data-fq-error hidden></p>
 </section>
+{% from "_update_cards.html" import ucard %}
+<section class="card field-changes">
+  <h3>最近确认的变化</h3>
+  {% for u in changes %}{{ ucard(u, 'paper', update_outcomes) }}
+  {% else %}<p class="muted small">还没有。打开一篇论文的「变化」标签，选一个研究问题，模型会判断这篇论文改变了什么；你确认或改写后才会出现在这里。</p>{% endfor %}
+  {% if unchanged_n %}<p class="muted small">另有 {{ unchanged_n }} 篇论文经你确认「未改变当前判断」。</p>{% endif %}
+</section>
 <div class="card md">{{ body_html|safe }}</div>
 <p class="muted">文件：<code>knowledge/{{ rel }}</code>（可直接用 Obsidian 打开；「我的笔记」一块程序永远不会改动）</p>
 {% endblock %}

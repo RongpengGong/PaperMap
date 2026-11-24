@@ -170,8 +170,11 @@
     renderToc(); renderAnnList();
     const start = Math.max(1, Math.min(info.pages.length, +root.dataset.start || 1));
     const find = (root.dataset.find || "").replace(/"/g, "").trim();
-    const evidenceId = new URLSearchParams(location.search).get("evidence");
-    if (evidenceId) {
+    const params = new URLSearchParams(location.search);
+    const evidenceId = params.get("evidence"), updateId = params.get("update");
+    if (updateId) {
+      await openEvidence(`u${updateId}`, start - 1, `/api/reader/${pid}/update/${encodeURIComponent(updateId)}/${encodeURIComponent(params.get("anchor") || "0")}`);
+    } else if (evidenceId) {
       await openEvidence(evidenceId, start - 1);
     } else if (find) {  // opened from full-text search: show the hits on that page
       const q = find.split(/\s+/).sort((a, b) => b.length - a.length)[0];
@@ -195,18 +198,19 @@
     pagesEl.scrollTop = el.offsetTop - 12 + (rect ? Math.max(0, rect[1] * s - 120) : 0);
     if (rect) flash(i, rect);
   }
-  async function openEvidence(id, fallbackPage) {
+  async function openEvidence(id, fallbackPage, url) {
     const notice = document.getElementById("evidence_location");
     const status = document.getElementById("evidence_location_text");
     notice.hidden = false;
     try {
-      const response = await fetch(`/api/reader/${pid}/evidence/${encodeURIComponent(id)}`);
+      const response = await fetch(url || `/api/reader/${pid}/evidence/${encodeURIComponent(id)}`);
       const entry = await response.json();
       if (!response.ok || !entry.ok) throw Error(typeof entry.detail === "string" ? entry.detail : "原文位置已不可用。");
       activeEvidence = entry;
       const rect = entry.rects[0];
-      document.getElementById("evidence_location_back").href = `/evidence?question=${entry.question_id}#evidence-${encodeURIComponent(id)}`;
-      status.textContent = `已定位证据 · 第 ${entry.page + 1} 页`;
+      if (entry.back) document.getElementById("evidence_location_back").textContent = "返回论文";
+      document.getElementById("evidence_location_back").href = entry.back || `/evidence?question=${entry.question_id}#evidence-${encodeURIComponent(id)}`;
+      status.textContent = `${url ? "已定位更新卡原句" : "已定位证据"} · 第 ${entry.page + 1} 页`;
       drawHighlights(entry.page);
       goto(entry.page, rect);
       const left = pageEls[entry.page].getBoundingClientRect().left - pagesEl.getBoundingClientRect().left;

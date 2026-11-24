@@ -308,6 +308,7 @@
   function startPolling() { if (!polling) { poll(); polling = setInterval(poll, 2500); } }
   if (list) startPolling();
   window.pmStartPolling = startPolling;
+  window.pmOpenPaper = openPaper;
 
   // ------------------------------------------- native folder picker (app only)
   function enableNativeWindow() {

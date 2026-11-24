@@ -14,7 +14,7 @@
 
 <h3>本月按用途</h3>
 <table><tr><th>用途</th><th>次数</th><th>输入 token</th><th>输出 token</th><th>费用</th></tr>
-{% set names = {'extract':'论文卡片','classify':'分类','handbook':'学习手册','consolidate':'学科整合','translate':'翻译'} %}
+{% set names = {'extract':'论文卡片','classify':'分类','handbook':'学习手册','consolidate':'学科整合','translate':'翻译','update':'更新卡（改变了什么）','questions':'提议研究问题','qa':'向文献库提问'} %}
 {% for r in by_purpose %}<tr><td>{{ names.get(r.purpose, r.purpose) }}{% if r.failed %} <span class="muted">（{{ r.failed }} 次输出无效后重试）</span>{% endif %}</td><td>{{ r.n }}</td><td>{{ "{:,}".format(r.pin or 0) }}</td><td>{{ "{:,}".format(r.pout or 0) }}</td><td>${{ "%.4f"|format(r.cost or 0) }}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">本月还没有调用。</td></tr>{% endfor %}
 </table>
