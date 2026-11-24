@@ -2,7 +2,7 @@
 <html lang="{{ html_lang() }}" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}"><head><meta charset="utf-8"><script>window.PM_LANG="{{ ui_lang() }}";window.t=function(s){var m=window.PM_T;return (m&&s&&m[s])||s;};</script>{% if ui_lang() != 'zh-CN' %}<script src="/i18n/{{ ui_lang() }}.js?v={{ static_v }}"></script>{% endif %}<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}PaperMap{% endblock %}</title>
-<link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}"><link rel="stylesheet" href="/static/themes.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
+<link rel="icon" href="/static/icon.png?v={{ static_v }}"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}"><link rel="stylesheet" href="/static/themes.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
 <body class="bare" data-csrf="{{ csrf }}">
 <main id="main_content" class="content {% block content_class %}{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
 <div id="drop_overlay" hidden></div>

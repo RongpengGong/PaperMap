@@ -500,6 +500,11 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
             return {"ok": False, "message": "请先填写 API Key"}
         return {"ok": False, "message": "请填写 Base URL 和模型名"}
     except Exception as exc:  # noqa: BLE001 - report anything to the user
+        if eff.get("provider") == "claude_cli" and isinstance(exc, (BudgetExceeded, LLMError)):
+            failure = {"ok": False, "message": str(exc)}
+            if getattr(exc, "reset_time", None) and getattr(exc, "reset_zone", None):
+                failure.update(reset_time=exc.reset_time, reset_zone=exc.reset_zone)
+            return failure
         status = getattr(exc, "status_code", None)
         hint = {401: "API Key 无效", 402: "账户余额不足", 403: "无权限", 404: "地址或模型名不对",
                 400: "请求被拒绝（多半是模型名不对）", 429: "请求太频繁/限流"}.get(status or 0, "")

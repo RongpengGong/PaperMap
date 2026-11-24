@@ -63,7 +63,6 @@ def _patch_info_plist(app: Path) -> None:
         "CFBundleVersion": __version__,
         "NSHumanReadableCopyright": "PaperMap",
         "NSDocumentsFolderUsageDescription": "PaperMap reads the PDFs in the inbox folders you choose.",
-        "NSAppleEventsUsageDescription": "PaperMap opens Terminal when you choose to sign in with Claude Code.",
         "NSDownloadsFolderUsageDescription": "PaperMap reads the PDFs in the inbox folders you choose.",
     })
     with open(info, "wb") as fh:

@@ -40,7 +40,7 @@ papermap                                  # 首次运行会自动创建配置并
 
 1. **连接模型**：打开「设置 → AI 服务 → 模型与账号」，选择一种方式：
    - **ChatGPT 订阅**：点击「Continue with ChatGPT」，在系统浏览器里授权 PaperMap 使用套餐。返回设置页，选择账号可用的模型，再选「推理强度」并保存。档位随模型变化，也可以保留「模型默认」。适用资格和额度见 [OpenAI 说明](https://developers.openai.com/siwc/quickstart)。换电脑时重新授权。
-   - **Claude 订阅**：先安装[官方 Claude Code](https://code.claude.com/docs/en/quickstart)。选择「Claude 订阅（Claude Code）」，用本机官方程序登录个人订阅，选定模型和推理强度后保存。两家的强度设置各自保存。论文文本由 Claude Code 发送给 Anthropic；套餐及额外用量以账号设置为准。
+   - **Claude 订阅**需要先安装本机 Claude Code。在设置中点「用官方 Claude Code 登录」，终端会启动 Claude Code 并打开浏览器。完成登录并回到设置后，PaperMap 会自动刷新账号状态。选择模型和推理强度，点「测试连接」发送一条简短的测试消息，收到回复后保存。用量以本机 Claude Code 账号为准。按量使用 Claude API 可单独选择「Anthropic Claude API」并填写 API Key。[Claude Code 安装指南](https://code.claude.com/docs/en/setup)
    - 选 **DeepSeek 官方**：只要粘贴 Key（在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建），选模型即可。
    - 或选 **自定义**：填 Base URL、API Key、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API）和模型名。点「获取模型列表」可以直接选。适合中转服务、其他厂商或本地模型。
    - 点「**测试连接**」，看到 ✓ 再保存。

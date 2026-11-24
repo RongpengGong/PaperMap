@@ -25,10 +25,14 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from .llm import BudgetExceeded
 
 
 MODELS = [{"id": name, "label": name.title()} for name in ("sonnet", "opus", "haiku")]
@@ -42,7 +46,42 @@ _FULL_EFFORT_MODELS = {
 }
 INSTALL_URL = "https://code.claude.com/docs/en/setup"
 _STATUS_TTL = 5.0
-_SAFE_ARGS = ["--safe-mode", "--setting-sources", ""]
+_SAFE_ARGS = ["--safe-mode", "--setting-sources", "user"]
+# CLI auth status describes a custom ANTHROPIC_AUTH_TOKEN as "oauth_token" too.
+# Clear both process and user-settings overrides before trusting that identity.
+_OVERRIDES = {key: "" for key in (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_PROFILE",
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_GOOGLE_CLOUD", "CLAUDE_CODE_SIMPLE",
+    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_OAUTH_SCOPES",
+    "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL",
+)}
+_OVERRIDES["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+
+
+class ClaudeUsageLimit(BudgetExceeded):
+    def __init__(self, reset_time: str, reset_zone: str):
+        super().__init__(f"Claude Code 订阅额度已用完，重置时间 {reset_time}（{reset_zone}）。")
+        self.reset_time = reset_time
+        self.reset_zone = reset_zone
+
+
+def _cli_args(exe: str, *, browser: bool) -> list[str]:
+    overrides = dict(_OVERRIDES)
+    if browser:
+        overrides["CLAUDE_CODE_OAUTH_TOKEN"] = ""
+    settings = {"env": overrides, "disableAllHooks": True, "apiKeyHelper": ""}
+    return [exe, *_SAFE_ARGS, "--settings", json.dumps(settings, separators=(",", ":"))]
+
+
+def _child_env(*, browser: bool) -> dict[str, str]:
+    env = os.environ.copy()
+    for key in _OVERRIDES:
+        env.pop(key, None)
+    if browser:
+        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    return env
 
 
 def model_option(model_id: str) -> dict:
@@ -51,7 +90,7 @@ def model_option(model_id: str) -> dict:
     if name == "best":
         name = "opus"
     if name in _ALIAS_MODELS:
-        name = os.getenv(f"ANTHROPIC_DEFAULT_{name.upper()}_MODEL") or _ALIAS_MODELS[name]
+        name = _ALIAS_MODELS[name]
     name = re.sub(r"-\d{8}$", "", name.lower().removesuffix("[1m]"))
     if name in _FULL_EFFORT_MODELS or re.fullmatch(r"claude-fable-\d+(?:-\d+)?", name):
         levels = EFFORT_LEVELS
@@ -93,20 +132,27 @@ def find_claude(executable: str | None = None) -> str | None:
     return None
 
 
-def _mode_conflict() -> bool:
-    """Do not silently turn a subscription selection into API/third-party spend.
-
-    Values stay in the process environment; we never change the CLI's login
-    methods or log secrets. The user can keep using those methods in the CLI.
-    """
-    credentials = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_PROFILE")
-    if any(os.environ.get(k) for k in credentials):
-        return True
-    for key in ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_SIMPLE"):
-        if os.environ.get(key, "").lower() not in ("", "0", "false", "no"):
-            return True
-    base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
-    return bool(base and base != "https://api.anthropic.com")
+def _open_mac_terminal(command: list[str]) -> None:
+    # LaunchServices opens the command as a Terminal document without Apple Events.
+    # Terminal may inherit different shell settings. Use the same config directory
+    # and fixed routing options without placing any token in a file or argv.
+    directory = Path(tempfile.mkdtemp(prefix="papermap-claude-login-"))
+    script = directory / "Claude Login.command"
+    config_dir = os.getenv("CLAUDE_CONFIG_DIR")
+    config = (f"export CLAUDE_CONFIG_DIR={shlex.quote(str(Path(config_dir).expanduser().resolve()))}"
+              if config_dir else "unset CLAUDE_CONFIG_DIR")
+    try:
+        script.write_text("\n".join([
+            "#!/bin/sh", 'cd "$HOME" || exit 1', 'rm -f "$0"', f"rmdir {shlex.quote(str(directory))}",
+            "unset " + " ".join([*_OVERRIDES, "CLAUDE_CODE_OAUTH_TOKEN"]),
+            config, "exec " + shlex.join(command), "",
+        ]), encoding="utf-8")
+        script.chmod(0o700)
+        subprocess.run(["/usr/bin/open", "-a", "Terminal", str(script)], check=True,
+                       capture_output=True, timeout=10, shell=False)
+    except (OSError, subprocess.SubprocessError):
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 class ClaudeCliClient:
@@ -128,6 +174,20 @@ class ClaudeCliClient:
                                   encoding="utf-8", errors="replace", timeout=timeout,
                                   cwd=cwd, env=env, shell=False)
 
+    def _identity(self, exe: str, *, browser: bool) -> tuple[bool, str, str, bool]:
+        args = [*_cli_args(exe, browser=browser), "auth", "status"]
+        proc = self._run(args, env=_child_env(browser=browser))
+        data = json.loads(proc.stdout)
+        if not isinstance(data, dict):
+            raise ValueError("invalid status")
+        method = data.get("authMethod")
+        if method not in ("none", "claude.ai", "oauth_token", "api_key", "api_key_helper", "third_party"):
+            method = "unknown"
+        plan = data.get("subscriptionType")
+        plan = plan if isinstance(plan, str) and re.fullmatch(r"[\w -]{1,50}", plan) else ""
+        return (proc.returncode == 0 and data.get("loggedIn") is True, method, plan,
+                data.get("apiProvider") == "firstParty")
+
     def status(self, refresh: bool = False) -> dict:
         with self._status_lock:
             if not refresh and self._status is not None and time.monotonic() - self._status_at < _STATUS_TTL:
@@ -138,26 +198,19 @@ class ClaudeCliClient:
                       "executable": exe or "", "models": [dict(m) for m in MODELS],
                       "install_url": INSTALL_URL,
                       "message": "请先安装官方原生 Claude Code，再点击登录。"}
-            if exe and _mode_conflict():
-                result["message"] = ("检测到 Claude CLI 的 API、Token、自定义地址或第三方配置；"
-                                     "此订阅通道不会使用这些配置计费。请在官方 CLI 中确认自己的 Claude 订阅登录，"
-                                     "并在启动 PaperMap 的环境中取消相关覆盖后重试。原配置不会被修改。")
-                result["auth_method"] = "external_configuration"
-            elif exe:
+            if exe:
                 try:
-                    proc = self._run([exe, *_SAFE_ARGS, "auth", "status"])
-                    data = json.loads(proc.stdout)
-                    if not isinstance(data, dict):
-                        raise ValueError("invalid status")
-                    method = data.get("authMethod")
-                    method = method if method in ("none", "claude.ai", "oauth_token", "api_key", "api_key_helper", "third_party") else "unknown"
-                    authenticated = proc.returncode == 0 and data.get("loggedIn") is True
-                    plan = data.get("subscriptionType")
-                    plan = plan if isinstance(plan, str) and re.fullmatch(r"[\w -]{1,50}", plan) else ""
-                    ready = authenticated and method == "claude.ai" and data.get("apiProvider", "firstParty") == "firstParty"
+                    authenticated, method, plan, first_party = self._identity(exe, browser=True)
+                    ready = authenticated and first_party and method == "claude.ai"
+                    if not ready and method != "oauth_token":
+                        # External setup tokens should only appear when explicitly allowed.
+                        authenticated, method, plan, first_party = self._identity(exe, browser=False)
+                        ready = authenticated and first_party and method == "oauth_token"
                     result.update(authenticated=authenticated, auth_method=method,
                                   subscription_type=plan, ready=ready)
-                    if ready:
+                    if ready and method == "oauth_token":
+                        result["message"] = "已连接 Claude Code 的订阅令牌，模型与额度以该令牌所属账号为准。"
+                    elif ready:
                         result["message"] = "已通过官方 Claude Code 登录；请求使用该用户的订阅额度。"
                     elif authenticated:
                         result["message"] = ("Claude Code 当前使用 API 或第三方认证，此订阅通道已暂停以免误计费。"
@@ -180,22 +233,19 @@ class ClaudeCliClient:
         exe = find_claude(self.executable)
         if not exe:
             return {"ok": False, "message": "未找到官方原生 Claude Code，请先安装。"}
-        command = [exe, "auth", "login"]
+        command = [*_cli_args(exe, browser=True), "auth", "login", "--claudeai"]
+        env = _child_env(browser=True)
         try:
             if sys.platform == "darwin":
-                script = "tell application \"Terminal\"\nactivate\ndo script " + json.dumps(shlex.join(command), ensure_ascii=False) + "\nend tell"
-                proc = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True,
-                                      text=True, timeout=10, shell=False)
-                if proc.returncode:
-                    raise OSError("terminal did not open")
+                _open_mac_terminal(command)
             elif sys.platform == "win32":
-                subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=Path.home())
+                subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=Path.home(), env=env)
             else:
                 options = [("x-terminal-emulator", "-e"), ("gnome-terminal", "--"), ("konsole", "-e"), ("xterm", "-e")]
                 terminal = next(((shutil.which(name), arg) for name, arg in options if shutil.which(name)), None)
                 if terminal is None:
                     raise OSError("no terminal")
-                subprocess.Popen([terminal[0], terminal[1], *command], cwd=Path.home())
+                subprocess.Popen([terminal[0], terminal[1], *command], cwd=Path.home(), env=env)
         except (OSError, subprocess.SubprocessError):
             return {"ok": False, "message": "无法打开系统终端，请自行在终端运行 claude auth login，再回到 PaperMap 刷新状态。"}
         self._invalidate()
@@ -206,13 +256,22 @@ class ClaudeCliClient:
         exe = find_claude(self.executable)
         if not exe:
             return {"ok": False, "message": "未找到官方原生 Claude Code。"}
+        external = "订阅令牌由 Claude Code 的环境配置提供。请在原配置中移除 CLAUDE_CODE_OAUTH_TOKEN，然后刷新状态。"
+        state = self.status(refresh=True)
+        if state["ready"] and state["auth_method"] == "oauth_token":
+            return {**state, "ok": False, "message": external}
         try:
-            proc = self._run([exe, *_SAFE_ARGS, "auth", "logout"], timeout=10)
+            proc = self._run([*_cli_args(exe, browser=True), "auth", "logout"], timeout=10, env=_child_env(browser=True))
             ok = proc.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
         self._invalidate()
-        return {"ok": ok, "message": "已退出官方 Claude Code 登录（本机 CLI 共用此登录）。" if ok else "退出失败，请在终端运行 claude auth logout。"}
+        if not ok:
+            return {"ok": False, "message": "退出失败，请在终端运行 claude auth logout。"}
+        state = self.status(refresh=True)
+        if state["ready"]:
+            return {**state, "ok": False, "message": external if state["auth_method"] == "oauth_token" else "Claude Code 仍有已登录的账号，请刷新状态后重试。"}
+        return {**state, "ok": True, "message": "已退出官方 Claude Code 登录（本机 CLI 共用此登录）。"}
 
     def create(self, model: str, messages: list[dict], max_tokens: int = 4096,
                response_format: dict | None = None, reasoning_effort: str = "", **_: Any) -> Any:
@@ -269,15 +328,16 @@ class ClaudeCliClient:
         if images:
             prompt = json.dumps({"type": "user", "message": {"role": "user", "content": [
                 {"type": "text", "text": prompt}, *images]}, "parent_tool_use_id": None}, ensure_ascii=False) + "\n"
-        args = [state["executable"], *_SAFE_ARGS, "-p", "--input-format", "stream-json" if images else "text",
+        browser = state["auth_method"] == "claude.ai"
+        args = [*_cli_args(state["executable"], browser=browser), "-p", "--input-format", "stream-json" if images else "text",
                 "--output-format", "stream-json" if images else "json",
                 "--tools", "", "--disallowedTools", "mcp__*", "--disable-slash-commands",
                 "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-                "--settings", '{"disableAllHooks":true}', "--no-session-persistence", "--max-turns", "1",
+                "--no-session-persistence", "--max-turns", "1",
                 "--model", model]
         if images:
             args.append("--verbose")
-        env = dict(os.environ)
+        env = _child_env(browser=browser)
         if reasoning_effort:
             args.extend(["--effort", reasoning_effort])
             # The inherited effort preference outranks --effort. Apply the user's
@@ -331,13 +391,34 @@ class ClaudeCliClient:
 
     @staticmethod
     def _raise_error(details: str) -> None:
-        from .llm import BudgetExceeded, LLMNotConfigured
+        from .llm import LLMError, LLMNotConfigured
 
         lower = details.lower()
-        if any(x in lower for x in ("rate limit", "usage limit", "hit your limit", "limit reached", "quota exceeded", "out of extra usage")):
+        if (re.search(r"hit your (?:[\w-]+ )?limit", lower) or any(x in lower for x in (
+            "rate limit", "rate_limit", "usage limit", "limit reached", "quota exceeded", "out of extra usage", "out of usage credits",
+        ))):
+            match = re.search(r"\bresets\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*\(([A-Za-z0-9_+/\-]{1,64})\)", details, re.I)
+            if match:
+                clock, zone = match.groups()
+                clock = clock.replace(" ", "").lower()
+                try:
+                    fmt = ("%I" if clock.endswith(("am", "pm")) else "%H") + (":%M" if ":" in clock else "")
+                    reset = datetime.strptime(clock, fmt + ("%p" if clock.endswith(("am", "pm")) else "")).strftime("%H:%M")
+                    ZoneInfo(zone)
+                except (ValueError, ZoneInfoNotFoundError):
+                    pass
+                else:
+                    raise ClaudeUsageLimit(reset, zone)
             raise BudgetExceeded("Claude Code 订阅额度暂不可用；请在官方 CLI 查看额度与重置时间。")
-        if any(x in lower for x in ("not logged in", "please log in", "please run /login", "invalid authentication", "login expired")):
+        if any(x in lower for x in ("not logged in", "please log in", "please run /login", "invalid authentication",
+                                    "login expired", "authentication_error", "invalid bearer token", "token has expired")) or re.search(r"\b401\b", lower):
             raise LLMNotConfigured("Claude Code 登录已失效，请通过官方终端重新登录自己的订阅。")
+        if "model" in lower and any(x in lower for x in ("not found", "not_found_error", "not available", "not have access",
+                                                         "could not access", "does not exist", "is unavailable", "issue with the selected model")):
+            raise LLMError("此账号暂时无法使用所选 Claude 模型，请切换模型或在官方 Claude Code 中检查权限。")
+        if any(x in lower for x in ("unable to connect", "connection error", "network error", "econn", "enotfound",
+                                    "certificate", "fetch failed", "unable to reach", "etimedout", "timed out")):
+            raise LLMError("无法连接 Claude 服务，请检查网络、代理和证书后重试。")
 
 
 @lru_cache(maxsize=8)

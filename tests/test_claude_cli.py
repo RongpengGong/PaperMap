@@ -3,6 +3,7 @@
 import json
 import base64
 import subprocess
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from papermap.llm import BudgetExceeded, LLMError, LLMNotConfigured
 
 
 AUTH = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max"}
+SIGNED_OUT = {"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"}
 
 
 @pytest.fixture(autouse=True)
@@ -24,18 +26,24 @@ def clean_environment(monkeypatch):
     cc._client.cache_clear()
 
 
-def mock_cli(monkeypatch, auth=None, answer=None, returncode=0):
+def mock_cli(monkeypatch, auth=None, answer=None, returncode=0, setup_auth=None):
     calls = []
     monkeypatch.setattr(cc, "find_claude", lambda executable=None: "/mock/claude")
 
     def run(args, **kwargs):
+        nonlocal auth
         assert kwargs["shell"] is False
         assert Path(kwargs["cwd"]).is_dir()
         assert not list(Path(kwargs["cwd"]).iterdir())
         calls.append((args, kwargs))
         if args[-2:] == ["auth", "status"]:
             value = AUTH if auth is None else auth
+            if setup_auth is not None and "CLAUDE_CODE_OAUTH_TOKEN" not in json.loads(args[args.index("--settings") + 1])["env"]:
+                value = setup_auth
             return SimpleNamespace(returncode=0 if value.get("loggedIn") else 1, stdout=json.dumps(value), stderr="")
+        if args[-2:] == ["auth", "logout"]:
+            auth = SIGNED_OUT
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
         value = answer or {"type": "result", "subtype": "success", "is_error": False, "result": '{"answer": "中文"}',
                            "usage": {"input_tokens": 10, "output_tokens": 6, "cache_creation_input_tokens": 4,
                                      "cache_read_input_tokens": 20},
@@ -94,14 +102,38 @@ def test_non_subscription_identity_never_sends_prompt(monkeypatch, method):
 
 @pytest.mark.parametrize("key,value", [("ANTHROPIC_API_KEY", "secret"), ("ANTHROPIC_AUTH_TOKEN", "secret"),
                                       ("CLAUDE_CODE_OAUTH_TOKEN", "secret"), ("CLAUDE_CODE_USE_VERTEX", "1"),
-                                      ("ANTHROPIC_BASE_URL", "https://proxy.example"), ("CLAUDE_CODE_SIMPLE", "1")])
-def test_billing_overrides_are_reported_without_altering_environment(monkeypatch, key, value):
+                                      ("ANTHROPIC_BASE_URL", "https://proxy.example"), ("CLAUDE_CODE_SIMPLE", "1"),
+                                      ("ANTHROPIC_MODEL", "fixture-proxy-model"), ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "fixture-haiku-proxy")])
+def test_browser_uses_official_route_for_status_and_inference_without_altering_shell(monkeypatch, key, value):
     calls = mock_cli(monkeypatch)
     monkeypatch.setenv(key, value)
-    state = cc.ClaudeCliClient().status()
-    assert not state["ready"] and "配置" in state["message"]
+    monkeypatch.setenv("HTTPS_PROXY", "https://proxy.invalid")
+    cli = cc.ClaudeCliClient()
+    assert cli.status()["ready"]
+    cli.create(model="sonnet", messages=[{"role": "user", "content": "fixture"}])
     assert cc.os.environ[key] == value
-    assert value not in json.dumps(state, ensure_ascii=False) and calls == []
+    for args, kwargs in calls:
+        env = kwargs["env"]
+        assert key not in env and env["HTTPS_PROXY"] == "https://proxy.invalid"
+        overlay = json.loads(args[args.index("--settings") + 1])
+        assert overlay["disableAllHooks"] and overlay["apiKeyHelper"] == ""
+        assert overlay["env"][key] == ("https://api.anthropic.com" if key == "ANTHROPIC_BASE_URL" else "")
+        assert overlay["env"]["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+
+
+def test_setup_token_is_used_only_with_first_party_and_a_matching_inference_environment(monkeypatch):
+    setup = {**AUTH, "authMethod": "oauth_token", "subscriptionType": None}
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-token")
+    for provider, ready in [("firstParty", True), ("vertex", False)]:
+        calls = mock_cli(monkeypatch, auth=SIGNED_OUT, setup_auth={**setup, "apiProvider": provider})
+        cli = cc.ClaudeCliClient()
+        assert cli.status()["ready"] == ready
+        if ready:
+            cli.create(model="sonnet", messages=[{"role": "user", "content": "fixture"}])
+            args, opts = calls[-1]
+            assert opts["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "fixture-token"
+            assert "CLAUDE_CODE_OAUTH_TOKEN" not in json.loads(args[args.index("--settings") + 1])["env"]
+        assert all("fixture-token" not in str(args) for args, _ in calls)
 
 
 def test_inference_refreshes_identity_after_a_cached_ready_status(monkeypatch):
@@ -114,10 +146,11 @@ def test_inference_refreshes_identity_after_a_cached_ready_status(monkeypatch):
     assert len(calls) == 1
 
 
-def test_reasoning_catalog_respects_pinned_models(monkeypatch):
+def test_reasoning_catalog_uses_official_aliases_and_explicit_versions(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")
     choices = {m["id"]: m["reasoning_efforts"] for m in cc.model_options()}
-    assert choices["sonnet"] == ["low", "medium", "high", "max"]
+    assert choices["sonnet"] == list(cc.EFFORT_LEVELS)
+    assert cc.model_option("claude-sonnet-4-6")["reasoning_efforts"] == ["low", "medium", "high", "max"]
     assert cc.model_option("claude-opus-5-5[1m]")["reasoning_efforts"] == list(cc.EFFORT_LEVELS)
     assert cc.model_option("claude-haiku-4-5-20251001")["reasoning_efforts"] == []
     assert not cc.model_option("future-model")["reasoning_efforts_known"]
@@ -160,7 +193,7 @@ def test_text_json_context_and_tokens_pass_through_stdin_only(monkeypatch):
     assert "ONLY a valid JSON object" in opts["input"]
     assert "PRIVATE" not in str(args) and "TASK SCHEMA" not in str(args)
     assert args[args.index("--tools") + 1] == ""
-    assert args[args.index("--setting-sources") + 1] == ""
+    assert args[args.index("--setting-sources") + 1] == "user"
     assert "--safe-mode" in args and "--bare" not in args
     assert "--strict-mcp-config" in args and "--no-session-persistence" in args
     assert args[args.index("--mcp-config") + 1] == '{"mcpServers":{}}'
@@ -254,21 +287,30 @@ def test_cli_stderr_is_not_exposed_and_timeouts_are_actionable(monkeypatch):
         cli.create(model="sonnet", messages=[{"role": "user", "content": "x"}])
 
 
-def test_login_opens_the_official_terminal_only_after_explicit_call(monkeypatch):
+def test_login_opens_the_official_terminal_only_after_explicit_call(monkeypatch, tmp_path):
     calls = mock_cli(monkeypatch)
     cli = cc.ClaudeCliClient()
     cli.status()
     assert len(calls) == 1
     launches = []
     monkeypatch.setattr(cc.sys, "platform", "darwin")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config ' with spaces"))
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-private-token")
     def launch(args, **kwargs):
-        launches.append((args, kwargs))
+        path = Path(args[-1])
+        assert path.suffix == ".command" and (path.stat().st_mode & 0o777) == 0o700
+        assert (path.parent.stat().st_mode & 0o777) == 0o700
+        launches.append((args[:-1], kwargs, path.read_text()))
+        path.unlink()
+        path.parent.rmdir()
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr(cc.subprocess, "run", launch)
     assert cli.login()["ok"]
-    assert launches[0][0][0] == "/usr/bin/osascript"
-    script = launches[0][0][-1]
-    assert "auth login" in script and "Terminal" in script and "--console" not in script
+    cmd, opts, script = launches[0]
+    assert cmd == ["/usr/bin/open", "-a", "Terminal"]
+    assert "auth login --claudeai" in script and "fixture-private-token" not in script
+    assert shlex.join(cc._cli_args("/mock/claude", browser=True)) in script
+    assert shlex.quote(cc.os.environ["CLAUDE_CONFIG_DIR"]) in script
     assert launches[0][1]["shell"] is False
 
 
@@ -276,4 +318,30 @@ def test_logout_uses_official_command_and_warns_shared_login(monkeypatch):
     calls = mock_cli(monkeypatch)
     out = cc.ClaudeCliClient().logout()
     assert out["ok"] and "共用" in out["message"]
-    assert calls[-1][0][-2:] == ["auth", "logout"]
+    assert any(args[-2:] == ["auth", "logout"] for args, _ in calls)
+
+
+@pytest.mark.parametrize("browser", [True, False])
+def test_logout_never_claims_an_external_token_has_been_removed(monkeypatch, browser):
+    token = {**AUTH, "authMethod": "oauth_token"}
+    calls = mock_cli(monkeypatch, auth=AUTH if browser else SIGNED_OUT, setup_auth=token)
+    state = cc.ClaudeCliClient().logout()
+    assert not state["ok"] and state["ready"] and state["auth_method"] == "oauth_token"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in state["message"]
+    assert any(args[-2:] == ["auth", "logout"] for args, _ in calls) == browser
+
+
+@pytest.mark.parametrize("details,expected,message", [
+    ("You've hit your 5-hour limit · resets 12:10pm (Europe/Berlin) · out of usage credits",
+     BudgetExceeded, "12:10（Europe/Berlin）"),
+    ("hit your limit · resets 7am (bad/secret-value)", BudgetExceeded, "订阅额度暂不可用"),
+    ("API Error: 401 authentication_error other private information", LLMNotConfigured, "登录已失效"),
+    ("Issue with the selected model. You may not have access.", LLMError, "所选 Claude 模型"),
+    ("Unable to connect - certificate failure", LLMError, "网络、代理和证书"),
+])
+def test_cli_error_classification_without_echoing_payload(details, expected, message):
+    with pytest.raises(expected, match=message) as exc:
+        cc.ClaudeCliClient._raise_error(details)
+    assert "secret-value" not in str(exc.value) and "private information" not in str(exc.value)
+    if "Europe/Berlin" in details:
+        assert (exc.value.reset_time, exc.value.reset_zone) == ("12:10", "Europe/Berlin")

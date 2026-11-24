@@ -35,7 +35,21 @@ def test_subscription_choices_do_not_request_api_keys(subscription_client):
         assert f'name="p_{provider}_model"' in html
     assert "https://chatgpt.com/settings/usage" in html
     assert "注销本机 Claude Code" in html
-    assert "API Key 登录不能作为订阅调用" in html
+    assert "按量使用 API 请单独选择「Anthropic Claude API」" in html
+
+
+def test_claude_quota_is_localized_without_requiring_login_again(subscription_client, config, monkeypatch):
+    from unittest.mock import Mock
+    from papermap.claude_cli import ClaudeUsageLimit
+
+    client, token = subscription_client
+    config.raw["appearance"]["language"] = "en"
+    cli = Mock()
+    cli.chat.completions.create.side_effect = ClaudeUsageLimit("12:10", "Europe/Berlin")
+    monkeypatch.setattr("papermap.llm.make_client", lambda *args, **kwargs: cli)
+    result = client.post("/api/llm/test", json={"csrf": token, "provider": "claude_cli", "model": "sonnet"}).json()
+    assert not result["ok"] and result["reset_time"] == "12:10" and result["reset_zone"] == "Europe/Berlin"
+    assert "12:10" in result["message"] and "Europe/Berlin" in result["message"] and "额度" not in result["message"]
 
 
 @pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
@@ -361,9 +375,9 @@ async function fetch(url, opts) {
   }
   throw new Error("Unexpected request " + url);
 }
-const documentEvents = new Element();
+const documentEvents = new Element(), windowEvents = new Element();
 const context = {t:s=>s,document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[],addEventListener:documentEvents.addEventListener.bind(documentEvents)},
-  fetch,window:{pmDialog:async()=>true,pmToast(){}},setTimeout:()=>1,clearTimeout(){},console};
+  fetch,window:{pmDialog:async()=>true,pmToast(){},addEventListener:windowEvents.addEventListener.bind(windowEvents)},setTimeout:()=>1,clearTimeout(){},console};
 vm.runInNewContext(fs.readFileSync(process.argv[1],"utf8"),context);
 const flush = async()=>{for(let i=0;i<12;i++) await new Promise(resolve=>setImmediate(resolve));};
 async function choose(p) { ids.provider_picker.value=p; await ids.provider_picker.emit("change"); await flush(); }
@@ -403,8 +417,12 @@ const values = select=>select.children.map(x=>x.value);
   await account["chatgpt_plan:start"].emit("click");
   release({ok:true,models:["pre-authorization-model"],model_options:[]}); await beforeLogin;
   assert(!gp.datalist.children.some(x=>x.value==="pre-authorization-model"),"pre-login response must not replace authorized capabilities");
+  await choose("claude_cli"); await windowEvents.emit("focus"); await flush();
+  assert.equal(requests.at(-1).url,"/api/accounts/claude_cli/status");
+  assert.equal(requests.at(-1).body.refresh,true,"return from official login must check the current CLI session");
   const requestsBeforeHidden=requests.length;
   modelSection.hidden=true; await documentEvents.emit("papermap:settings-section"); await choose("claude_cli");
+  await windowEvents.emit("focus"); await flush();
   assert.equal(requests.length,requestsBeforeHidden,"switching hidden provider state must not contact accounts");
   console.log("settings effort behavior and races passed");
 })().catch(err=>{console.error(err);process.exitCode=1;});

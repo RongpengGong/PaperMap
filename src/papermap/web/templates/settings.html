@@ -63,7 +63,7 @@
           {% if pid == 'chatgpt_plan' %}
           <p>{{ _("在系统浏览器中完成 OpenAI 授权后，PaperMap 会使用该账号的套餐或余额。") }}<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">{{ _("管理 ChatGPT 用量") }}</a></p>
           {% else %}
-          <p>{{ _("安装") }}<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">{{ _("官方 Claude Code") }}</a>{{ _("，用 Claude Pro 或 Max 账号登录，再回到这里刷新状态。API Key 登录不能作为订阅调用。") }}</p>
+          <p>{{ _("点击登录后，本机 Claude Code 会从终端打开浏览器。完成登录并回到设置，账号状态会自动刷新。点「测试连接」可以向所选模型发送一条测试消息。按量使用 API 请单独选择「Anthropic Claude API」。") }} <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">{{ _("安装官方 Claude Code") }}</a></p>
           {% endif %}
         </details>
       </div>

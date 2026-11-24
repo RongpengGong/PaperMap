@@ -2047,6 +2047,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                        "subscription_type", "billing", "models", "url", "expires_at", "pending",
                        "connected", "email", "error", "error_code", "needs_consent")
             result = {k: data[k] for k in allowed if k in data}
+            if provider == "claude_cli" and isinstance(result.get("message"), str):
+                result["message"] = _gettext(result["message"])
             result["ok"] = bool(data.get("ok", True))
             if provider == "chatgpt_plan" and data.get("error_code") in ("scope_missing", "access_denied"):
                 result["needs_consent"] = True
@@ -2184,7 +2186,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/api/llm/test")
     async def api_test(request: Request):
         eff = _form_llm(await request.json())
-        return await run_in_threadpool(check_connection, eff)
+        result = await run_in_threadpool(check_connection, eff)
+        if eff.get("provider") == "claude_cli" and not result["ok"]:
+            if result.get("reset_time") and result.get("reset_zone"):
+                result["message"] = _gettext("Claude Code 订阅额度已用完，重置时间 {reset}（{zone}）。",
+                                             reset=result["reset_time"], zone=result["reset_zone"])
+            else:
+                result["message"] = _gettext(result["message"])
+        return result
 
     @app.get("/extensions/guide", response_class=HTMLResponse)
     def extensions_guide(request: Request):

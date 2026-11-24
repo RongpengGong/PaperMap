@@ -242,6 +242,11 @@
       return state;
     }
   }
+  // The browser and Terminal take focus during Claude Code sign-in. Recheck
+  // the official CLI even if the user returns after the polling window.
+  window.addEventListener("focus", () => {
+    if (!modelSection.hidden && current() === "claude_cli") refreshAccount("claude_cli", true);
+  });
   async function waitForAccount(provider, deadline, epoch) {
     if (current() !== provider || Date.now() > deadline || epoch !== accountEpoch) return;
     const state = await refreshAccount(provider);
