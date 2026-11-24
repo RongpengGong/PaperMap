@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import evidence, library, mobile_companion, ocr, versions
+from . import evidence, library, mobile_companion, mobile_marks, ocr, versions
 from .registry import now_iso
 
 
@@ -104,7 +104,8 @@ def _notes(db, paper_id, revision):
              "segmentId": r["segment_id"] or ""} for r in rows]
 
 
-def capture(config, registry, paper_id) -> dict:
+def capture(config, registry, paper_id, marks=False) -> dict:
+    """The phone's view of a shared paper. ``marks`` adds its highlights (left out of the quick catalog listing)."""
     row = _paper(registry, paper_id)
     path = _main_path(config, registry, row)
     revision = evidence.document_revision(path)
@@ -112,11 +113,13 @@ def capture(config, registry, paper_id) -> dict:
         count = doc.page_count
     size = path.stat().st_size
     pdf_path(config, registry, paper_id, revision)
-    with registry._lock:
+    where = mobile_marks.scope(config, registry, paper_id, revision) if marks else None
+    with registry.transaction() as db:
         row = _paper(registry, paper_id)
         return {"id": paper_id, "title": row["title"] or "PDF", "revision": revision,
                 "pageCount": count, "byteSize": size, "progress": _progress(row, count),
-                "notes": _notes(registry.conn, paper_id, revision),
+                "notes": _notes(db, paper_id, revision),
+                **(mobile_marks.listing(db, paper_id, where) if marks else {}),
                 "companionVersion": mobile_companion.version(config, row, revision)}
 
 
@@ -253,6 +256,7 @@ def apply_changes(config, registry, paper_id, revision, changes) -> dict:
     with _document(path) as doc:
         count = doc.page_count
         notes, requested = _changes(changes, count)
+        mark_upserts, mark_deletes = mobile_marks.parse(changes, count)
         for key, item in notes.items():
             with registry._lock:
                 if _receipt(registry.conn, paper_id, revision, key, item["signature"]):
@@ -264,9 +268,11 @@ def apply_changes(config, registry, paper_id, revision, changes) -> dict:
                 raise ValueError("所选原文段落已变化，请重新核对摘录。")
 
     pdf_path(config, registry, paper_id, revision)
+    where = mobile_marks.scope(config, registry, paper_id, revision)
     with registry.transaction() as db:
         progress = _progress(_paper(registry, paper_id), count)
         _store_notes(db, paper_id, revision, notes, segments)
+        marked = mobile_marks.apply(db, paper_id, where, mark_upserts, mark_deletes)
         conflict = False
         if requested is not None:
             page, offset = requested["page"], requested["offset"]
@@ -279,5 +285,13 @@ def apply_changes(config, registry, paper_id, revision, changes) -> dict:
                               read_status=CASE read_status WHEN 'unread' THEN 'reading' ELSE read_status END
                               WHERE id=?""", (page, offset, version, paper_id))
                 progress = {"page": page, "offset": offset, "version": version}
-        return {"progress": progress, "progressConflict": conflict,
-                "acknowledgedNoteIds": list(notes), "notes": _notes(db, paper_id, revision)}
+        result = {"progress": progress, "progressConflict": conflict,
+                  "acknowledgedNoteIds": list(notes), "notes": _notes(db, paper_id, revision),
+                  "acknowledgedMarkIds": marked, **mobile_marks.listing(db, paper_id, where)}
+    if marked:
+        try:  # keep the annotations Markdown beside the card current; the database already holds the marks
+            from . import reader as reader_mod
+            reader_mod.write_annotations_md(registry, config.knowledge_dir, paper_id, config.output_language)
+        except OSError:
+            pass
+    return result

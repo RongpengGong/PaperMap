@@ -153,3 +153,41 @@ def test_backup_retains_note_receipts_and_migrates_pre_sync_library(config, regi
     assert mobile_sync.library_id(registry) != identity
     notes = mobile_sync.capture(config, registry, 1)["notes"]
     assert len(notes) == 1 and notes[0]["quote"] == segment["text"]
+
+
+def test_highlights_sync_both_ways_and_deletions_do_not_come_back(config, registry, shared):
+    web, paper, _ = shared
+    rev = paper["revision"]
+    desk = registry.add_annotation(1, 0, json.dumps([[10, 20, 60, 30]]), "desktop words", "green", "")
+    snap = mobile_sync.capture(config, registry, 1, marks=True)
+    [from_desk] = snap["marks"]
+    assert from_desk["color"] == "green" and from_desk["style"] == "highlight" and from_desk["page"] == 0
+    uid = from_desk["id"]
+    assert registry.one("SELECT uid FROM annotations WHERE id=?", (desk,))["uid"] == uid  # stable from now on
+    assert "marks" not in mobile_sync.capture(config, registry, 1)  # the quick catalog listing leaves them out
+
+    phone = {"id": str(uuid.uuid4()), "page": 1, "style": "underline", "color": "pink",
+             "rects": [[5, 40, 90, 52]], "text": "phone words"}
+    recolored = dict(from_desk, color="blue")  # both sides know it: the computer's colour stays
+    result = mobile_sync.apply_changes(config, registry, 1, rev, {"marks": {"upserts": [phone, recolored]}})
+    assert set(result["acknowledgedMarkIds"]) == {phone["id"], uid}
+    stored = {m["id"]: m for m in result["marks"]}
+    assert stored[phone["id"]]["style"] == "underline" and stored[phone["id"]]["rects"] == [[5, 40, 90, 52]]
+    assert stored[uid]["color"] == "green"
+    reader = web.get("/api/reader/1/info").json()["annotations"]
+    assert {a["uid"]: a["style"] for a in reader}[phone["id"]] == "underline"  # the desktop reader shows it
+
+    registry.delete_annotation(desk)  # deleted on the computer
+    again = mobile_sync.apply_changes(config, registry, 1, rev, {"marks": {"upserts": [from_desk]}})
+    assert uid in again["markTombstones"] and uid not in {m["id"] for m in again["marks"]}
+    assert not registry.query("SELECT 1 FROM annotations WHERE uid=?", (uid,))  # not re-added by the phone
+
+    gone = mobile_sync.apply_changes(config, registry, 1, rev, {"marks": {"deletes": [phone["id"]]}})
+    assert gone["marks"] == [] and phone["id"] in gone["markTombstones"]
+    assert mobile_sync.apply_changes(config, registry, 1, rev, {"marks": {"upserts": [phone]}})["marks"] == []
+
+    for bad in ({"marks": {"upserts": [dict(phone, id="nope")]}}, {"marks": {"upserts": [dict(phone, page=9)]}},
+                {"marks": {"upserts": [dict(phone, color="red")]}}, {"marks": {"upserts": [dict(phone, rects=[])]}},
+                {"marks": []}, {"marks": {"deletes": ["x"]}}):
+        with pytest.raises(ValueError):
+            mobile_sync.apply_changes(config, registry, 1, rev, bad)

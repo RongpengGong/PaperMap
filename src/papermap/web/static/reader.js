@@ -147,7 +147,9 @@
       a.rects.forEach((r, k) => {
         const d = document.createElement("div");
         d.className = "hl"; d.dataset.ann = a.id;
-        d.style.cssText = `left:${r[0] * s}px;top:${r[1] * s}px;width:${(r[2] - r[0]) * s}px;height:${(r[3] - r[1]) * s}px;background:${COLORS[a.color] || COLORS.yellow}`;
+        d.style.cssText = a.style === "underline"  // made with the phone's underline pen
+          ? `left:${r[0] * s}px;top:${r[3] * s - 2}px;width:${(r[2] - r[0]) * s}px;height:2px;background:#e0464b;opacity:1`
+          : `left:${r[0] * s}px;top:${r[1] * s}px;width:${(r[2] - r[0]) * s}px;height:${(r[3] - r[1]) * s}px;background:${COLORS[a.color] || COLORS.yellow}`;
         if (a.note && k === a.rects.length - 1) { d.classList.add("has-note"); d.title = a.note; }
         layer.appendChild(d);
       });

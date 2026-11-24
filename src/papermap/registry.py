@@ -169,6 +169,12 @@ CREATE TABLE IF NOT EXISTS annotations (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+-- A deleted highlight that a paired phone may still hold; keeps the deletion from coming back.
+CREATE TABLE IF NOT EXISTS annotation_tombstones (
+    uid TEXT PRIMARY KEY,
+    paper_id INTEGER NOT NULL,
+    deleted_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,          -- translate / skill
@@ -266,7 +272,9 @@ MIGRATIONS = {
                "tags_json": "TEXT", "zotero_key": "TEXT",
                "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER",
                "card_override": "TEXT", "trash_path": "TEXT", "deleted_status": "TEXT"},  # the user's own edit of the card body (kept over regeneration)
-    "annotations": {"pdf_file": "INTEGER"},  # which version of the PDF (files.id) when a paper has several
+    "annotations": {"pdf_file": "INTEGER",  # which version of the PDF (files.id) when a paper has several
+                    "uid": "TEXT",  # stable ID shared with a paired phone
+                    "style": "TEXT NOT NULL DEFAULT 'highlight'"},  # highlight / underline
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
     "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
     # research questions: user-made are active at once; model-proposed ones wait as 'suggested'
@@ -669,7 +677,12 @@ class Registry:
         self.execute(f"UPDATE annotations SET {sets} WHERE id=?", (*cols.values(), ann_id))
 
     def delete_annotation(self, ann_id: int) -> None:
-        self.execute("DELETE FROM annotations WHERE id=?", (ann_id,))
+        with self.transaction() as db:
+            row = db.execute("SELECT uid, paper_id FROM annotations WHERE id=?", (ann_id,)).fetchone()
+            if row is not None and row["uid"]:
+                db.execute("INSERT OR REPLACE INTO annotation_tombstones(uid, paper_id, deleted_at) VALUES (?,?,?)",
+                           (row["uid"], row["paper_id"], now_iso()))
+            db.execute("DELETE FROM annotations WHERE id=?", (ann_id,))
 
     # -- collections (Zotero-style groups; a paper may be in several) --------
     def collections(self) -> list[sqlite3.Row]:

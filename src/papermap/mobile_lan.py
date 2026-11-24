@@ -520,7 +520,7 @@ class _Handler(BaseHTTPRequestHandler):
             if body is not None:
                 self._json(200, mobile_sync.apply_changes(*args, revision, body))
         elif self.command == 'GET' and resource is None:
-            paper = mobile_sync.capture(*args)
+            paper = mobile_sync.capture(*args, marks=True)
             if paper['revision'] != revision:
                 self._error(409, 'revision_changed')
             else:
