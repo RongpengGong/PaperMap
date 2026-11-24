@@ -148,7 +148,15 @@ def render_field(registry: Registry, field, taxonomy: Taxonomy | None, language:
     if syn_row:
         disp = [f"- {it['text']} {_cites(registry, it['paper_ids'])}" for it in synth.get("disputes", [])]
         none_msg = "（最近一次整合没有发现论文之间相互矛盾的结论。）" if language != "en" else "(No conflicting results found at the last consolidation.)"
-        section(h["disputes"], disp or [none_msg])
+        sel = synth.get("selection")
+        note = []
+        if sel and sel.get("used", 0) < sel.get("total", 0):
+            from .consolidate import REASONS
+
+            parts = "、".join(f"{REASONS[k]} {v}" for k, v in sel["counts"].items() if k in REASONS)
+            note = ["", (f"*最近一次整合参考了 {sel['used']}/{sel['total']} 篇：{parts}。你确认过的关键证据和相反证据有固定名额。*"
+                         if language != "en" else f"*The last consolidation used {sel['used']} of {sel['total']} papers.*")]
+        section(h["disputes"], (disp or [none_msg]) + note)
     else:
         todo = (f"（同一学科累计 {consolidate_every} 篇论文后自动整合，对比不同论文的结论；也可以在网页学科页点「立即整合」。）"
                 if language != "en" else h["disputes_todo"])

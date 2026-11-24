@@ -130,3 +130,39 @@ def test_tray_icon_assets_exist():
     from importlib import resources
     static = resources.files("papermap.web").joinpath("static")
     assert static.joinpath("icon.png").is_file() and static.joinpath("tray.png").is_file()
+
+
+def test_consolidation_selection_keeps_confirmed_and_old_papers(config, registry):
+    """Task 4: a large field samples recent-added + recent-published, and confirmed evidence
+    (especially contrary evidence) always gets a place; stars do not count."""
+    from papermap import consolidate, evidence
+
+    pipe, comp = make_pipeline(config, registry)
+    f, ids = field_with_papers(registry, pipe, "spatial-transcriptomics", 60)  # years 2020..2079
+    # a classic old paper imported last: oldest year, newest created_at
+    classic = registry.create_paper(doi="10.1/classic", title="Classic", year=1990, journal="J", first_author="Old",
+                                    status="done", card_json=CARD, meta_json={})
+    registry.set_paper_field(classic, f["id"], status="accepted", source="llm", confidence=0.9, is_primary=1)
+    registry.execute("UPDATE papers SET created_at='2999-01-01T00:00:00' WHERE id=?", (classic,))
+    old_contrary, old_key, starred = ids[0], ids[1], ids[2]  # low years: would never be in the top 40 by year
+    registry.execute("UPDATE papers SET starred=1 WHERE id=?", (starred,))
+    q = evidence.create_question(registry, "问题")
+    evidence.add_entry(registry, q, "", old_contrary, 0, "r", [[1, 1, 2, 2]], "contrary quote", "native", "opposes", "")
+    registry.execute("INSERT INTO update_cards(paper_id, question_id, outcome, headline, claims_json, status, revision, "
+                     "created_at, decided_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (old_key, q, "support", "又一篇支持", "[]", "confirmed", "r", "2026-01-01", "2026-01-02"))
+    registry.execute("INSERT INTO update_cards(paper_id, question_id, outcome, headline, claims_json, status, revision, "
+                     "created_at) VALUES (?,?,?,?,?,?,?,?)", (ids[3], q, "contradicts", "未确认", "[]", "pending", "r", "x"))
+    picked = consolidate.select(registry, f["id"])
+    why = {r["paper_id"]: w for r, w in picked}
+    assert len(picked) == consolidate.MAX_PAPERS
+    assert why[old_contrary] == "contrary" and why[old_key] == "key" and why[classic] == "added"
+    assert starred not in why and ids[3] not in why  # a star or an unconfirmed card is not evidence
+    assert {w for w in why.values()} == {"contrary", "key", "added", "published"}
+    user = consolidate.build_user(registry.field_by_slug("spatial-transcriptomics"), consolidate.refs_for(registry, f["id"]))
+    assert "user-confirmed CONTRARY evidence" in user and 'User-confirmed for question "问题": opposes' in user
+    stored = consolidate.run(pipe.llm, config, registry, "spatial-transcriptomics")
+    assert stored["selection"]["used"] == 40 and stored["selection"]["total"] == 61
+    pipe.refresh_fields({"spatial-transcriptomics"})
+    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text("utf-8")
+    assert "最近一次整合参考了 40/61 篇" in hub and "相反证据 1" in hub
