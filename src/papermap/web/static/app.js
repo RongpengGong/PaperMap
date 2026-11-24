@@ -170,6 +170,7 @@
   function initPanel() {
     const panel = document.querySelector(".panel"); if (!panel) return;
     const id = panel.dataset.paper;
+    if (window.pmPanelEditors) window.pmPanelEditors(panel);
     // right-hand tabs; the last one used is remembered across papers
     const showTab = name => {
       const tab = panel.querySelector(`.tab[data-tab="${name}"]`) || panel.querySelector(".tab");
@@ -296,7 +297,8 @@
       if (lastEvent !== null && ver !== lastEvent) {
         await refreshList();
         const panel = document.querySelector(".panel");
-        const typing = document.activeElement && document.activeElement.classList.contains("notes");
+        const ae = document.activeElement;
+        const typing = (ae && (ae.classList.contains("notes") || ae.closest(".ProseMirror"))) || document.querySelector(".card-editing");
         if (panel && !typing) openPaper(panel.dataset.paper, false);
       }
       lastEvent = ver;

@@ -411,6 +411,7 @@ class Pipeline:
             collections=[self.registry.collection_path(c["id"]) for c in self.registry.paper_collections(paper_id)],
             reading={"read_status": row["read_status"], "starred": row["starred"],
                      "tags": json.loads(row["tags_json"] or "[]")},
+            override=row["card_override"] if "card_override" in row.keys() else None,
         )
         if rel != row["kb_path"]:
             self.registry.update_paper(paper_id, kb_path=rel)

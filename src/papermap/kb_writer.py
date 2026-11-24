@@ -110,6 +110,7 @@ def render_card(
     has_pdf: bool = False,
     collections: list[str] | None = None,
     reading: dict | None = None,
+    override: str | None = None,
 ) -> str:
     h = HEADINGS["en" if language == "en" else "zh"]
     authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
@@ -134,6 +135,13 @@ def render_card(
         "added": added or date.today().isoformat(),
     }
     out = ["---", yaml.safe_dump(front, allow_unicode=True, sort_keys=False, width=10**6).strip(), "---", ""]
+    if override is not None and override.strip():
+        # the user edited the card: keep their text; notes embed and field list stay automatic
+        if "edited" not in front:
+            out[1] += "\nedited: true"
+        out.extend([override.strip(), ""])
+        _tail(out, h, stem, has_pdf, user_section, language, fields)
+        return "\n".join(out).rstrip() + "\n"
     out.append(f"# {meta.get('title') or '(untitled)'}")
     out.append("")
     cite = ", ".join(x for x in [_short_authors(authors), meta.get("journal", ""), str(meta.get("year") or "")] if x)
@@ -168,6 +176,25 @@ def render_card(
     section(h["tools"], ", ".join(f"`{t}`" for t in card.get("tools", [])) or "—")
     section(h["findings"], "\n".join(f"{i}. {x}" for i, x in enumerate(card.get("key_findings", []), 1)))
     section(h["limits"], bullets(card.get("limitations", [])))
+    _tail(out, h, stem, has_pdf, user_section, language, fields)
+    return "\n".join(out).rstrip() + "\n"
+
+
+def editable_part(text: str, language: str) -> str:
+    """The part of a card the user may edit: everything above the "My notes" section."""
+    h = HEADINGS["en" if language == "en" else "zh"]
+    body = text
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        body = text[end + 4:] if end != -1 else text
+    m = re.search(rf"^##\s+({re.escape(h['mine'])}|My notes|我的笔记)\s*$", body, flags=re.M)
+    return (body[:m.start()] if m else body).strip()
+
+
+def _tail(out: list[str], h: dict, stem, has_pdf, user_section, language, fields) -> None:
+    def section(title: str, body: str) -> None:
+        out.extend([f"## {title}", "", body.strip() or "—", ""])
+
     if stem:  # notes live in their own file next to the card; embedded for Obsidian
         hint = "（在 {f} 里写，PaperMap 永远不会改动它）" if language != "en" else "(edit {f}; PaperMap never changes it)"
         out.extend([f"## {h['mine']}", "", f"![[{stem}.notes]]", "", hint.format(f=f"{stem}.notes.md"), ""])
@@ -176,7 +203,6 @@ def render_card(
     else:
         out.extend([f"## {h['mine']}", "", USER_BEGIN, user_section if user_section is not None else h["mine_hint"], USER_END, ""])
     section(h["fields"], _fields_block(fields or [], h, language))
-    return "\n".join(out).rstrip() + "\n"
 
 
 def _fields_block(fields: list[dict], h: dict, language: str) -> str:
@@ -246,6 +272,7 @@ def write_card(
     fields: list[dict] | None = None,
     collections: list[str] | None = None,
     reading: dict | None = None,
+    override: str | None = None,
 ) -> str:
     """Write (or rewrite) a card in the paper's own folder. Returns rel path."""
     if existing_rel_path:
@@ -264,7 +291,7 @@ def write_card(
         meta, card, file_paths, all_dois, language,
         user_section=read_user_section(path), added=read_added(path), fields=fields,
         stem=stem, has_pdf=bool(stem) and (path.parent / f"{stem}.pdf").exists(), collections=collections,
-        reading=reading,
+        reading=reading, override=override,
     )
     atomic_write(path, text)
     return rel

@@ -54,3 +54,25 @@ def test_note_images_upload_serve_and_render(config, registry):
                                           "text": f"看这张图\n\n![UMAP]({r['src']})"}).json()
     assert f'<img alt="UMAP" src="/attachments/{name}"' in saved["html"]
     assert f"![UMAP](../attachments/{name})" in page.read_text("utf-8")  # relative path also works in Obsidian
+
+
+def test_card_edit_kept_over_refresh_and_reset(config, registry, pdfs):
+    from .conftest import OWN_DOI
+    from .test_reader import client as reader_client
+
+    c, pipe, _ = reader_client(config, registry, pdfs)
+    pid = registry.paper_by_doi(OWN_DOI)["id"]
+    tok = _token(c)
+    got = c.get(f"/paper/{pid}/card.md").json()
+    assert got["ok"] and not got["edited"] and got["text"].startswith("# ") and "我的笔记" not in got["text"]
+    text = got["text"] + '\n\n我的补充：==重点== <span style="color: #d92d20; position: fixed">红字</span>'
+    r = c.post(f"/paper/{pid}/card", json={"csrf": tok, "text": text}).json()
+    assert r["ok"] and r["edited"] and "<mark>重点</mark>" in r["html"]
+    assert '<span style="color: #d92d20">红字</span>' in r["html"] or 'style="color:#d92d20"' in r["html"].replace(" ", "")
+    assert "position" not in r["html"]  # only colour survives the sanitizer
+    pipe._refresh_card(pid)  # stars, groups, classification all rewrite the card
+    card = (config.knowledge_dir / registry.get_paper(pid)["kb_path"]).read_text("utf-8")
+    assert "我的补充" in card and "edited: true" in card and "## 我的笔记" in card and "notes]]" in card
+    r = c.post(f"/paper/{pid}/card", json={"csrf": tok, "reset": True}).json()
+    assert r["ok"] and not r["edited"] and "我的补充" not in r["html"]
+    assert not c.post(f"/paper/{pid}/card", json={"csrf": tok, "text": " "}).json()["ok"]

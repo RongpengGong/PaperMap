@@ -208,7 +208,8 @@ MIGRATIONS = {
     "papers": {"classify_key": "TEXT", "classified_at": "TEXT", "needs_review": "INTEGER DEFAULT 0",
                "read_status": "TEXT NOT NULL DEFAULT 'unread'", "starred": "INTEGER NOT NULL DEFAULT 0",
                "tags_json": "TEXT", "zotero_key": "TEXT",
-               "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER"},
+               "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER",
+               "card_override": "TEXT"},  # the user's own edit of the card body (kept over regeneration)
     "field_proposals": {"pending_id": "INTEGER", "outcome": "TEXT"},
     "llm_calls": {"billing": "TEXT NOT NULL DEFAULT 'token'"},  # token / subscription
     # research questions: user-made are active at once; model-proposed ones wait as 'suggested'

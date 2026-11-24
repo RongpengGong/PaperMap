@@ -137,9 +137,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         threading.Thread(target=run, daemon=True).start()
 
     def md_html(text: str) -> str:
+        text = _highlights(text)
         html = md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
         # to-do items written in the note editor ("- [ ] x" / "- [x] x")
-        html = html.replace('src="../attachments/', 'src="/attachments/')  # images pasted into notes
+        html = html.replace('src="../../attachments/', 'src="/attachments/').replace('src="../attachments/', 'src="/attachments/')
         html = re.sub(r"<li>(<p>)?\[([ xX])\] ", lambda m: f"<li>{m.group(1) or ''}{'☐' if m.group(2) == ' ' else '☑'} ", html)
         # external links open in the system browser (pywebview honours target=_blank)
         return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', _clean_markdown_html(html))
@@ -342,6 +343,42 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                      str(body.get("text", "")).replace("\r\n", "\n"))
         background("reindex", pipeline.reindex, paper_id)
         return {"ok": True}
+
+    def _card_path(paper_id: int) -> tuple:
+        row = registry.get_paper(paper_id)
+        if row is None or not row["kb_path"] or not row["card_json"]:
+            raise HTTPException(404)
+        path = config.knowledge_dir / row["kb_path"]
+        if not path.exists():
+            raise HTTPException(404)
+        return row, path
+
+    @app.get("/paper/{paper_id}/card.md")
+    def paper_card_md(paper_id: int):
+        from ..kb_writer import editable_part
+
+        row, path = _card_path(paper_id)
+        return {"ok": True, "text": editable_part(path.read_text("utf-8"), config.output_language),
+                "edited": bool(row["card_override"])}
+
+    @app.post("/paper/{paper_id}/card")
+    async def paper_card_save(paper_id: int, request: Request):
+        """The user's own edit of a card (kept when the card is refreshed); reset=true restores the generated one."""
+        body = await json_body(request)
+        row, path = _card_path(paper_id)
+        text = body.get("text")
+        if body.get("reset"):
+            override = None
+        elif isinstance(text, str) and text.strip() and len(text) <= 200_000:
+            override = text.replace("\r\n", "\n").strip()
+        else:
+            return {"ok": False, "message": "卡片内容不能为空，最多 20 万字符"}
+        registry.update_paper(paper_id, card_override=override)
+        pipeline._refresh_card(paper_id)
+        background("reindex", pipeline.reindex, paper_id)
+        pipeline.kb_commit(("Restore" if override is None else "Edit") + f" card #{paper_id}")
+        ctx = paper_panel_ctx(paper_id)
+        return {"ok": True, "html": ctx["body_html"] if ctx else "", "edited": override is not None}
 
     @app.post("/paper/{paper_id}/meta")
     async def paper_meta(paper_id: int, request: Request):
@@ -1424,7 +1461,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         folder.mkdir(parents=True, exist_ok=True)
         if not (folder / name).exists():  # same picture pasted twice is stored once
             (folder / name).write_bytes(data)
-        return {"ok": True, "src": f"../attachments/{name}", "alt": stem}
+        return {"ok": True, "src": f"../attachments/{name}", "name": name, "alt": stem}
 
     @app.get("/attachments/{name}")
     def kb_attachment(name: str):
@@ -2023,13 +2060,22 @@ def _image_ext(data: bytes) -> str:
     return ""
 
 
+def _highlights(text: str) -> str:
+    """Obsidian-style ==highlight== (outside code) becomes <mark>; Python-Markdown has no syntax for it."""
+    parts = re.split(r"(```.*?```|`[^`\n]*`)", text, flags=re.S)
+    return "".join(p if i % 2 else re.sub(r"==(?=\S)([^=\n]*?\S)==", r"<mark>\1</mark>", p) for i, p in enumerate(parts))
+
+
 def _clean_markdown_html(html: str) -> str:
     # Documents, model output and prompt plugins all share the local UI origin.
-    return nh3.clean(html, tags={"p", "br", "hr", "strong", "b", "em", "i", "del", "blockquote", "code", "pre",
-                                 "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "a", "sup", "sub",
+    # Inline colour from the note editor survives as span/mark style, limited to colour properties.
+    return nh3.clean(html, tags={"p", "br", "hr", "strong", "b", "em", "i", "u", "s", "del", "blockquote", "code", "pre",
+                                 "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "a", "sup", "sub", "mark", "span",
                                  "table", "thead", "tbody", "tr", "td", "th", "dl", "dt", "dd", "abbr", "img"},
                      attributes={"a": {"href", "title", "class"}, "img": {"src", "alt", "title"},
+                                 "span": {"style"}, "mark": {"style"},
                                  "td": {"colspan", "rowspan"}, "th": {"colspan", "rowspan"}},
+                     filter_style_properties={"color", "background-color"},
                      url_schemes={"http", "https", "mailto"}, link_rel=None)
 
 

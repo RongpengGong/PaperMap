@@ -14,23 +14,12 @@
   const status = document.createElement("span");
   status.className = "muted small kb-user-status";
   head.appendChild(status);
-  const pick = document.createElement("input");
-  pick.type = "file"; pick.accept = "image/png,image/jpeg,image/gif,image/webp"; pick.multiple = true; pick.hidden = true;
-  const addImg = document.createElement("button");
-  addImg.type = "button"; addImg.className = "ghost-btn kb-user-edit"; addImg.textContent = t("插入图片"); addImg.hidden = true;
-  addImg.title = t("也可以直接粘贴或拖进图片");
-  head.append(pick, addImg);
   const done = document.createElement("button");
   done.type = "button"; done.className = "ghost-btn kb-user-edit"; done.textContent = t("完成"); done.hidden = true;
   head.appendChild(done);
   const say = m => (window.pmToast ? window.pmToast(m) : alert(m));
 
-  let loading = null;
-  const load = () => window.PMEditor ? Promise.resolve() : (loading = loading || new Promise((ok, fail) => {
-    const s = document.createElement("script");
-    s.src = "/static/vendor/papermap-editor/papermap-editor.min.js"; s.onload = ok; s.onerror = fail;
-    document.head.appendChild(s);
-  }));
+  const load = () => window.pmLoadEditor();
   // keep [[wiki links]] (and their |alias) readable in the Markdown file
   const tidy = md => md.replace(/\\\[\\\[([^\]\n]*?)\\\]\\\]/g, (_, x) => `[[${x.replace(/\\\|/g, "|")}]]`)
     .replace(/\[\[([^\]\n]*?)\]\]/g, (_, x) => `[[${x.replace(/\\([|_*])/g, "$1")}]]`).replace(/&nbsp;/g, " ").trim();
@@ -68,10 +57,10 @@
       saved = j.text;
       wrap.innerHTML = "";
       wrap.classList.add("editing"); wrap.title = "";
-      editor = window.PMEditor.create(wrap, j.text, j.hint || t("写下你的笔记… 输入 # 标题、- 列表、**粗体**、> 引用、[ ] 待办"),
+      editor = window.PMEditor.create(wrap, j.text, j.hint || t("写下你的笔记… 可以直接粘贴图片；输入 # 标题、- 列表、**粗体**、> 引用、[ ] 待办"),
         () => { status.textContent = t("未保存…"); clearTimeout(timer); timer = setTimeout(save, 1000); },
         () => save(), upload);
-      done.hidden = false; addImg.hidden = false;
+      done.hidden = false;
       editor.commands.focus("end");
     } catch (e) {
       say(t("打开编辑器失败"));
@@ -86,13 +75,10 @@
     editor.destroy(); editor = null;
     wrap.classList.remove("editing"); wrap.title = t("点击直接编辑");
     wrap.innerHTML = j.html || `<p class="muted">${(j.hint || "（还没有笔记，点击这里写）").replace(/</g, "&lt;")}</p>`;
-    done.hidden = true; addImg.hidden = true; status.textContent = "";
+    done.hidden = true; status.textContent = "";
   }
   wrap.addEventListener("click", e => { if (!editor && !e.target.closest("a")) open(); });
   done.addEventListener("click", close);
-  addImg.addEventListener("mousedown", e => e.preventDefault());  // keep the cursor where the picture goes
-  addImg.addEventListener("click", () => pick.click());
-  pick.addEventListener("change", () => { if (editor && pick.files.length) editor.pmInsertImages(pick.files); pick.value = ""; });
   document.addEventListener("keydown", e => {
     if (editor && (e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
     if (editor && e.key === "Escape") close();

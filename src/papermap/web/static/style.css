@@ -733,3 +733,23 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .tr-author input { width: 100%; }
 .tr-author-hit { display: block; width: 100%; text-align: left; margin: 4px 0; background: var(--bg); color: var(--fg); border: 1px solid var(--line); }
 .badge.soft { background: color-mix(in srgb, var(--accent) 80%, transparent); }
+
+/* editor toolbar, colours and highlights (note editors and card editing) */
+.pm-toolbar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 4px 2px 6px; margin-bottom: 6px; border-bottom: 1px solid var(--line); background: var(--card, var(--bg)); }
+.pm-tb { min-width: 28px; height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--fg); font-size: 12.5px; line-height: 1; cursor: pointer; }
+.pm-tb:hover { background: var(--side-hover, var(--bg)); }
+.pm-tb.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.pm-tb-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
+.pm-tb-menu { position: relative; }
+.pm-tb-pop { position: absolute; top: 30px; left: 0; z-index: 5; display: flex; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, var(--bg)); box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+.pm-swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--c); cursor: pointer; padding: 0; font-size: 11px; }
+.pm-swatch.none { background: transparent; color: var(--muted); }
+.pm-hl { background: #fff3a3; color: #333; padding: 0 3px; border-radius: 3px; }
+.pm-fc { color: #d92d20; font-weight: 700; text-decoration: underline; text-decoration-color: #d92d20; }
+.pm-editor-host .tiptap { outline: none; min-height: 140px; }
+.md mark, .tiptap mark { background: #fff3a3; color: inherit; border-radius: 2px; padding: 0 1px; }
+.notes-live { border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 12px; min-height: 320px; }
+.notes-live .tiptap { min-height: 280px; }
+.notes-live .tiptap p.is-editor-empty:first-child::before, .card-editing .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
+.notes-live img, .card-editing img { max-width: 100%; height: auto; border-radius: 6px; }
+.card-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 8px; }
