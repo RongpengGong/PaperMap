@@ -138,7 +138,7 @@ PaperMap is a personal side project, free and open source. If it saves you time,
 
 * Metadata from [Crossref](https://www.crossref.org/) and [OpenAlex](https://openalex.org/); new literature from OpenAlex, [PubMed](https://pubmed.ncbi.nlm.nih.gov/) and [bioRxiv / medRxiv](https://www.biorxiv.org/); open-access full text from [PMC Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/).
 * PDF parsing with [PyMuPDF](https://pymupdf.readthedocs.io/), the note editor is built on [Tiptap](https://tiptap.dev/), the desktop window on [pywebview](https://pywebview.flowrl.com/).
-* The README layout follows [Agentero](https://github.com/poco-ai/Agentero).
+* Thanks to [Claude](https://claude.ai) (Anthropic) for help during development.
 
 ## License
 

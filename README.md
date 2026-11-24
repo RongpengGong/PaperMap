@@ -138,7 +138,7 @@ PaperMap 是利用业余时间开发的个人项目，免费开源。如果它�
 
 * 元数据来自 [Crossref](https://www.crossref.org/) 与 [OpenAlex](https://openalex.org/)；新文献来自 OpenAlex、[PubMed](https://pubmed.ncbi.nlm.nih.gov/) 与 [bioRxiv / medRxiv](https://www.biorxiv.org/)；开放获取全文来自 [PMC Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/)。
 * PDF 解析使用 [PyMuPDF](https://pymupdf.readthedocs.io/)，笔记编辑器基于 [Tiptap](https://tiptap.dev/)，桌面窗口基于 [pywebview](https://pywebview.flowrl.com/)。
-* README 的结构参考了 [Agentero](https://github.com/poco-ai/Agentero)。
+* 感谢 [Claude](https://claude.ai)（Anthropic）在开发中的协助。
 
 ## 开源许可证
 
