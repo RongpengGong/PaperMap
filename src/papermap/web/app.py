@@ -95,10 +95,13 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     templates.env.filters["keep"] = lambda v: Markup(_escape("" if v is None else v))
     def _fname(row) -> str:
         """A field's display name: English names for an English / Japanese interface."""
-        try:
-            en, zh = row["name_en"], row["name_zh"]
-        except (KeyError, IndexError, TypeError):
-            return ""
+        def get(key: str) -> str:
+            try:
+                return row[key] or ""
+            except (KeyError, IndexError, TypeError):
+                return ""
+
+        en, zh = get("name_en"), get("name_zh")
         return (en or zh or "") if _lang() in ("en", "de") else (zh or en or "")
 
     templates.env.globals["fname"] = _fname
@@ -194,7 +197,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rows = registry.query(sql + " ORDER BY id DESC LIMIT 2000", tuple(params))
         labels: dict[int, list] = {}
         for r in registry.query(
-                "SELECT pf.paper_id, f.name_zh, f.axis FROM paper_fields pf JOIN fields f ON f.id=pf.field_id "
+                "SELECT pf.paper_id, f.name_zh, f.name_en, f.axis FROM paper_fields pf JOIN fields f ON f.id=pf.field_id "
                 "WHERE pf.status='accepted' ORDER BY pf.is_primary DESC, pf.confidence DESC"):
             labels.setdefault(r["paper_id"], []).append(r)
         return rows, labels
