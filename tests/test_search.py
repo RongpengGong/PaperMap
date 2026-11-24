@@ -18,7 +18,7 @@ def test_index_and_search(config, registry, pdfs):
     assert any(h["kind"] == "card" for h in srch.search(registry, "Finding two"))
     # notes + annotations reach the index after a change
     from papermap import library
-    library.notes_path(config.knowledge_dir, registry.get_paper(pid)["kb_path"]).write_text("我的想法：肝癌 微环境 对照")
+    library.notes_path(config.knowledge_dir, registry.get_paper(pid)["kb_path"]).write_text("我的想法：肝癌 微环境 对照", encoding="utf-8")
     registry.add_annotation(pid, 0, "[[1,1,2,2]]", "fibroblast niches", "yellow", "重点看")
     assert pipe.reindex(pid) is True and pipe.reindex(pid) is False  # unchanged -> skipped
     assert srch.search(registry, "肝癌")[0]["kind"] == "notes"       # 2 chars -> LIKE fallback

@@ -88,7 +88,7 @@ def complete(auth, issuer, **kwargs):
 
 
 def update_record(auth, **updates):
-    data = json.loads(auth.credentials_path.read_text())
+    data = json.loads(auth.credentials_path.read_text(encoding="utf-8"))
     data.update(updates)
     authmod._write_json(auth.credentials_path, data)
 
@@ -111,7 +111,7 @@ def test_loopback_login_pkce_verified_identity_and_private_storage(auth, issuer)
     assert auth.status()["ready"] and not auth.status()["pending"]
     assert auth.access_token() == "test-access"
     assert "test-access" not in json.dumps(auth.status()) and "test-refresh" not in response.text
-    record = json.loads(auth.credentials_path.read_text())
+    record = json.loads(auth.credentials_path.read_text(encoding="utf-8"))
     assert record["subject"] == "test-subject" and record["client_id"] == "oaiapp_papermap_test"
     exchange = next(r for r in issuer["calls"] if str(r.url) == authmod.TOKEN_URL)
     form = parse_qs(exchange.content.decode())
@@ -120,7 +120,7 @@ def test_loopback_login_pkce_verified_identity_and_private_storage(auth, issuer)
     if os.name != "nt":
         assert auth.credentials_path.stat().st_mode & 0o777 == 0o600
         assert auth.host_path.stat().st_mode & 0o777 == 0o600
-    host = json.loads(auth.host_path.read_text())["ext_agent_host_id"]
+    host = json.loads(auth.host_path.read_text(encoding="utf-8"))["ext_agent_host_id"]
     assert host.startswith("urn:uuid:")
     _, returning = begin(auth, issuer)
     assert returning["client_id"] == ["oaiapp_papermap_test"]
@@ -182,7 +182,7 @@ def test_expired_code_retains_new_client_without_trusting_identity(auth, issuer)
     _, q = begin(auth, issuer)
     assert not auth._callback({"state": q["state"], "code": ["expired-code"], "client_id": ["oaiapp_papermap_test"]})
     assert auth.status()["error_code"] == "invalid_grant" and not auth.status()["ready"]
-    assert json.loads(auth.credentials_path.read_text()) == {
+    assert json.loads(auth.credentials_path.read_text(encoding="utf-8")) == {
         "client_id": "oaiapp_papermap_test", "issuer": authmod.ISSUER}
     _, retry = begin(auth, issuer)
     assert retry["client_id"] == ["oaiapp_papermap_test"] and "agent_name_hint" not in retry
@@ -257,7 +257,7 @@ def test_rotating_refresh_is_serialized_even_across_instances(auth, issuer, tmp_
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(lambda i: (auth if i % 2 else other).access_token(), range(8)))
         assert results == ["new-test-access"] * 8 and issuer["refresh_calls"] == 1
-        record = json.loads(auth.credentials_path.read_text())
+        record = json.loads(auth.credentials_path.read_text(encoding="utf-8"))
         assert record["refresh_token"] == "new-test-refresh"
         refresh = next(r for r in issuer["calls"] if b"grant_type=refresh_token" in r.content)
         form = parse_qs(refresh.content.decode())
@@ -280,7 +280,7 @@ def test_terminal_refresh_clears_tokens_and_keeps_registration(auth, issuer):
     with pytest.raises(ChatGPTAuthError) as error:
         auth.access_token()
     assert error.value.code == "refresh_token_reused"
-    record = json.loads(auth.credentials_path.read_text())
+    record = json.loads(auth.credentials_path.read_text(encoding="utf-8"))
     assert record["client_id"] == "oaiapp_papermap_test" and record["subject"] == "test-subject"
     assert not any(k in record for k in ("access_token", "refresh_token", "id_token"))
     assert not auth.status()["ready"]
@@ -305,7 +305,7 @@ def test_logout_revokes_and_always_clears_only_tokens(auth, issuer, revoke_statu
     result = auth.logout()
     assert result["remote_revocation_confirmed"] is (revoke_status == 200)
     assert not auth.status()["ready"] and auth.host_path.read_bytes() == host
-    record = json.loads(auth.credentials_path.read_text())
+    record = json.loads(auth.credentials_path.read_text(encoding="utf-8"))
     assert record["client_id"] == "oaiapp_papermap_test" and "id_token" not in record
     revoke = next(r for r in issuer["calls"] if r.url.path.endswith("/revoke"))
     assert parse_qs(revoke.content.decode())["token_type_hint"] == ["refresh_token"]

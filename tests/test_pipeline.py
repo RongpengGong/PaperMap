@@ -19,7 +19,7 @@ def test_new_paper_gets_card(config, registry, pdfs):
     assert pipe.handle_path(pdfs["paper"]) == "processed"
     row = registry.paper_by_doi(OWN_DOI)
     assert row["status"] == "done" and row["prompt_version"] == "extract_v1"
-    card = (config.knowledge_dir / row["kb_path"]).read_text()
+    card = (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     assert row["kb_path"].startswith("papers/2024_Zhang_JDemoHepatol_10-1234-demo-2024-001")
     assert "Finding two" in card and "doi: 10.1234/demo.2024.001" in card
     assert comp.calls == 1
@@ -37,7 +37,7 @@ def test_duplicates_do_not_call_llm(config, registry, pdfs, tmp_path):
     assert pipe.handle_path(pdfs["paper"]) == "known"
     assert comp.calls == 1
     row = registry.paper_by_doi(OWN_DOI)
-    card = (config.knowledge_dir / row["kb_path"]).read_text()
+    card = (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     assert "renamed copy.pdf" in card  # file paths refreshed without LLM
     assert len(registry.list_papers()) == 1
 
@@ -60,11 +60,11 @@ def test_notes_file_survives_rewrite(config, registry, pdfs):
     row = registry.paper_by_doi(OWN_DOI)
     card = config.knowledge_dir / row["kb_path"]
     notes = card.with_name(card.stem + ".notes.md")
-    assert notes.exists() and f"![[{card.stem}.notes]]" in card.read_text()
-    notes.write_text("MY OWN NOTE\n")
+    assert notes.exists() and f"![[{card.stem}.notes]]" in card.read_text(encoding="utf-8")
+    notes.write_text("MY OWN NOTE\n", encoding="utf-8")
     registry.update_paper(row["id"], status="new")
     assert pipe.process_paper(row["id"], force=True) == "processed"
-    assert notes.read_text() == "MY OWN NOTE\n"
+    assert notes.read_text(encoding="utf-8") == "MY OWN NOTE\n"
 
 
 def test_no_key_waits_without_crash(config, registry, pdfs):
@@ -101,7 +101,7 @@ def test_no_doi_paper_processed_and_deduped_by_title(config, registry, pdfs):
     assert pipe.handle_path(pdfs["nodoi"]) == "processed"
     row = registry.list_papers()[0]
     assert row["doi"] is None and "nodoi-" in row["kb_path"]
-    assert "无 DOI" in (config.knowledge_dir / row["kb_path"]).read_text()
+    assert "无 DOI" in (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     # a re-saved copy (different bytes, same title) is recognized
     import pymupdf
     doc = pymupdf.open(pdfs["nodoi"])

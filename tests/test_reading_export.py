@@ -24,7 +24,7 @@ def test_reading_status_star_and_filters(config, registry, pdfs):
     assert f'data-id="{pid}"' in c.get("/papers/list?status=starred").text
     assert f'data-id="{pid}"' not in c.get("/papers/list?status=r:unread").text
     pipe._refresh_card(pid)
-    card = (config.knowledge_dir / row["kb_path"]).read_text()
+    card = (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     assert "read_status: read" in card and "starred: true" in card
 
 

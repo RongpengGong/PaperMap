@@ -56,15 +56,15 @@ def test_preview_and_import(config, registry, pdfs, tmp_path):
     assert sorted(eval(paper["tags_json"])) == ["HCC", "to-read"]
     paths = [registry.collection_path(c["id"]) for c in registry.paper_collections(paper["id"])]
     assert paths == ["Zotero / 肝癌 / 空间组学"]
-    notes = library.notes_path(config.knowledge_dir, paper["kb_path"]).read_text()
+    notes = library.notes_path(config.knowledge_dir, paper["kb_path"]).read_text(encoding="utf-8")
     assert "来自 Zotero 的笔记" in notes and "**重点**" in notes
-    card = (config.knowledge_dir / paper["kb_path"]).read_text()
+    card = (config.knowledge_dir / paper["kb_path"]).read_text(encoding="utf-8")
     assert "- HCC" in card
     assert (z / "storage" / "ATT1" / "paper.pdf").exists()  # Zotero's file untouched
     # re-import: no duplicates
     r2 = zotero.run_import(pipe, z)
     assert r2["new"] == 0 and len(registry.list_papers()) == 1 and len(registry.collections()) == 3
-    assert notes.count("来自 Zotero 的笔记") == library.notes_path(config.knowledge_dir, paper["kb_path"]).read_text().count("来自 Zotero 的笔记")
+    assert notes.count("来自 Zotero 的笔记") == library.notes_path(config.knowledge_dir, paper["kb_path"]).read_text(encoding="utf-8").count("来自 Zotero 的笔记")
 
 
 def test_zotero_page_and_job(config, registry, pdfs, tmp_path):

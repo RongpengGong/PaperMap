@@ -38,6 +38,22 @@ def stem_of(kb_path: str) -> str:
     return Path(kb_path).stem
 
 
+
+def replace_file(src: Path, dst: Path) -> None:
+    """os.replace that first closes the reader's cached copy (Windows locks open files)."""
+    import gc
+    import time
+
+    from .reader import DOCS
+
+    DOCS.release(src)
+    try:
+        os.replace(src, dst)
+    except PermissionError:
+        gc.collect()  # PyMuPDF documents nobody closed explicitly
+        time.sleep(0.2)
+        os.replace(src, dst)
+
 def folder_of(knowledge_dir: Path, kb_path: str) -> Path:
     return (knowledge_dir / kb_path).parent
 
@@ -99,7 +115,7 @@ def place_pdfs(knowledge_dir: Path, imported_dir: Path, registry: Registry, pape
         try:
             if not in_lib and not target.exists():
                 if imported:  # our own managed copy: move it (no duplicate on disk)
-                    os.replace(imported[0], target)
+                    replace_file(imported[0], target)
                     registry.move_file_path(f["id"], str(imported[0]), str(target))
                     imported = imported[1:]
                     notes.append(f"moved into {target.name}")
@@ -133,7 +149,7 @@ def migrate_flat_layout(knowledge_dir: Path, registry: Registry, language: str) 
             if m and m.group(1).strip() not in _DEFAULT_HINTS:
                 body = m.group(1).strip()
             new.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(old, new)
+            replace_file(old, new)
         registry.update_paper(row["id"], kb_path=new_rel)
         ensure_notes(knowledge_dir, new_rel, row["title"] or "", language, body)
         moved += 1

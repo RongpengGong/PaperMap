@@ -183,8 +183,8 @@ def test_subscription_ignores_submitted_and_legacy_keys(subscription_client, con
     }, follow_redirects=False)
     assert response.status_code == 303
     assert "api_key" not in config.llm["presets"][provider]
-    assert "legacy-key" not in config.path.read_text()
-    assert "autofilled-key" not in config.path.read_text()
+    assert "legacy-key" not in config.path.read_text(encoding="utf-8")
+    assert "autofilled-key" not in config.path.read_text(encoding="utf-8")
     seen = []
     monkeypatch.setattr("papermap.web.app.list_models", lambda eff: seen.append(eff) or ["chosen"])
     monkeypatch.setattr("papermap.web.app.list_chatgpt_model_options", lambda eff: seen.append(eff) or [

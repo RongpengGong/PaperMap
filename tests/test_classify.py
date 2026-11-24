@@ -58,28 +58,28 @@ def test_classification_assigns_labels_and_flags_review(config, registry, pdfs):
 
 def test_card_and_hub_pages_link_each_other(config, registry, pdfs):
     pipe, comp, row = classified(config, registry, pdfs)
-    card = (config.knowledge_dir / row["kb_path"]).read_text()
+    card = (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     assert "[[fields/spatial-transcriptomics|空间转录组]]（主要）" in card
     assert "fields:\n- spatial-transcriptomics\n- scrna-seq" in card
     assert "topics:\n- tumor-microenvironment" in card
-    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text()
+    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text(encoding="utf-8")
     stem = row["kb_path"].removesuffix(".md")
     assert f"[[{stem}|Zhang 2024" in hub and "★" in hub
     assert "Visium niches" in hub  # progress note from the classifier
     assert "`Seurat`" in hub and "[[fields/tumor-microenvironment|肿瘤微环境]] ×1" in hub
     # suggested-only field gets no paper entry
     wet = (config.knowledge_dir / "fields" / "wet-lab-mechanism.md")
-    assert not wet.exists() or stem not in wet.read_text()
+    assert not wet.exists() or stem not in wet.read_text(encoding="utf-8")
 
 
 def test_hub_user_block_survives(config, registry, pdfs):
     pipe, comp, row = classified(config, registry, pdfs)
     hub = config.knowledge_dir / "fields" / "spatial-transcriptomics.md"
-    text = hub.read_text()
+    text = hub.read_text(encoding="utf-8")
     a = text.index("<!-- user:begin -->") + len("<!-- user:begin -->\n")
-    hub.write_text(text[:a] + "MY FIELD NOTE\n" + text[text.index("<!-- user:end -->"):])
+    hub.write_text(text[:a] + "MY FIELD NOTE\n" + text[text.index("<!-- user:end -->"):], encoding="utf-8")
     pipe.classify_papers(mode="all")
-    assert "MY FIELD NOTE" in hub.read_text()
+    assert "MY FIELD NOTE" in hub.read_text(encoding="utf-8")
 
 
 def test_user_decisions_stick_across_reclassify(config, registry, pdfs):
@@ -91,7 +91,7 @@ def test_user_decisions_stick_across_reclassify(config, registry, pdfs):
     labels = {r["slug"]: r for r in registry.paper_field_rows(row["id"], include_rejected=True)}
     assert labels["wet-lab-mechanism"]["status"] == "accepted" and labels["wet-lab-mechanism"]["source"] == "user"
     assert labels["scrna-seq"]["status"] == "rejected"
-    card = (config.knowledge_dir / row["kb_path"]).read_text()
+    card = (config.knowledge_dir / row["kb_path"]).read_text(encoding="utf-8")
     assert "scrna-seq" not in card.split("---")[1]
 
 
@@ -100,7 +100,7 @@ def test_taxonomy_change_marks_stale_and_reclassify(config, registry, pdfs):
     assert pipe.stale_classification_count() == 0
     text = taxmod.builtin_text("liver_omics").replace(
         "  - slug: aging\n", "  - slug: glioma\n    name_zh: 胶质瘤\n    name_en: Glioma\n    description: Gliomas incl. glioblastoma.\n  - slug: aging\n")
-    (config.data_dir / "taxonomy.yaml").write_text(text)
+    (config.data_dir / "taxonomy.yaml").write_text(text, encoding="utf-8")
     config.raw["taxonomy_file"] = "taxonomy.yaml"
     assert pipe.stale_classification_count() == 1
     new = json.loads(json.dumps(CLASSIFY))

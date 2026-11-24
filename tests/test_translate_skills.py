@@ -58,10 +58,10 @@ def test_translate_paper_with_bilibili_mock(config, registry, pdfs):
 
     out = tr.translate_paper(config, registry, pipe.llm, row["id"], pdf, card, pipe.taxonomy(),
                              transport=_bilibili(handler))
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding="utf-8"))
     assert data["paragraphs"] and all(p["tr"] for p in data["paragraphs"])
     assert data["model"] == "Index-Translate-35B-A3B" and seen[0]["chat_template_kwargs"] == {"enable_thinking": False}
-    md = card.with_name(card.stem + ".translation.md").read_text()
+    md = card.with_name(card.stem + ".translation.md").read_text(encoding="utf-8")
     assert "译文对照" in md and re.search(r"^> (译文\d+|单段译文)", md, re.M)
     assert registry.one("SELECT count(*) AS n FROM llm_calls WHERE purpose='translate'")["n"] == len(seen)
 
@@ -72,7 +72,7 @@ def test_misaligned_answer_falls_back_to_single_paragraphs(config, registry, pdf
     pdf, card = pipe._paper_files(registry.paper_by_doi(OWN_DOI)["id"])
     handler = lambda req: httpx.Response(200, text="data: " + json.dumps({"choices": [{"delta": {"content": "全部混在一起的译文"}}]}) + "\n\ndata: [DONE]\n\n")
     out = tr.translate_paper(config, registry, pipe.llm, 1, pdf, card, transport=_bilibili(handler))
-    assert all(p["tr"] == "全部混在一起的译文" for p in json.loads(out.read_text())["paragraphs"] if p["kind"] != "meta")
+    assert all(p["tr"] == "全部混在一起的译文" for p in json.loads(out.read_text(encoding="utf-8"))["paragraphs"] if p["kind"] != "meta")
 
 
 def test_service_failure_falls_back_to_main_model(config, registry, pdfs, monkeypatch):
@@ -83,7 +83,7 @@ def test_service_failure_falls_back_to_main_model(config, registry, pdfs, monkey
     pdf, card = pipe._paper_files(1)
     out = tr.translate_paper(config, registry, pipe.llm, 1, pdf, card,
                              transport=_bilibili(lambda req: httpx.Response(503)))
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding="utf-8"))
     assert all(p["tr"].startswith("主模型译文") for p in data["paragraphs"] if p["kind"] != "meta")
     assert data["notes"] and "(fallback)" in data["model"]
     config.raw["translation"]["fallback_to_main"] = False
@@ -95,12 +95,12 @@ def test_skill_discovery_and_safety(config, tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     local = config.data_dir / "skills"
     (local / "reader").mkdir(parents=True)
-    (local / "reader" / "SKILL.md").write_text("---\nname: reader\ndescription: reads\n---\nRead it. See ../shared/core/x.md\n")
+    (local / "reader" / "SKILL.md").write_text("---\nname: reader\ndescription: reads\n---\nRead it. See ../shared/core/x.md\n", encoding="utf-8")
     (local / "shared" / "core").mkdir(parents=True)
-    (local / "shared" / "core" / "x.md").write_text("SHARED REFERENCE")
+    (local / "shared" / "core" / "x.md").write_text("SHARED REFERENCE", encoding="utf-8")
     (local / "scripted" / "scripts").mkdir(parents=True)
-    (local / "scripted" / "SKILL.md").write_text("---\nname: scripted\n---\nRun python scripts/x.py")
-    (local / "scripted" / "scripts" / "x.py").write_text("print(1)")
+    (local / "scripted" / "SKILL.md").write_text("---\nname: scripted\n---\nRun python scripts/x.py", encoding="utf-8")
+    (local / "scripted" / "scripts" / "x.py").write_text("print(1)", encoding="utf-8")
     skills = sr.discover(config)
     assert skills["papermap-close-reading"].source == "builtin" and skills["papermap-close-reading"].supported
     assert skills["reader"].supported and not skills["scripted"].supported and "x.py" in skills["scripted"].reason
@@ -130,7 +130,7 @@ def test_jobs_run_skill_and_translation(config, registry, pdfs, monkeypatch):
         time.sleep(0.05)
     assert [r["status"] for r in registry.query("SELECT status FROM jobs ORDER BY id")] == ["done", "done"]
     _, card = pipe._paper_files(pid)
-    out = card.with_name(card.stem + ".papermap-close-reading.md").read_text()
+    out = card.with_name(card.stem + ".papermap-close-reading.md").read_text(encoding="utf-8")
     assert "测试技能输出" in out and "skill: papermap-close-reading" in out
     assert card.with_name(card.stem + ".translation.json").exists()
     with pytest.raises(ValueError):

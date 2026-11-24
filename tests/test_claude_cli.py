@@ -4,6 +4,7 @@ import json
 import base64
 import subprocess
 import shlex
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,16 +61,16 @@ def test_finder_native_install_is_found_without_path(tmp_path, monkeypatch):
     monkeypatch.setattr(cc.shutil, "which", lambda _: None)
     native = tmp_path / ".local" / "bin" / "claude"
     native.parent.mkdir(parents=True)
-    native.write_text("fixture only")
+    native.write_text("fixture only", encoding="utf-8")
     native.chmod(0o700)
     assert cc.find_claude() == str(native.resolve())
 
 
 def test_windows_native_path_and_batch_shim_boundary(tmp_path, monkeypatch):
     native = tmp_path / "claude.exe"
-    native.write_text("fixture only")
+    native.write_text("fixture only", encoding="utf-8")
     shim = tmp_path / "claude.cmd"
-    shim.write_text("fixture only")
+    shim.write_text("fixture only", encoding="utf-8")
     monkeypatch.setattr(cc.sys, "platform", "win32")
     monkeypatch.setattr(cc.shutil, "which", lambda _: str(native))
     assert cc.find_claude() == str(native)
@@ -288,6 +289,7 @@ def test_cli_stderr_is_not_exposed_and_timeouts_are_actionable(monkeypatch):
         cli.create(model="sonnet", messages=[{"role": "user", "content": "x"}])
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="checks POSIX file modes of the macOS launcher")
 def test_login_opens_the_official_terminal_only_after_explicit_call(monkeypatch, tmp_path):
     calls = mock_cli(monkeypatch)
     cli = cc.ClaudeCliClient()
@@ -301,7 +303,7 @@ def test_login_opens_the_official_terminal_only_after_explicit_call(monkeypatch,
         path = Path(args[-1])
         assert path.suffix == ".command" and (path.stat().st_mode & 0o777) == 0o700
         assert (path.parent.stat().st_mode & 0o777) == 0o700
-        launches.append((args[:-1], kwargs, path.read_text()))
+        launches.append((args[:-1], kwargs, path.read_text(encoding="utf-8")))
         path.unlink()
         path.parent.rmdir()
         return SimpleNamespace(returncode=0)

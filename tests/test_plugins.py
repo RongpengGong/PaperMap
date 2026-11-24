@@ -70,7 +70,7 @@ def test_declarative_install_is_disabled_and_atomic(config, tmp_path):
     with pytest.raises(plugins.PluginError):
         plugins.install_plugin(config, plugin.root)
     assert plugins.discover(config)[0].enabled
-    (plugin.root / "unexpected.txt").write_text("changed")
+    (plugin.root / "unexpected.txt").write_text("changed", encoding="utf-8")
     assert not plugins.discover(config)[0].enabled
 
 
@@ -79,7 +79,7 @@ def test_invalid_tampered_plugin_can_be_explicitly_disabled(config):
     plugins.set_enabled(config, "demo", True)
     manifest = folder / "plugin.yaml"
     old = manifest.read_bytes()
-    manifest.write_text("broken: [")
+    manifest.write_text("broken: [", encoding="utf-8")
     assert plugins.discover(config)[0].error
     plugins.set_enabled(config, "demo", False)
     manifest.write_bytes(old)
@@ -93,9 +93,9 @@ def test_install_checks_symlinks_and_path_escape(config, tmp_path):
         plugins.install_plugin(config, folder)
     (folder / "external.txt").unlink()
     path = folder / "plugin.yaml"
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     data["python"] = "../main.py"
-    path.write_text(yaml.safe_dump(data))
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
     with pytest.raises(plugins.PluginError):
         plugins.install_plugin(config, folder)
     assert plugins.discover(config) == []

@@ -16,7 +16,7 @@ def test_inbox_pdf_is_cloned_not_moved(config, registry, pdfs):
     assert row["kb_path"] == f"papers/{stem}/{stem}.md"
     assert (folder / f"{stem}.pdf").read_bytes() == pdfs["paper"].read_bytes()
     assert pdfs["paper"].exists()  # original in the watched folder untouched
-    assert f"[[{stem}.pdf]]" in (folder / f"{stem}.md").read_text()
+    assert f"[[{stem}.pdf]]" in (folder / f"{stem}.md").read_text(encoding="utf-8")
 
 
 def test_dropped_pdf_is_moved_into_folder(config, registry, pdfs):
@@ -45,16 +45,16 @@ def test_migrate_flat_cards(config, registry, pdfs):
     stem = folder.name
     # simulate the stage-4 flat layout with a user note in the card
     flat = config.knowledge_dir / "papers" / f"{stem}.md"
-    flat.write_text(f"# t\n\n## 与我相关的点\n\n{USER_BEGIN}\nOLD NOTE\n{USER_END}\n")
+    flat.write_text(f"# t\n\n## 与我相关的点\n\n{USER_BEGIN}\nOLD NOTE\n{USER_END}\n", encoding="utf-8")
     shutil.rmtree(folder)
     registry.update_paper(row["id"], kb_path=f"papers/{stem}.md")
     assert pipe.migrate_library() == 1
     row = registry.get_paper(row["id"])
     assert row["kb_path"] == f"papers/{stem}/{stem}.md"
-    assert "OLD NOTE" in (folder / f"{stem}.notes.md").read_text()
+    assert "OLD NOTE" in (folder / f"{stem}.notes.md").read_text(encoding="utf-8")
     assert (folder / f"{stem}.pdf").exists()
     assert pipe.migrate_library() == 0  # idempotent
-    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text()
+    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text(encoding="utf-8")
     assert f"[[papers/{stem}/{stem}|" in hub
 
 

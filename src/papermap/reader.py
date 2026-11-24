@@ -30,7 +30,22 @@ class DocCache:
     def __init__(self, size: int = 4):
         self.size = size
         self.docs: OrderedDict[str, tuple[pymupdf.Document, threading.Lock]] = OrderedDict()
+        self.paths: dict[str, Path] = {}
         self.lock = threading.Lock()
+
+    def release(self, path: Path) -> None:
+        """Close cached documents at ``path`` or inside it (a folder). Windows cannot move or
+        delete a file another handle still has open; the reader reopens it when needed."""
+        target = Path(path).resolve()
+        with self.lock:
+            for key, p in list(self.paths.items()):
+                if p == target or target in p.parents:
+                    entry = self.docs.pop(key, None)
+                    self.paths.pop(key, None)
+                    if entry is not None:
+                        doc, lock = entry
+                        with lock:
+                            doc.close()
 
     def get(self, path: Path) -> tuple[pymupdf.Document, threading.Lock]:
         key = document_revision(path)
@@ -40,9 +55,11 @@ class DocCache:
                 return self.docs[key]
             entry = (pymupdf.open(path), threading.Lock())
             self.docs[key] = entry
+            self.paths[key] = Path(path).resolve()
             while len(self.docs) > self.size:
                 # An in-flight request may still own the document and its lock.
-                self.docs.popitem(last=False)
+                old, _ = self.docs.popitem(last=False)
+                self.paths.pop(old, None)
             return entry
 
 

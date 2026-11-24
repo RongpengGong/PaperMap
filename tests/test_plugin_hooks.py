@@ -67,7 +67,7 @@ def test_reconcile_refreshes_paused_modified_and_removed_packages(config, regist
     plugin = install_hooks(config, "watcher")["watcher"]
     hooks.enable("watcher", True, plugin.digest)
     registry.execute("UPDATE plugin_cursors SET error='old failure'")
-    (plugin.root / "main.py").write_text("def handle(event): return 2")
+    (plugin.root / "main.py").write_text("def handle(event): return 2", encoding="utf-8")
     hooks.reconcile()
     assert hooks.states() == {}
     current, = plugins.discover(config)
@@ -132,7 +132,7 @@ def test_running_delivery_cannot_advance_replaced_subscription(config, registry,
     try:
         assert started.wait(3) and hooks.running.is_set()
         hooks.deliver()
-        (old.root / "main.py").write_text("def handle(event): return 'new'")
+        (old.root / "main.py").write_text("def handle(event): return 'new'", encoding="utf-8")
         updated, = plugins.discover(config)
         hooks.enable(updated.id, True, updated.digest)
     finally:

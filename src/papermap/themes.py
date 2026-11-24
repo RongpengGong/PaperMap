@@ -129,5 +129,5 @@ def titlebar_colors(palette: str, dark: bool, black: bool = False) -> tuple[tupl
 
 if __name__ == "__main__":
     target = Path(__file__).parent / "web" / "static" / "themes.css"
-    target.write_text(css(), "utf-8")
+    target.write_bytes(css().encode("utf-8"))  # same bytes on every OS (no CRLF translation)
     print("wrote", target)

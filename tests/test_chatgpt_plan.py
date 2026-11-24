@@ -84,7 +84,7 @@ def test_import_uses_chatgpt_contract_and_records_plan_usage(config, registry, p
     answer = qa.ask(config, registry, pipe.llm, "Which paper used Visium?")
     assert answer["sources"][0]["paper_id"] == paper["id"]
     assert answer["model"] == "account-model" and answer["cost"] == 0
-    assert paper["kb_path"].removesuffix(".md") in (config.knowledge_dir / answer["kb_path"]).read_text()
+    assert paper["kb_path"].removesuffix(".md") in (config.knowledge_dir / answer["kb_path"]).read_text(encoding="utf-8")
 
 
 def completed(text="OK"):

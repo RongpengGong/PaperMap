@@ -54,10 +54,10 @@ def test_group_api_and_filter(config, registry, pdfs):
     # card frontmatter lists the groups (refreshed in the background)
     card = config.knowledge_dir / registry.get_paper(pid)["kb_path"]
     for _ in range(50):
-        if "空间组学" in card.read_text():
+        if "空间组学" in card.read_text(encoding="utf-8"):
             break
         time.sleep(0.05)
-    assert "collections:\n- 空间组学" in card.read_text()
+    assert "collections:\n- 空间组学" in card.read_text(encoding="utf-8")
     assert c.post(f"/api/collections/{gid}/move", json={"csrf": tok, "parent_id": sub}).json()["ok"] is False
     assert c.post(f"/api/collections/{sub}/rename", json={"csrf": tok, "name": "Visium HD"}).json()["ok"]
     assert c.post(f"/api/collections/{gid}/remove", json={"csrf": tok, "paper_ids": [pid]}).json()["ok"]

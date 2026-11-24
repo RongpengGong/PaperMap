@@ -43,7 +43,7 @@ def test_official_provider_saves_key_locally(config, registry):
     eff = config.effective_llm()
     assert eff["api_key"] == "sk-test" and eff["model"] == "deepseek-v4-pro"
     assert eff["base_url"] == "https://api.deepseek.com" and eff["protocol"] == "openai"
-    assert config.output_language == "en" and "sk-test" in config.path.read_text()
+    assert config.output_language == "en" and "sk-test" in config.path.read_text(encoding="utf-8")
     assert "sk-test" not in c.get("/settings").text  # never echoed back
     # blank key on a later save keeps the stored key
     c.post("/settings", data={"csrf": _token(c), "provider": "deepseek", "official_model": "deepseek-flash", **BASE_FORM})
@@ -123,7 +123,7 @@ def test_review_and_taxonomy_actions(config, registry, pdfs):
     from papermap.taxonomy import builtin_text
     text = builtin_text("liver_omics").replace("Hepatocellular carcinoma (HCC), primary", "HCC, primary")
     ok = c.post("/taxonomy/save", data={"csrf": tok, "yaml_text": text.replace("\n", "\r\n")}, follow_redirects=True)
-    assert "\r" not in (config.data_dir / "taxonomy.yaml").read_text()
+    assert "\r" not in (config.data_dir / "taxonomy.yaml").read_text(encoding="utf-8")
     assert "已保存" in ok.text and config.raw["taxonomy_file"] == "taxonomy.yaml"
     assert "用旧版分类表" in ok.text
 
@@ -159,7 +159,7 @@ def test_import_upload_panel_pdf_notes(config, registry, pdfs):
     assert "Finding two" in panel and 'class="pdf-col"' in panel and 'split-handle' in panel
     assert c.post(f"/paper/{row['id']}/notes", json={"csrf": tok, "text": "hello\r\nworld"}).json()["ok"]
     from papermap import library
-    assert library.notes_path(config.knowledge_dir, row["kb_path"]).read_text() == "hello\nworld"
+    assert library.notes_path(config.knowledge_dir, row["kb_path"]).read_text(encoding="utf-8") == "hello\nworld"
     assert c.post(f"/paper/{row['id']}/notes", json={"csrf": "bad", "text": "x"}).status_code == 403
     assert c.post("/api/import", data={"csrf": "bad"}).status_code == 403
     lst = c.get("/papers/list?q=Spatial").text

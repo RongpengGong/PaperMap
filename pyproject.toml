@@ -12,6 +12,7 @@ readme = "README.en.md"
 authors = [{ name = "Rongpeng Gong" }]
 dependencies = [
   "pymupdf>=1.24",
+  "tzdata; sys_platform == 'win32'",  # zoneinfo has no system database on Windows
   "pyobjc-framework-Vision>=10; sys_platform == 'darwin'",
   "httpx>=0.27",
   "openai>=1.40",

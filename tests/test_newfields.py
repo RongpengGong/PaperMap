@@ -43,7 +43,7 @@ def test_variants_cluster_and_threshold(config, registry, pipe):
     assert len(rows) == 1 and rows[0]["n_papers"] == 3
     assert "High-grade glioma" in json.loads(rows[0]["synonyms_json"])
     pipe.refresh_pending()
-    page = (config.knowledge_dir / "_pending" / "glioblastoma.md").read_text()
+    page = (config.knowledge_dir / "_pending" / "glioblastoma.md").read_text(encoding="utf-8")
     assert "3 / 3" in page
     events = [e["message"] for e in registry.recent_events() if "now has 3 papers" in e["message"]]
     pipe.refresh_pending()
@@ -78,7 +78,7 @@ def test_establish_adds_category_and_attaches_papers(config, registry, pipe):
     slug = pipe.establish_pending(pending_id, name_zh="胶质母细胞瘤")
     assert slug == "glioblastoma"
     assert config.raw["taxonomy_file"] == "taxonomy.yaml"
-    text = (config.data_dir / "taxonomy.yaml").read_text()
+    text = (config.data_dir / "taxonomy.yaml").read_text(encoding="utf-8")
     assert "# PaperMap taxonomy" in text  # comments kept
     assert parse_text(text).by_slug["glioblastoma"].name_zh == "胶质母细胞瘤"
     for i in ids:
@@ -94,7 +94,7 @@ def test_merge_adds_synonyms(config, registry, pipe):
     pid = add_paper(registry, 1)
     newfields.record_proposals(registry, config, pipe.taxonomy(), pid, [prop("Intrahepatic biliary neoplasm", "肝内胆管肿瘤")])
     pipe.merge_pending(registry.pending_fields()[0]["id"], "cca")
-    tax = parse_text((config.data_dir / "taxonomy.yaml").read_text())
+    tax = parse_text((config.data_dir / "taxonomy.yaml").read_text(encoding="utf-8"))
     assert "Intrahepatic biliary neoplasm" in tax.by_slug["cca"].synonyms
     assert {r["slug"] for r in registry.paper_field_rows(pid)} == {"cca"}
     # next time the same name routes straight to the existing category
@@ -109,19 +109,19 @@ def test_handbook_keeps_only_cited_items(config, registry, pipe):
         pid = add_paper(registry, i)
         registry.set_paper_field(pid, field["id"], status="accepted", source="llm", confidence=0.9, is_primary=1)
     rel = pipe.generate_handbook("spatial-transcriptomics")
-    text = (config.knowledge_dir / rel).read_text()
+    text = (config.knowledge_dir / rel).read_text(encoding="utf-8")
     a, b = text.split("## B.")
     assert "Study one mapped niches" in a and "(https://doi.org/10.1/p" in a
     assert "Invented claim" not in text and "Uncited claim" not in text
     assert "需核实" in text and "Spot is not a cell" in b
     # user notes survive regeneration
     path = config.knowledge_dir / rel
-    t = path.read_text()
+    t = path.read_text(encoding="utf-8")
     s = t.index("<!-- user:begin -->") + len("<!-- user:begin -->\n")
-    path.write_text(t[:s] + "MY HB NOTE\n" + t[t.index("<!-- user:end -->"):])
+    path.write_text(t[:s] + "MY HB NOTE\n" + t[t.index("<!-- user:end -->"):], encoding="utf-8")
     pipe.generate_handbook("spatial-transcriptomics")
-    assert "MY HB NOTE" in path.read_text()
-    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text()
+    assert "MY HB NOTE" in path.read_text(encoding="utf-8")
+    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text(encoding="utf-8")
     assert "[[handbooks/spatial-transcriptomics|学习手册]]" in hub
 
 
@@ -185,7 +185,7 @@ def test_retry_establish_after_partial_taxonomy_write(config, registry, pipe, mo
         with pytest.raises(OSError):
             pipe.establish_pending(qid, slug="my-field", name_zh="自定义名称")
     assert registry.pending_by_id(qid)["status"] == "open"
-    assert parse_text((config.data_dir / "taxonomy.yaml").read_text()).by_slug["my-field"].name_zh == "自定义名称"
+    assert parse_text((config.data_dir / "taxonomy.yaml").read_text(encoding="utf-8")).by_slug["my-field"].name_zh == "自定义名称"
 
     # Another process can finish the operation using the saved target, after losing
     # all memory of the original form (including its custom slug and name).

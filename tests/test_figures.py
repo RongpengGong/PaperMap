@@ -39,7 +39,7 @@ def test_find_and_explain(config, registry, pdfs):
     assert isinstance(sent, list) and sent[1]["type"] == "image_url" and sent[1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert c.post(f"/api/figure/{lst[0]['id']}/to-notes", json={"csrf": tok}).json()["ok"]
     from papermap import library
-    assert "Fig. 1 讲解" in library.notes_path(config.knowledge_dir, registry.get_paper(1)["kb_path"]).read_text()
+    assert "Fig. 1 讲解" in library.notes_path(config.knowledge_dir, registry.get_paper(1)["kb_path"]).read_text(encoding="utf-8")
     assert "Fig. 1" in c.get("/figures").text
 
 

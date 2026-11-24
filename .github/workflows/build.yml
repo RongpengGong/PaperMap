@@ -1,17 +1,33 @@
 name: test-and-build
 
+# Runs the tests on every push; on a version tag (v*) it also builds the apps and attaches them to
+# the GitHub release. Builds happen on clean GitHub runners from the repository alone, so no local
+# configuration or API key can end up in a package.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write   # upload release assets
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: macos-latest        # Apple silicon
+            asset: PaperMap-macOS-AppleSilicon.zip
+          - os: macos-15-intel      # Intel Macs
+            asset: PaperMap-macOS-Intel.zip
+          - os: windows-latest
+            asset: PaperMap-Windows.zip
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,14 +38,29 @@ jobs:
       - name: Tests
         run: python -m pytest -q
       - name: Build app
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: python packaging/build.py
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
-        run: dist\PaperMap\PaperMap.exe --version
-      - name: Smoke test (macOS)
-        if: runner.os == 'macOS'
-        run: dist/PaperMap/PaperMap --version
+      - name: Smoke test and zip (Windows)
+        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        run: |
+          dist\PaperMap\PaperMap.exe --version
+          Compress-Archive -Path dist\PaperMap -DestinationPath ${{ matrix.asset }}
+      - name: Smoke test and zip (macOS)
+        if: runner.os == 'macOS' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        run: |
+          dist/PaperMap/PaperMap --version
+          ditto -c -k --keepParent dist/PaperMap.app ${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         with:
-          name: PaperMap-${{ runner.os }}
-          path: dist/PaperMap
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "PaperMap $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "${{ matrix.asset }}" --clobber

@@ -93,7 +93,7 @@ def test_changed_destination_cannot_reuse_old_credentials(config, package):
     config.llm.update(provider=old, presets={old: {"api_key": "private-key"}})
     config.llm["custom"]["api_key"] = "another-private-key"
     manifest["contributions"]["providers"][0]["base_url"] = "https://different.invalid/v1"
-    path.write_text(yaml.safe_dump(manifest))
+    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
     plugins.set_enabled(config, "research", True)
     new, = set(config.model_presets()) - set(PRESETS)
     assert old != new
@@ -116,7 +116,7 @@ def test_render_hashes_only_relevant_enabled_plugin_once(config, registry, packa
     for name in ("second", "disabled"):
         p = config.data_dir / "plugins" / name
         p.mkdir()
-        (p / "plugin.yaml").write_text(yaml.safe_dump({"api_version": 1, "id": name, "name": name}))
+        (p / "plugin.yaml").write_text(yaml.safe_dump({"api_version": 1, "id": name, "name": name}), encoding="utf-8")
     plugins.set_enabled(config, "second", True)
     config.llm["provider"], = set(config.model_presets()) - set(PRESETS)
     pipe, _ = make_pipeline(config, registry)

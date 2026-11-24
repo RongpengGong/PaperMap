@@ -14,7 +14,7 @@ def test_ask_cites_only_real_sources(config, registry, pdfs):
     assert r["keywords"] == ["fibroblast", "Visium", "肝癌"]
     assert "[S1]" in r["answer"] and "[S99]" not in r["answer"]
     assert [s["id"] for s in r["sources"]] == ["S1", "S2"] and r["sources"][0]["kind"] == "card"
-    md = (config.knowledge_dir / r["kb_path"]).read_text()
+    md = (config.knowledge_dir / r["kb_path"]).read_text(encoding="utf-8")
     assert "[[papers/" in md and "S99" not in md
     assert registry.one("SELECT count(*) AS n FROM qa_history")["n"] == 1
     # scope with no papers -> no LLM answer call, honest message

@@ -27,7 +27,7 @@ def test_consolidation_cited_and_versioned(config, registry):
     f, ids = field_with_papers(registry, pipe, "spatial-transcriptomics", 3)
     assert consmod.due(registry, f["id"], every=3) and not consmod.due(registry, f["id"], every=4)
     pipe.consolidate_field("spatial-transcriptomics")
-    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text()
+    hub = (config.knowledge_dir / "fields" / "spatial-transcriptomics.md").read_text(encoding="utf-8")
     assert "Fields combine Visium with scRNA-seq" in hub and "Made-up overview" not in hub
     assert "finds A at margins while" in hub and "(P1" not in hub and "Single-paper" not in hub
     assert "整合于" in hub and "基于 3 篇论文" in hub
@@ -55,9 +55,9 @@ def test_concept_pages(config, registry):
     pipe.refresh_fields({"scrna-seq"})
     d = config.knowledge_dir / "concepts"
     assert {p.stem for p in d.glob("*.md")} == {"seurat", "cellchat"}
-    page = (d / "seurat.md").read_text()
+    page = (d / "seurat.md").read_text(encoding="utf-8")
     assert "2 篇" in page and "[[fields/scrna-seq|单细胞转录组]] ×2" in page and "[[concepts/cellchat|CellChat]] ×2" in page
-    hub = (config.knowledge_dir / "fields" / "scrna-seq.md").read_text()
+    hub = (config.knowledge_dir / "fields" / "scrna-seq.md").read_text(encoding="utf-8")
     assert "[[concepts/seurat|Seurat]] ×2" in hub
 
 

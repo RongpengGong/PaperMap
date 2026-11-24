@@ -52,7 +52,8 @@ def attach(knowledge_dir: Path, registry: Registry, paper_id: int, main_pdf: Pat
                     raise ValueError("补充 PDF 超过 200 MB。")
                 out.write(chunk)
         try:
-            with pymupdf.open(tmp) as doc:
+            # validate from memory: no file handle stays open, so Windows can move or delete the file
+            with pymupdf.open(stream=tmp.read_bytes(), filetype="pdf") as doc:
                 if not doc.is_pdf or doc.needs_pass or not doc.page_count:
                     raise ValueError
         except (RuntimeError, ValueError, pymupdf.FileDataError) as exc:

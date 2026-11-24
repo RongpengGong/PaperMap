@@ -42,6 +42,9 @@ def delete_paper(pipeline, paper_id: int) -> dict:
         card = config.knowledge_dir / row["kb_path"]
         src = card.parent if row["kb_path"].count("/") >= 2 else card  # per-paper folder, or a flat old card
         if src.exists():
+            from .reader import DOCS
+
+            DOCS.release(src)  # Windows cannot move a folder with an open PDF in it
             shutil.move(str(src), str(dest / src.name))
             moved = src.name
     (dest / RESTORE_FILE).write_text(json.dumps({

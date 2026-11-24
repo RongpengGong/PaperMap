@@ -54,7 +54,7 @@ def test_annotations_crud_and_markdown(config, registry, pdfs):
         if md.exists():
             break
         time.sleep(0.05)
-    assert "p.1" in md.read_text() and "关键" in md.read_text() and "Spatial transcriptomics" in md.read_text()
+    assert "p.1" in md.read_text(encoding="utf-8") and "关键" in md.read_text(encoding="utf-8") and "Spatial transcriptomics" in md.read_text(encoding="utf-8")
     assert c.post(f"/api/annotations/{aid}/update", json={"csrf": tok, "color": "pink", "note": "改"}).json()["ok"]
     assert registry.annotations(pid)[0]["color"] == "pink"
     assert not c.post(f"/api/reader/{pid}/annotations", json={"csrf": tok, "page": 0, "rects": []}).json()["ok"]

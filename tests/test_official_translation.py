@@ -109,7 +109,7 @@ def test_official_translated_paper_alignment(config, registry, pdfs, provider, m
     sources = []
     path = translate.translate_paper(config, registry, pipe.llm, pid, pdf, card, pipe.taxonomy(),
                                      transport=_transport(provider, sources))
-    result = json.loads(path.read_text())
+    result = json.loads(path.read_text(encoding="utf-8"))
     assert result["model"] == model and result["service"] == service["name"] and not result["notes"]
     original = translate.paragraphs(pdf)
     assert len(original) == len(result["paragraphs"])
@@ -163,7 +163,7 @@ def test_legacy_services_migrate_once_across_saves(tmp_path):
     path = tmp_path / "old-config.yaml"
     previous = {"id": "custom-reader", "kind": "custom", "name": "读书会翻译", "mode": "polish"}
     path.write_text(yaml.safe_dump({"data_dir": str(tmp_path / "data"),
-                                    "translation": {"services": [previous], "default": previous["id"]}}))
+                                    "translation": {"services": [previous], "default": previous["id"]}}), encoding="utf-8")
     upgraded = config_module.load(path)
     assert upgraded.raw["translation"]["default"] == previous["id"]
     assert upgraded.raw["translation"]["services"][0] == previous

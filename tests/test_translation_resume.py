@@ -101,7 +101,7 @@ def test_restart_resumes_durable_out_of_order_group(config, registry, pdfs, monk
     assert calls == [("old-model", "zh", "translate", "[1] one\n\n[2] two")]
     assert not registry.query("SELECT * FROM translation_parts")
     _, card = pipe._paper_files(1)
-    out = json.loads(card.with_suffix(".translation.json").read_text())
+    out = json.loads(card.with_suffix(".translation.json").read_text(encoding="utf-8"))
     assert [p["tr"] for p in out["paragraphs"]] == ["resumed one", "resumed two", "old three", "old four"]
     assert out["revision"] and out["model"] == "old-model"
 

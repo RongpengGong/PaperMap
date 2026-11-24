@@ -19,7 +19,7 @@ def test_suggest_backlinks_preview(config, registry, pdfs):
     pipe.taxonomy()
     assert any(s["kind"] == "field" for s in notelinks.suggest(registry, "空间"))
     # paper b's notes link to paper a
-    library.notes_path(config.knowledge_dir, b["kb_path"]).write_text(f"相关：{sug[0]['insert']} 值得对比")
+    library.notes_path(config.knowledge_dir, b["kb_path"]).write_text(f"相关：{sug[0]['insert']} 值得对比", encoding="utf-8")
     bl = notelinks.backlinks(registry, config.knowledge_dir, a["id"])
     assert bl and bl[0]["paper_id"] == b["id"] and "值得对比" in bl[0]["snippet"]
     assert notelinks.backlinks(registry, config.knowledge_dir, b["id"]) == []

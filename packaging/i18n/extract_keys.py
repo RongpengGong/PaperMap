@@ -5,11 +5,11 @@ def add(k, src):
     k = k.strip()
     if k and HAN.search(k): keys.setdefault(k, src)
 for f in glob.glob("src/papermap/web/templates/*.html"):
-    s = open(f).read()
+    s = open(f, encoding="utf-8").read()
     for m in re.finditer(r"""_\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')""", s):
         add(ast.literal_eval(m.group(1)), f)
 for f in glob.glob("src/papermap/web/static/*.js") + glob.glob("src/papermap/web/templates/*.html"):
-    s = open(f).read()
+    s = open(f, encoding="utf-8").read()
     for m in re.finditer(r"""(?<![\w$.])t\(\s*("(?:[^"\\\n]|\\.)*")""", s):
         add(json.loads(m.group(1)), f)
 py = ["src/papermap/web/app.py", "src/papermap/web/evidence_routes.py", "src/papermap/web/plugin_admin.py",
@@ -19,8 +19,8 @@ py = ["src/papermap/web/app.py", "src/papermap/web/evidence_routes.py", "src/pap
       "src/papermap/trash.py", "src/papermap/evidence_links.py", "src/papermap/writing.py", "src/papermap/citecheck.py",
       "src/papermap/clips.py", "src/papermap/web/writing_routes.py", "src/papermap/web/extras_routes.py"]
 for f in py:
-    for node in ast.walk(ast.parse(open(f).read())):
+    for node in ast.walk(ast.parse(open(f, encoding="utf-8").read())):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) < 300 and "\n" not in node.value:
             add(node.value, f)
-json.dump(keys, open(sys.argv[1], "w"), ensure_ascii=False, indent=0)
+json.dump(keys, open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False, indent=0)
 print(len(keys), sum(len(k) for k in keys))
