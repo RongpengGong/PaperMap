@@ -90,6 +90,18 @@
 {% elif settings_groups is not defined and budget_ratio >= 0.8 %}<div class="notice">{{ _("本月 LLM 预算已用掉") }} {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
+{% set _path = request.url.path if request is defined else '' %}
+{% if settings_groups is not defined and _path not in ('/', '') and not _path.startswith('/reader') and not _path.startswith('/settings') %}
+{% from "_chat_box.html" import chat_inner %}
+<button type="button" class="ai-fab" id="ai_fab" title="{{ _("和模型讨论这个页面的内容") }}"><span>✦</span>{{ _("问 AI") }}</button>
+<aside class="ai-drawer" id="ai_drawer" hidden aria-label="{{ _("问 AI") }}">
+  <div class="ai-drawer-head"><strong>✦ {{ _("问 AI") }}</strong><span class="muted small" id="ai_drawer_sub">{{ _("讨论当前页面") }}</span><span class="grow"></span>
+    <button type="button" class="icon-btn" id="ai_drawer_close" title="{{ _("收起") }}">×</button></div>
+  <div class="ai-drawer-body chat-body" data-chat="page" data-chat-page>
+    {{ chat_inner() }}
+  </div>
+</aside>
+{% endif %}
 <div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>{{ _("松开以导入 PDF") }}</p><span>{{ _("会复制进你的文献库，原文件不动") }}</span></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="ctx_menu" class="ctx-menu" hidden></div>

@@ -174,7 +174,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return templates.TemplateResponse(request, name, ctx)
 
     def paper_rows(q: str = "", status: str = "", c: str = ""):
-        sql, params = "SELECT * FROM papers WHERE status != 'ignored'", []
+        sql, params = ("SELECT * FROM papers WHERE status = 'ignored'" if status == "ignored"
+                       else "SELECT * FROM papers WHERE status != 'ignored'"), []
         if c == "none":
             sql += " AND id NOT IN (SELECT paper_id FROM paper_collections)"
         elif c.isdigit():  # a group shows its own papers and those of its subgroups
@@ -186,7 +187,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         elif status.startswith("r:"):
             sql += " AND read_status=?"
             params.append(status[2:])
-        elif status:
+        elif status and status != "ignored":
             sql += " AND status=?"
             params.append(status)
         if q.strip():
@@ -771,6 +772,32 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       groups=_flat_tree(registry.collection_tree()),
                       fields=[f for f in registry.active_fields() if registry.field_paper_rows(f["id"])])
 
+    @app.post("/api/qa/delete")
+    async def api_qa_delete(request: Request):
+        """Remove Q&A entries; their Markdown copies move to data_dir/trash/qa."""
+        import shutil
+
+        from .. import qa as qamod
+
+        body = await json_body(request)
+        qamod.ensure_schema(registry)
+        n = 0
+        for qid in [int(x) for x in body.get("ids", []) if str(x).isdigit()]:
+            row = registry.one("SELECT kb_path FROM qa_history WHERE id=?", (qid,))
+            if row is None:
+                continue
+            if row["kb_path"] and re.fullmatch(r"qa/[^/]+\.md", row["kb_path"]):
+                src = config.knowledge_dir / row["kb_path"]
+                if src.exists():
+                    dest = config.data_dir / "trash" / "qa"
+                    dest.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src), str(dest / src.name))
+            registry.execute("DELETE FROM qa_history WHERE id=?", (qid,))
+            n += 1
+        if n:
+            pipeline.kb_commit(f"Delete {n} Q&A entr{'y' if n == 1 else 'ies'}")
+        return {"ok": True, "deleted": n}
+
     @app.post("/api/qa")
     async def api_qa(request: Request):
         from .. import qa as qamod
@@ -1159,6 +1186,32 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if registry.get_paper(paper_id) is None:
             raise HTTPException(404)
         return RedirectResponse(f"/?id={paper_id}", status_code=307)
+
+    @app.post("/api/papers/delete")
+    async def papers_delete(request: Request):
+        """Move papers to the trash (data_dir/trash); restorable from the 「已删除」 filter."""
+        from .. import trash
+
+        body = await json_body(request)
+        done, errors = 0, []
+        for pid in ids_of(body):
+            try:
+                await run_in_threadpool(trash.delete_paper, pipeline, pid)
+                done += 1
+            except (ValueError, OSError) as exc:
+                errors.append(str(exc))
+        return {"ok": not errors, "deleted": done, "message": "; ".join(errors)}
+
+    @app.post("/paper/{paper_id}/restore")
+    async def paper_restore(paper_id: int, request: Request):
+        from .. import trash
+
+        await json_body(request)
+        try:
+            await run_in_threadpool(trash.restore_paper, pipeline, paper_id)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
 
     @app.post("/paper/{paper_id}/retry")
     def retry(paper_id: int, csrf: str = Form(...)):
@@ -2044,7 +2097,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
     from .chat_routes import mount_chat
 
-    mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background)
+    mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
 

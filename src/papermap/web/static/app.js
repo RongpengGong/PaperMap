@@ -229,6 +229,13 @@
         document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
       });
     }
+    const del = panel.querySelector('[data-action="delete-paper"]');
+    del && del.addEventListener("click", () => window.pmDeletePapers([id]));
+    const restore = panel.querySelector('[data-action="restore-paper"]');
+    restore && restore.addEventListener("click", async () => {
+      const j = await api(`/paper/${id}/restore`);
+      if (j.ok) { toast(t("已恢复")); location.href = "/?id=" + id; } else toast(j.message || t("恢复失败"));
+    });
     const reveal = panel.querySelector('[data-action="reveal"]');
     reveal && reveal.addEventListener("click", () =>
       fetch(`/paper/${id}/reveal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf }) }));
@@ -349,6 +356,13 @@
       inp.onkeydown = e => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") cancel.click(); };
     });
   }
+  window.pmDeletePapers = async ids => {
+    const msg = ids.length > 1 ? `${t("删除所选的")} ${ids.length} ${t("篇论文？")}` : t("删除这篇论文？");
+    const ok = await dialog(msg + "\n\n" + t("它的 PDF 副本、卡片、笔记和译文会移到 PaperMap 的回收站文件夹，并从列表、学科页和知识地图里去掉。入口文件夹里的原文件不动，以后也不会被重新导入。在论文列表的筛选里选「已删除 / 已忽略」可以恢复。"), { okText: t("删除"), danger: true });
+    if (!ok) return;
+    const j = await api("/api/papers/delete", { paper_ids: ids });
+    if (j.deleted) { toast(`${t("已删除")} ${j.deleted} ${t("篇")}`); const u = new URL(location.href); u.searchParams.delete("id"); location.href = u.pathname === "/" ? u.href : "/"; }
+  };
   async function api(url, body = {}) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...body }) });
     const j = await r.json().catch(() => ({ ok: false, message: "HTTP " + r.status }));
@@ -580,6 +594,7 @@
       } }));
       items.push({ text: t("＋ 新建分组并加入…"), run: () => newGroup(null, ids) });
       items.push("-", { text: t("导出参考文献…"), run: () => exportMenu(e.clientX, e.clientY, ids) });
+      items.push({ text: ids.length > 1 ? `${t("删除所选")} ${ids.length} ${t("篇…")}` : t("删除这篇论文…"), danger: true, run: () => window.pmDeletePapers(ids) });
       if (ids.length > 1) items.push({ text: `${t("对比所选")} ${ids.length} ${t("篇论文")}`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
       if (/^\d+$/.test(cur || "")) {
         items.push("-", { text: t("从当前分组移除"), run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });

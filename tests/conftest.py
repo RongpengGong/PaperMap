@@ -138,10 +138,10 @@ class FakeCompletions:
         elif "triage new papers against their own library" in system:
             ids = re.findall(r"\[(C\d+)\]", kwargs["messages"][-1]["content"])
             content = json.dumps({"ranks": [{"id": i, "score": 8, "reason": "和你的缺口直接相关"} for i in ids]})
-        elif "discussing ONE paper with its reader" in system:
+        elif "discussing ONE paper with its reader" in system or "think about a page of their own literature library" in system:
             self.chat_calls = getattr(self, "chat_calls", 0) + 1
             content = f"成纤维细胞在边缘富集 [p.1]。（第 {self.chat_calls} 次回答）"
-        elif "turn a discussion about one paper into notes" in system:
+        elif "turn a discussion about one paper" in system:
             content = "- 成纤维细胞在边缘富集 [p.1]\n- 待核对：样本量"
         elif "evidence gap into search terms" in system:
             self.gap_calls = getattr(self, "gap_calls", 0) + 1

@@ -11,7 +11,7 @@
       <input type="search" id="q" value="{{ q|keep }}" placeholder="{{ _("搜索标题、作者、期刊、DOI") }}" autocomplete="off">
       <select id="status_filter" title="{{ _("按状态筛选") }}">
         <option value="">{{ _("全部 (") }}{{ counts.values()|sum }})</option>
-        {% set names = {'done':_('已完成'),'new':_('等待处理'),'extracting':_('处理中'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料'),'error':_('出错')} %}
+        {% set names = {'done':_('已完成'),'new':_('等待处理'),'extracting':_('处理中'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料'),'error':_('出错'),'ignored':_('已删除 / 已忽略')} %}
         <optgroup label="{{ _("阅读") }}">
           <option value="starred" {{ 'selected' if status == 'starred' }}>{{ _("★ 星标 (") }}{{ rcounts.get('starred', 0) }})</option>
           <option value="r:unread" {{ 'selected' if status == 'r:unread' }}>{{ _("未读 (") }}{{ rcounts.get('unread', 0) }})</option>

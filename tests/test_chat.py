@@ -59,3 +59,36 @@ def test_model_choices_only_configured(config):
     eff = chat.resolve(config, "anthropic|claude-sonnet-5-5")
     assert eff["provider"] == "anthropic" and eff["model"] == "claude-sonnet-5-5" and eff["api_key"] == "sk-test"
     assert config.llm.get("provider") != "anthropic"  # choosing a chat model never changes the main model
+
+
+def test_page_chat_drawer_and_notes(config, registry, pdfs):
+    from papermap.kb_writer import USER_BEGIN, USER_END, read_user_section
+
+    c, pipe, completions = reader_client(config, registry, pdfs)
+    tok = _token(c)
+    assert 'id="ai_drawer"' in c.get("/evidence").text
+    assert 'id="ai_drawer"' not in c.get("/").text  # papers have their own chat tab
+
+    r = c.post("/api/page-chat", json={"csrf": tok, "key": "/map", "title": "知识地图", "page_text": "", "text": "哪个学科最薄弱？"}).json()
+    assert r["ok"]
+    assert "LIBRARY OVERVIEW" in completions.last_system  # little text on the page: the library overview is added
+    got = c.get("/api/page-chat", params={"key": "/map"}).json()
+    assert [m["role"] for m in got["messages"]] == ["user", "assistant"]
+    assert c.get("/api/page-chat", params={"key": "/evidence"}).json()["messages"] == []  # one conversation per page
+    assert c.post("/api/page-chat", json={"csrf": tok, "key": "javascript:x", "text": "hi"}).status_code == 400
+
+    s = c.post("/api/page-chat/summary", json={"csrf": tok, "key": "/map", "title": "知识地图"}).json()
+    w = c.post("/api/page-chat/notes", json={"csrf": tok, "key": "/map", "title": "知识地图", "text": s["text"]}).json()
+    assert w["ok"] and w["where"].startswith("discussions/")
+    assert "## 与 AI 讨论" in (config.knowledge_dir / w["where"]).read_text("utf-8")
+
+    page = config.knowledge_dir / "concepts" / "msigdb.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(f"# MSigDB\n\n## 我的笔记\n\n{USER_BEGIN}\n（写下用法、参数心得、踩过的坑…）\n{USER_END}\n\n## 用到它的论文\n\n- x\n", "utf-8")
+    c.post("/api/page-chat", json={"csrf": tok, "key": "/concept/msigdb", "title": "MSigDB", "page_text": "MSigDB 用于 GSEA", "text": "怎么用？"})
+    w = c.post("/api/page-chat/notes", json={"csrf": tok, "key": "/concept/msigdb", "rel": "concepts/msigdb.md",
+                                              "text": "- 用 Hallmark 集合", "clear": True}).json()
+    note = read_user_section(page)
+    assert w["ok"] and "### 与 AI 讨论" in note and "- 用 Hallmark 集合" in note and "写下用法" not in note
+    assert "## 用到它的论文\n\n- x" in page.read_text("utf-8")  # generated part untouched
+    assert c.get("/api/page-chat", params={"key": "/concept/msigdb"}).json()["messages"] == []

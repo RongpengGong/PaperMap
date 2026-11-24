@@ -27,7 +27,7 @@
   </section>
   <aside class="qa-history">
     <h3>{{ _("历史") }}</h3>
-    {% for h in history %}<a href="/qa?id={{ h.id }}" class="{{ 'active' if current and current.row.id == h.id }}">{{ h.question[:60] }}<i>{{ h.created_at[:10] }}</i></a>{% else %}<p class="muted small">{{ _("还没有提问。") }}</p>{% endfor %}
+    {% for h in history %}<a href="/qa?id={{ h.id }}" class="qa-h {{ 'active' if current and current.row.id == h.id }}">{{ h.question[:60] }}<i>{{ h.created_at[:10] }}</i><button type="button" class="qa-del" data-qa-del="{{ h.id }}" title="{{ _("删除这条问答") }}" aria-label="{{ _("删除这条问答") }}">×</button></a>{% else %}<p class="muted small">{{ _("还没有提问。") }}</p>{% endfor %}
   </aside>
 </div>
 {% endblock %}
@@ -52,6 +52,16 @@
       <p class="muted small">${t("检索词：")}${esc(j.keywords.join("、"))} · ${esc(j.model || "")}${j.cost ? " · $" + j.cost.toFixed(4) : ""}</p>`;
     history.replaceState(null, "", "/qa?id=" + j.id);
   }
+  document.querySelector(".qa-history").addEventListener("click", async e => {
+    const b = e.target.closest("[data-qa-del]"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    if (!(await window.pmDialog(t("删除这条问答？"), { okText: t("删除"), danger: true }))) return;
+    const r = await fetch("/api/qa/delete", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csrf: document.body.dataset.csrf, ids: [+b.dataset.qaDel] }) }).then(x => x.json());
+    if (!r.ok) return;
+    const a = b.closest("a"), active = a.classList.contains("active"); a.remove();
+    if (active) location.href = "/qa";
+  });
   go.addEventListener("click", ask);
   q.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask(); });
 })();
