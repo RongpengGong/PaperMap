@@ -110,11 +110,12 @@ def remembered(config) -> dict:
     ids = [i for i in data.get('paperIds') or [] if type(i) is int and i > 0]
     return {'paperIds': ids, 'address': str(data.get('address') or ''), 'inbox': data.get('inbox') is not False,
             'processing': data.get('processing') is True, 'at': str(data.get('at') or ''),
-            'active': data.get('active') is True}
+            'active': data.get('active') is True, 'review': data.get('review') is True}
 
 
-def _remember(config, address, ids, processing, inbox, active=True) -> None:
+def _remember(config, address, ids, processing, inbox, active=True, review=False) -> None:
     state = {'paperIds': sorted(set(ids)), 'address': address, 'processing': bool(processing), 'inbox': bool(inbox),
+             'review': bool(review),
              'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'), 'active': bool(active)}
     try:
         (Path(config.data_dir) / _SHARE_STATE).write_text(json.dumps(state), 'utf-8')
@@ -126,7 +127,8 @@ def _mark_stopped(config) -> None:
     """The user closed the share: do not reopen it when PaperMap starts again."""
     last = remembered(config)
     if last.get('active'):
-        _remember(config, last['address'], last['paperIds'], last['processing'], last['inbox'], active=False)
+        _remember(config, last['address'], last['paperIds'], last['processing'], last['inbox'], active=False,
+                  review=last['review'])
 
 
 def _load_pairing(config, library_id: str) -> dict:
@@ -244,7 +246,8 @@ class _Listener(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR would let another program take over a port in use, so it stays off there.
     allow_reuse_address = sys.platform != 'win32'
 
-    def __init__(self, address, network, context, info, config, registry, revisions, processor=None, inbox=False, port=0):
+    def __init__(self, address, network, context, info, config, registry, revisions, processor=None, inbox=False, port=0,
+                 actions=None):
         self.network = network
         self.context = context
         self.info = info
@@ -252,6 +255,7 @@ class _Listener(ThreadingHTTPServer):
         self.registry = registry
         self.revisions = revisions
         self.inbox = inbox
+        self.actions = actions  # (pipeline, field_tasks) when the phone may settle review items and take papers in
         self.pipeline = processor
         self.slots = threading.BoundedSemaphore(_MAX_CLIENTS)
         self.stopped = threading.Event()
@@ -412,12 +416,21 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(403, 'inbox_disabled')
             return
         decision = _INBOX_ROUTE.fullmatch(self.path)
+        actions = self.server.actions
         if self.path == '/v1/inbox' and self.command == 'GET':
-            self._json(200, mobile_inbox.overview(self.server.registry))
+            self._json(200, mobile_inbox.overview(self.server.registry, actions is not None))
         elif decision and self.command == 'POST':
             body = self._body()
             if body is not None:
-                self._json(200, mobile_inbox.decide(self.server.registry, int(decision[1]), body.get('action')))
+                self._json(200, mobile_inbox.decide(self.server.registry, int(decision[1]), body.get('action'),
+                                                    actions[0] if actions else None))
+        elif self.path == '/v1/review' and self.command == 'POST':
+            if actions is None:
+                self._error(403, 'actions_disabled')
+                return
+            body = self._body()
+            if body is not None:
+                self._json(200, mobile_inbox.act(actions[0], actions[1], body))
         else:
             self._error(404, 'not_available')
 
@@ -483,10 +496,11 @@ class _Handler(BaseHTTPRequestHandler):
             upd = appupdate.state(server.config)  # cached answer only: the phone never triggers a GitHub request
             self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
                              'processing': server.work is not None, 'inbox': server.inbox,
+                             'reviewActions': server.actions is not None,
                              'desktop': {'version': upd['current'], 'latestVersion': upd.get('latest') or '',
                                          'updateAvailable': upd['newer'], 'releaseUrl': upd.get('url') or ''}})
             return
-        if self.path == '/v1/inbox' or self.path.startswith('/v1/inbox/'):
+        if self.path in ('/v1/inbox', '/v1/review') or self.path.startswith('/v1/inbox/'):
             self._inbox()
             return
         if self.path == '/v1/tasks' or self.path.startswith(('/v1/uploads/', '/v1/tasks/')):
@@ -576,17 +590,19 @@ class MobileLan:
         self._resuming = threading.Event()  # set to cancel a pending resume (user action or shutdown)
         self._resumer = None
         self.moved_port = False  # the saved port was taken, so the phone has to scan again
+        self.field_tasks = None  # set by the web app: establishing a field runs through its task queue
 
     addresses = staticmethod(addresses)
 
     def remembered(self) -> dict:
         return remembered(self.config)
 
-    def start(self, address: str, selected_ids, *, processing=False, inbox=False, _resume=False) -> dict:
+    def start(self, address: str, selected_ids, *, processing=False, inbox=False, review=False, _resume=False) -> dict:
         if not isinstance(selected_ids, (list, tuple, set)) or not (selected_ids or processing or inbox):
             raise ValueError('请选择要共享的论文。')
-        if processing and not self.pipeline:
+        if (processing or review) and not self.pipeline:
             raise ValueError('电脑处理服务尚未就绪。')
+        review = bool(review and inbox)  # acting on the lists needs the lists
         if not all(type(pid) is int and 0 < pid < 10**18 for pid in selected_ids):
             raise ValueError('论文编号无效。')
         if not _resume:
@@ -615,13 +631,14 @@ class MobileLan:
                     'libraryId': library, 'name': computer_name()}
             args = (address, network, context, info, self.config, self.registry, revisions,
                     self.pipeline if processing else None, bool(inbox))
+            extra = {'actions': (self.pipeline, self.field_tasks)} if review else {}
             port = saved.get('port', 0) if token else 0
             try:
-                server = _Listener(*args, port=port)
+                server = _Listener(*args, port=port, **extra)
             except OSError:
                 if not port or _resume:
                     raise  # A resume tries the saved port again later before giving it up.
-                server = _Listener(*args)
+                server = _Listener(*args, **extra)
             self.moved_port = bool(port) and server.server_port != port
             info['url'] = f'https://{address}:{server.server_port}'
             thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .1},
@@ -633,7 +650,8 @@ class MobileLan:
                 raise
             self._listener, self._thread = server, thread
             _save_pairing(self.config, library, info['token'], keys, server.server_port)
-            _remember(self.config, address, selected_ids if not _resume else sorted(revisions), processing, inbox)
+            _remember(self.config, address, selected_ids if not _resume else sorted(revisions), processing, inbox,
+                      review=review)
             return dict(info)
 
     def resume(self) -> None:
@@ -648,8 +666,9 @@ class MobileLan:
             while not self._resuming.is_set():
                 if last['address'] in _networks():
                     try:
-                        self.start(last['address'], last['paperIds'], processing=last['processing'] and bool(self.pipeline),
-                                   inbox=last['inbox'], _resume=True)
+                        ready = bool(self.pipeline)
+                        self.start(last['address'], last['paperIds'], processing=last['processing'] and ready,
+                                   inbox=last['inbox'], review=last['review'] and ready, _resume=True)
                         if tries >= 4:
                             self.moved_port = True
                         return
@@ -704,6 +723,7 @@ class MobileLan:
                         'paperIds': sorted(self._listener.revisions.copy()),
                         **({'processing': True} if self._listener.work else {}),
                         **({'inbox': True} if self._listener.inbox else {}),
+                        **({'review': True} if self._listener.actions else {}),
                         **({'movedPort': True} if self.moved_port else {})}
             return {'active': False}
 

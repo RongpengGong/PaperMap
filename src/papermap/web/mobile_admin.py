@@ -17,7 +17,8 @@ def _pairing_image(text):
 
 
 def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
-    def context(pairing=None, error="", selected_address=None, selected_ids=None, processing=None, inbox=None):
+    def context(pairing=None, error="", selected_address=None, selected_ids=None, processing=None, inbox=None,
+                review=None):
         last = mobile.remembered() if hasattr(mobile, "remembered") else {}
         if selected_ids is None:
             selected_ids = last.get("paperIds", [])
@@ -27,6 +28,8 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
             processing = last.get("processing", False)
         if inbox is None:
             inbox = last.get("inbox", True)
+        if review is None:
+            review = last.get("review", False)
         since = last.get("at", "")
         rows = registry.query("""SELECT id,title,created_at FROM papers WHERE status='done'
             OR (status IN ('new','extracting','error') AND kb_path IS NOT NULL)
@@ -35,7 +38,7 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
         return dict(lan=mobile.status(), addresses=mobile.addresses(), papers=rows, code=code,
                     qr=_pairing_image(code) if code else "", error=error,
                     selected_address=selected_address, selected_ids=selected_ids, processing=processing, inbox=inbox,
-                    remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False,
+                    review=review, remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False,
                     new_ids={r["id"] for r in rows if since and (r["created_at"] or "") > since})
 
     def page(request, **kwargs):
@@ -53,12 +56,14 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
     @app.post("/settings/mobile/start")
     def start(request: Request, csrf: str = Form(...), address: str = Form(""),
               paper_id: list[int] = Form(default=[]), processing: bool = Form(False),
-              inbox: bool = Form(False)):
+              inbox: bool = Form(False), review: bool = Form(False)):
         check_csrf(csrf, csrf_token)
         try:
-            return page(request, pairing=mobile.start(address, paper_id, processing=processing, inbox=inbox))
+            return page(request, pairing=mobile.start(address, paper_id, processing=processing, inbox=inbox,
+                                                      review=review))
         except (OSError, LookupError, ValueError, RuntimeError) as exc:
-            return page(request, error=str(exc), selected_address=address, selected_ids=paper_id, processing=processing, inbox=inbox)
+            return page(request, error=str(exc), selected_address=address, selected_ids=paper_id, processing=processing,
+                        inbox=inbox, review=review)
 
     @app.post("/settings/mobile/show")
     def show(request: Request, csrf: str = Form(...)):

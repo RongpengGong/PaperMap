@@ -1917,6 +1917,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     def events(request: Request):
         return render(request, "events.html", events=registry.recent_events(500))
 
+    mobile.field_tasks = field_tasks
     mobile_settings = mount_mobile(app, mobile, registry, render, csrf_token, _check_csrf, SETTINGS_GROUPS)
 
     @app.get("/settings", response_class=HTMLResponse)

@@ -324,3 +324,67 @@ def test_sidebar_shows_whether_the_phone_has_been_in_touch(lan):
     with client(pair) as web:
         web.get('/v1/papers')
     assert lan.sidebar()['minutesAgo'] == 0
+
+
+def test_phone_settles_review_items_only_when_the_share_allows_it(config, registry, pdfs, monkeypatch):
+    from papermap import tracking
+    from papermap.pipeline import Pipeline
+
+    from .conftest import FakeMetadata
+
+    monkeypatch.setattr(mobile_lan, '_networks', lambda: {'127.0.0.1': ipaddress.IPv4Network('127.0.0.0/8')})
+    pipe = Pipeline(config, registry, metadata=FakeMetadata())
+    pipe.taxonomy()
+    slugs = [f['slug'] for f in registry.active_fields()]
+    labelled = registry.create_paper(title='Needs a label', status='done')
+    registry.set_paper_field(labelled, registry.field_by_slug(slugs[0])['id'], status='suggested', confidence=0.4)
+    registry.update_paper(labelled, needs_review=1)
+    unsure = registry.create_paper(title='Which DOI', status='doi_unverified')
+    rejected = registry.create_pending('odd-field', 'method', '怪学科', 'Odd field', 'x', [])
+    merged = registry.create_pending('near-field', 'method', '近学科', 'Near field', 'y', [])
+    tracking.ensure_schema(registry)
+    cid = registry.execute(
+        "INSERT INTO track_candidates (doi, title, title_key, journal, authors_json, score, status, created_at, updated_at) "
+        "VALUES ('10.1/x', 'Open paper', 'open paper', 'J', '[]', 9, 'new', '2026-11-24', '2026-11-24')").lastrowid
+    taken = []
+    monkeypatch.setattr(tracking, 'take_in', lambda p, c: taken.append(c) or {'ok': True, 'downloaded': True})
+
+    lan = mobile_lan.MobileLan(config, registry, pipe)
+    try:
+        pair = lan.start('127.0.0.1', [], inbox=True)
+        with client(pair) as web:
+            box = web.get('/v1/inbox').json()
+            assert box['actions'] is False and 'fields' not in box
+            assert box['totals'] == {'newPapers': 1, 'review': 4}
+            assert web.post('/v1/review', json={'kind': 'field', 'id': rejected, 'action': 'reject'}).status_code == 403
+            assert web.post(f'/v1/inbox/new/{cid}', json={'action': 'take'}).status_code == 400
+        lan.stop()
+
+        pair = lan.start('127.0.0.1', [], inbox=True, review=True)
+        assert lan.status()['review'] is True and lan.remembered()['review'] is True
+        with client(pair) as web:
+            assert web.get('/v1/papers').json()['reviewActions'] is True
+            box = web.get('/v1/inbox').json()
+            assert box['actions'] is True and slugs[0] in {f['slug'] for f in box['fields']}
+            items = {(i['kind'], i['id']): i for i in box['review']}
+            assert items[('doi', unsure)]['actions'] == []
+            assert items[('label', labelled)]['actions'] == ['accept', 'keep']
+            assert items[('label', labelled)]['labels'][0]['suggested'] is True
+
+            def act(**body):
+                return web.post('/v1/review', json=body)
+
+            assert act(kind='doi', id=unsure, action='use').status_code == 404  # still decided on the computer
+            assert act(kind='label', id=labelled, action='accept').json() == {'ok': True, 'state': 'done'}
+            assert registry.get_paper(labelled)['needs_review'] == 0
+            assert [r['status'] for r in registry.paper_field_rows(labelled)] == ['accepted']
+            assert act(kind='label', id=labelled, action='accept').status_code == 404  # settled already
+            assert act(kind='field', id=rejected, action='reject').json()['ok'] is True
+            assert registry.pending_by_id(rejected)['status'] == 'rejected'
+            assert act(kind='field', id=merged, action='merge', target='no-such-field').status_code == 400
+            assert act(kind='field', id=merged, action='merge', target=slugs[0]).json()['ok'] is True
+            assert registry.pending_by_id(merged)['status'] == 'merged'
+            assert web.post(f'/v1/inbox/new/{cid}', json={'action': 'take'}).json() == {'ok': True, 'state': 'importing'}
+            assert taken == [cid]
+    finally:
+        lan.close()

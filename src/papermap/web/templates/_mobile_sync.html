@@ -6,6 +6,7 @@
       {% if not lan.paperIds %}<p class="notice" role="status">{{ _("这次没有共享任何论文：手机上已下载的论文不会更新卡片、译文和摘录。需要同步论文时，请关闭共享，勾选论文后重新开启。") }}</p>{% endif %}
       {% if lan.processing %}<p>{{ _("本次配对已允许手机导入 PDF、请求生成卡片和译文。") }}</p>{% endif %}
       {% if lan.inbox %}<p>{{ _("手机可以查看「新文献」和「待审核」列表。") }}</p>{% endif %}
+      {% if lan.review %}<p>{{ _("手机可以处理待审核、把新文献收进来。") }}</p>{% endif %}
       <ul class="small">{% for p in papers if p.id in lan.paperIds %}<li>{{ p.title }}</li>{% endfor %}</ul>
       {% if code %}
       <p>{{ _("让手机或平板与电脑连上同一 Wi-Fi，在鸿蒙版文献库点「扫描电脑二维码」。") }}</p>
@@ -32,6 +33,9 @@
       </fieldset>
       <label class="inline"><input type="checkbox" name="inbox" value="true" {% if inbox %}checked{% endif %}>
         {{ _("让手机查看「新文献」和「待审核」列表（只有标题、期刊和推荐理由，不含其他论文的全文和卡片）") }}</label>
+      <label class="inline" style="margin-left:1.6rem"><input type="checkbox" name="review" value="true" {% if review %}checked{% endif %}>
+        {{ _("同时允许手机处理待审核（分类、新学科、缺口提醒、新版本核对）和把新文献收进来") }}</label>
+      <p class="muted" style="margin-left:1.6rem">{{ _("在手机上建立新学科会生成学习手册，收进来的论文会生成卡片，都会使用电脑的模型并产生费用。DOI 核对和更新卡仍需在电脑上处理。") }}</p>
       <label class="inline"><input type="checkbox" name="processing" value="true" {% if processing %}checked{% endif %}>
         {{ _("允许本次配对的设备导入 PDF，并使用电脑服务生成译文和论文卡片") }}</label>
       <p class="muted">{{ _("生成任务会使用电脑已配置的模型或翻译服务，可能发送论文内容并产生费用。关闭共享后，已提交的任务会继续处理。") }}</p>
