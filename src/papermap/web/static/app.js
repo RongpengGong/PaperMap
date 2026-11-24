@@ -629,3 +629,14 @@
     }
   });
 })();
+
+// Review page: "establish as new field" opens its form inline.
+document.addEventListener("click", e => {
+  const open = e.target.closest("[data-pf-open]"), cancel = e.target.closest("[data-pf-cancel]");
+  if (!open && !cancel) return;
+  const item = (open || cancel).closest(".review-item"), form = item && item.querySelector("[data-pf-form]");
+  if (!form) return;
+  form.hidden = !!cancel || !form.hidden;
+  item.querySelector("[data-pf-open]").classList.toggle("open", !form.hidden);
+  if (!form.hidden) form.querySelector("input[name=name_zh]").focus();
+});

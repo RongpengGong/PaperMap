@@ -71,29 +71,36 @@
   <p>{{ r.description }}</p>
   {% set syn = r.synonyms_json|fromjson %}{% if syn %}<p class="muted">{{ _("合并进来的叫法：") }}{{ syn|join('、') }}</p>{% endif %}
   <ul>{% for p in papers %}<li><a href="/paper/{{ p.id }}">{{ p.first_author or '?' }} {{ p.year or '' }} · {{ p.journal or '' }}</a> <span class="muted">— {{ p.reason or '' }}</span></li>{% endfor %}</ul>
-  <details>
-    <summary><strong>{{ _("建立为新学科") }}</strong></summary>
-    <form method="post" action="/review/pending">
+  <div class="pf-actions">
+    <button type="button" class="pf-establish" data-pf-open>
+      <span class="pf-spark">✦</span><span><b>{{ _("建立为新学科") }}</b><small>{{ _("加入知识地图，可同时生成学习手册") }}</small></span>
+    </button>
+    <form method="post" action="/review/pending" class="pf-alt">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
-      <div class="row">
-        <label class="grow">{{ _("中文名") }}<input type="text" name="name_zh" value="{{ (r.name_zh or '')|keep }}"></label>
-        <label class="grow">{{ _("英文名") }}<input type="text" name="name_en" value="{{ (r.name_en or '')|keep }}"></label>
-        <label class="grow">slug<input type="text" name="slug" value="{{ r.slug }}"></label>
-        <label>{{ _("轴") }}<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>{{ _("主题") }}</option><option value="method" {{ 'selected' if r.axis == 'method' }}>{{ _("方法") }}</option></select></label>
-      </div>
-      <label>{{ _("判别说明（给模型看）") }}<input type="text" name="description" value="{{ (r.description or '')|keep }}"></label>
-      <p><label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> {{ _("同时生成学习手册（约 1 次 LLM 调用）") }}</label></p>
-      <button name="action" value="establish">{{ _("建立") }}</button>
+      <span class="muted small">{{ _("或者合并到") }}</span>
+      <select name="target">
+        {% for f in all_fields if f.axis == r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
+        {% for f in all_fields if f.axis != r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
+      </select>
+      <button name="action" value="merge" class="secondary">{{ _("合并") }}</button>
+      <button name="action" value="reject" class="ghost pf-reject" onclick='return confirm({{ _("拒绝后，类似的提议以后会被自动忽略。确定？")|tojson }})'>{{ _("拒绝") }}</button>
     </form>
-  </details>
-  <form method="post" action="/review/pending" class="row" style="margin-top:10px">
+  </div>
+  <form method="post" action="/review/pending" class="pf-form" data-pf-form hidden>
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
-    <select name="target" style="flex:1">
-      {% for f in all_fields if f.axis == r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
-      {% for f in all_fields if f.axis != r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
-    </select>
-    <button name="action" value="merge" class="secondary">{{ _("合并到这个已有类别") }}</button>
-    <button name="action" value="reject" class="ghost" onclick='return confirm({{ _("拒绝后，类似的提议以后会被自动忽略。确定？")|tojson }})'>{{ _("拒绝") }}</button>
+    <div class="row">
+      <label class="grow">{{ _("中文名") }}<input type="text" name="name_zh" value="{{ (r.name_zh or '')|keep }}"></label>
+      <label class="grow">{{ _("英文名") }}<input type="text" name="name_en" value="{{ (r.name_en or '')|keep }}"></label>
+      <label class="grow">slug<input type="text" name="slug" value="{{ r.slug }}"></label>
+      <label>{{ _("轴") }}<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>{{ _("主题") }}</option><option value="method" {{ 'selected' if r.axis == 'method' }}>{{ _("方法") }}</option></select></label>
+    </div>
+    <label>{{ _("判别说明（给模型看）") }}<input type="text" name="description" value="{{ (r.description or '')|keep }}"></label>
+    <div class="pf-form-foot">
+      <label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> {{ _("同时生成学习手册（约 1 次 LLM 调用）") }}</label>
+      <span class="grow"></span>
+      <button type="button" class="ghost" data-pf-cancel>{{ _("取消") }}</button>
+      <button name="action" value="establish" class="pf-confirm">✦ {{ _("确认建立") }}</button>
+    </div>
   </form>
 </div>
 {% else %}<p class="muted">{{ _("没有。") }}</p>{% endfor %}
