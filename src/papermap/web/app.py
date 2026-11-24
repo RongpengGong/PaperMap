@@ -283,13 +283,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import skills_runtime as sr
 
         translation, outputs = None, []
+        translation_version = ""
         skills = sr.discover(config)
         if row["kb_path"] and row["kb_path"].count("/") >= 2:
             card = config.knowledge_dir / row["kb_path"]
             tj = card.with_name(f"{card.stem}.translation.json")
             if tj.exists():
                 try:
-                    translation = json.loads(tj.read_text("utf-8"))
+                    translation_bytes = tj.read_bytes()
+                    translation = json.loads(translation_bytes)
+                    translation_version = hashlib.sha256(translation_bytes).hexdigest()
                 except ValueError:
                     translation = None
             # Reports stay with their paper after the generating skill is uninstalled.
@@ -323,12 +326,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         ucards = upd.for_paper(registry, paper_id)
         from .. import gaps as gapmod
+        from ..evidence import document_revision
 
-        return {"gap_hits": gapmod.for_paper(registry, paper_id), "p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+        pdf = pdf_file(row)
+        translation_pages_current = False
+        if pdf and isinstance(translation, dict) and translation.get("revision"):
+            try:
+                translation_pages_current = translation["revision"] == document_revision(pdf)
+            except OSError:
+                pass  # A missing or unreadable source can still have a readable translation.
+
+        return {"gap_hits": gapmod.for_paper(registry, paper_id), "p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf is not None,
                 "update_cards": ucards, "update_pending": sum(u["status"] == "pending" for u in ucards),
                 "update_questions": upd.candidate_questions(registry, paper_id), "update_outcomes": upd.OUTCOMES,
                 "backlinks": notelinks.backlinks(registry, config.knowledge_dir, paper_id),
-                "translation": translation, "skill_outputs": outputs,
+                "translation": translation, "translation_version": translation_version,
+                "translation_pages_current": translation_pages_current, "skill_outputs": outputs,
                 "active_jobs": [j for j in jobs if j["status"] in ("queued", "running")],
                 "failed_jobs": [j for j in jobs[:3] if j["status"] == "error"],
                 "skills_ok": [sk for sk in skills.values() if sk.supported],

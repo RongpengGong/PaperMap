@@ -2,6 +2,7 @@
 import json
 
 from papermap import chat, library
+from papermap.evidence import document_revision
 
 from .conftest import OWN_DOI
 from .test_reader import client as reader_client
@@ -17,7 +18,10 @@ def test_chat_send_summary_and_notes(config, registry, pdfs):
     notes.write_text("我自己的笔记\n", "utf-8")
     tok = _token(c)
 
-    assert 'data-tab="chat"' in c.get(f"/paper/{pid}/panel").text
+    panel = c.get(f"/paper/{pid}/panel").text
+    assert 'data-action="toggle-chat"' in panel and f'aria-controls="paper-chat-{pid}"' in panel
+    assert 'data-paper-chat-drawer hidden' in panel and panel.count(f'data-chat="{pid}"') == 1
+    assert 'data-tab="chat"' not in panel
     got = c.get(f"/api/paper/{pid}/chat").json()
     assert got["ok"] and got["messages"] == [] and got["models"][0]["key"] == "main"
 
@@ -59,6 +63,30 @@ def test_chat_send_summary_and_notes(config, registry, pdfs):
     assert got["messages"] == [] and len(got["archive"]) == 2 and got["archive"][0]["first"] == "再问一个"
 
 
+def test_translation_quotes_follow_the_current_pdf_and_translation(config, registry, pdfs):
+    import hashlib
+
+    c, pipe, _ = reader_client(config, registry, pdfs)
+    pid = registry.paper_by_doi(OWN_DOI)["id"]
+    pdf, card = pipe._paper_files(pid)
+    path = card.with_suffix(".translation.json")
+    translation = {"revision": document_revision(pdf), "paragraphs": [
+        {"src": "Source", "tr": "译文", "page": 1, "endPage": 1},
+        {"src": "Across pages", "tr": "跨页", "page": 0, "endPage": 1},
+        {"src": "Legacy text", "tr": "旧译文"},
+    ]}
+    for revision_matches in (True, False):
+        if not revision_matches:
+            translation["revision"] = "old-revision"
+        payload = json.dumps(translation).encode()
+        path.write_bytes(payload)
+        panel = c.get(f"/paper/{pid}/panel").text
+        assert f'data-translation-version="{hashlib.sha256(payload).hexdigest()}"' in panel
+        assert panel.count('data-quote-page="2"') == (2 if revision_matches else 0)
+        assert panel.count("data-quote-page=") == (2 if revision_matches else 0)
+        assert 'data-tr-anchor="2-tr"' in panel
+
+
 def test_model_choices_only_configured(config):
     keys = [m["key"] for m in chat.model_choices(config)]
     assert keys[0] == "main" and not any(k.startswith("anthropic|") for k in keys)
@@ -76,7 +104,7 @@ def test_page_chat_drawer_and_notes(config, registry, pdfs):
     c, pipe, completions = reader_client(config, registry, pdfs)
     tok = _token(c)
     assert 'id="ai_drawer"' in c.get("/evidence").text
-    assert 'id="ai_drawer"' not in c.get("/").text  # papers have their own chat tab
+    assert 'id="ai_drawer"' not in c.get("/").text  # the library uses a per-paper drawer
 
     r = c.post("/api/page-chat", json={"csrf": tok, "key": "/map", "title": "知识地图", "page_text": "", "text": "哪个学科最薄弱？"}).json()
     assert r["ok"]

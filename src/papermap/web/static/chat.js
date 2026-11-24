@@ -1,5 +1,4 @@
-// AI discussion tab in the paper panel: chat with a chosen model, ask about a PDF selection,
-// end with a summary the user edits and then appends to their notes.
+// The paper and page drawers share a composer and retain their own conversation histories.
 (() => {
   const csrf = document.body.dataset.csrf;
   const t = s => (window.t ? window.t(s) : s);
@@ -40,14 +39,14 @@
     const input = box.querySelector("[data-chat-text]"), sendBtn = box.querySelector("[data-chat-send]");
     const quoteBox = box.querySelector("[data-chat-quote]"), quoteText = box.querySelector("[data-chat-quote-text]");
     const sumBox = box.querySelector("[data-chat-summary]"), sumText = box.querySelector("[data-chat-summary-text]");
-    let quote = null, loaded = false, count = 0;
+    let quote = null, loaded = false, loading, count = 0;
     if (isPage) {
       const pv = box.querySelector(".chat-privacy");
       if (pv) pv.title = t("当前页面的文字（必要时加上文献库概况）会发给所选模型的服务商；费用计入费用页。");
     }
 
     const busy = on => { box.classList.toggle("chat-busy", on); sendBtn.disabled = on; };
-    const scroll = () => { const s = isPage ? box : panel.querySelector(".side-scroll"); if (s) s.scrollTop = s.scrollHeight; };
+    const scroll = () => { box.scrollTop = box.scrollHeight; };
 
     function bubble(m) {
       const el = document.createElement("div");
@@ -73,10 +72,14 @@
         + `<p>${t("回答会尽量标出页码，点页码会跳到 PDF 对应位置。讨论完点「结束讨论，总结到笔记」，你看过、改过之后才会写进笔记。")}</p></div>`;
     }
 
-    async function load() {
-      if (loaded) return; loaded = true;
+    function load() {
+      if (loaded) return true;
+      if (!loading) loading = readChat().finally(() => { loading = null; });
+      return loading;
+    }
+    async function readChat() {
       const j = await fetch(isPage ? `${base}?key=${encodeURIComponent(key)}` : base).then(r => r.json()).catch(() => null);
-      if (!j || !j.ok) { log.textContent = t("读取对话失败"); return; }
+      if (!j || !j.ok) { log.textContent = t("读取对话失败"); return false; }
       const pref = localStorage.getItem(MODEL_PREF);
       sel.innerHTML = j.models.map(m => `<option value="${esc(m.key)}" ${m.ready ? "" : "disabled"}>${esc(m.label)}${m.ready ? "" : " — " + esc(t("未配置"))}</option>`).join("");
       const keys = j.models.filter(m => m.ready).map(m => m.key);
@@ -86,11 +89,14 @@
       if (!j.messages.length) empty(); else j.messages.forEach(bubble);
       showArchive(j.archive || []);
       scroll();
+      loaded = true;
+      return true;
     }
     sel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF, sel.value); } catch (e) { /* private mode */ } fillEfforts(effSel.value); });
     effSel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF + "_effort", effSel.value); } catch (e) { /* private mode */ } });
 
     async function send() {
+      if (!loaded && !(await load())) return;
       const text = input.value.trim();
       if ((!text && !quote) || box.classList.contains("chat-busy")) return;
       if (!count && log.querySelector(".chat-empty")) log.innerHTML = "";
@@ -111,7 +117,7 @@
     const hint = () => {
       const cmd = enterMode() === "cmd";
       input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
-                                 : t(cmd ? "问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送" : "问点什么，或在 PDF 里选中一段点「问 AI」。↩ 发送，⇧↩ 换行");
+                                 : t("输入问题，或选中原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
     };
     if (enterSel) {
       enterSel.value = enterMode();
@@ -172,7 +178,8 @@
       if (!j.ok) { say(j.message || t("写入失败")); return; }
       sumBox.hidden = true;
       // keep the notes tab in step with the file we just appended to
-      const ta = panel.querySelector("textarea.notes"), live = panel.querySelector("[data-notes-live]");
+      const owner = box.closest(".panel") || panel;
+      const ta = owner.querySelector("textarea.notes"), live = owner.querySelector("[data-notes-live]");
       if (ta) ta.value = j.notes;
       if (live && live._pmEditor) live._pmEditor.commands.setContent(j.notes, { contentType: "markdown", emitUpdate: false });
       if (isPage && j.where && !rel) { say(t("已保存到") + " knowledge/" + j.where); return; }
@@ -183,12 +190,12 @@
     // [p.N] citations jump the PDF next to the panel
     box.addEventListener("click", e => {
       const a = e.target.closest(".chat-page"); if (!a) return;
-      e.preventDefault(); goto(panel, +a.dataset.page);
+      e.preventDefault(); goto(box.closest(".panel") || panel, +a.dataset.page);
     });
 
-    box._pmAsk = q => { setQuote(q); input.focus(); };
+    box._pmAsk = q => { setQuote(q); input.focus({ preventScroll: true }); };
     box._pmLoad = load;
-    if (!box.hidden) load();
+    if (!box.closest("[hidden]")) load();
   }
 
   function goto(panel, page) {
@@ -200,21 +207,34 @@
     else frame.src = `${(frame.dataset.src || "").split("&page=")[0]}&page=${page}`;
   }
 
-  // The tab loads its conversation the first time it is shown.
+  function showPaperChat(panel, on, focus = true) {
+    const drawer = panel.querySelector("[data-paper-chat-drawer]");
+    const toggle = panel.querySelector('[data-action="toggle-chat"]');
+    if (!drawer || !toggle) return false;
+    if (drawer.hidden === on) panel.dispatchEvent(new Event("pm:chat-layout"));
+    drawer.hidden = !on;
+    toggle.setAttribute("aria-expanded", String(on));
+    if (on) {
+      init(panel);
+      drawer.querySelector("[data-chat]")._pmLoad();
+      if (focus) drawer.querySelector("[data-chat-text]").focus({ preventScroll: true });
+    } else if (focus) toggle.focus({ preventScroll: true });
+    return true;
+  }
+
   document.addEventListener("click", e => {
-    const tab = e.target.closest('.tab[data-tab="chat"]'); if (!tab) return;
-    const box = tab.closest(".panel") && tab.closest(".panel").querySelector("[data-chat]");
-    if (box && box._pmLoad) box._pmLoad();
+    const button = e.target.closest('[data-action="toggle-chat"], [data-action="close-chat"]');
+    if (!button) return;
+    const panel = button.closest(".panel");
+    const drawer = panel.querySelector("[data-paper-chat-drawer]");
+    showPaperChat(panel, button.dataset.action === "toggle-chat" && drawer.hidden);
   });
 
-  // Called by the embedded PDF reader: "Ask AI" about the selected passage.
+  // Both the comparison view and its embedded PDF quote into this paper's conversation.
   window.pmChatAsk = (paperId, text, page) => {
-    const panel = document.querySelector(`.panel[data-paper="${paperId}"]`) || document.querySelector(".panel");
-    if (!panel) return false;
-    const tab = panel.querySelector('.tab[data-tab="chat"]'); if (!tab) return false;
-    tab.click();
-    const box = panel.querySelector("[data-chat]");
-    if (box && box._pmAsk) { box._pmLoad(); box._pmAsk({ text, page }); }
+    const panel = document.querySelector(".panel[data-paper]");
+    if (!panel || panel.dataset.paper !== String(paperId) || !showPaperChat(panel, true)) return false;
+    panel.querySelector("[data-chat]")._pmAsk({ text, page });
     return true;
   };
 
@@ -234,7 +254,17 @@
     if (again) open(true);
   }
 
-  window.pmChatInit = init;
+  window.pmChatInit = panel => {
+    const drawer = panel.querySelector("[data-paper-chat-drawer]");
+    if (!drawer) return;
+    // Migrate the old discussion tab to an open drawer, with a reading tab underneath it.
+    let legacy = false;
+    try {
+      legacy = localStorage.getItem("pm_side_tab") === "chat";
+      if (legacy) localStorage.setItem("pm_side_tab", "card");
+    } catch (_) { /* Storage can be disabled. */ }
+    showPaperChat(panel, legacy || !drawer.hidden, false);
+  };
   const first = document.querySelector(".panel");
-  if (first) init(first);
+  if (first) window.pmChatInit(first);
 })();

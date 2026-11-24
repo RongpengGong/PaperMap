@@ -1645,7 +1645,7 @@
 "链接地址（留空则移除链接）": "Link address (leave empty to remove the link)",
 "错误日志": "Error log",
 "问 AI": "Ask AI",
-"问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送": "Ask something, or select a passage in the PDF and click “Ask AI”. ⌘↩ to send",
+"输入问题，或选中原文、译文后点「问 AI」。": "Type a question, or select a passage in the original or translation and choose “Ask AI”.",
 "问答": "Q&A",
 "问答 - PaperMap": "Q&A - PaperMap",
 "问问这个页面的内容…… ⌘↩ 发送": "Ask about this page… ⌘↩ to send",

@@ -1645,7 +1645,7 @@
 "链接地址（留空则移除链接）": "Linkadresse (leer lassen, um den Link zu entfernen)",
 "错误日志": "Fehlerprotokoll",
 "问 AI": "KI fragen",
-"问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送": "Frag etwas oder markiere eine Stelle im PDF und klicke „KI fragen“. ⌘↩ zum Senden",
+"输入问题，或选中原文、译文后点「问 AI」。": "Gib eine Frage ein oder markiere eine Stelle im Original oder in der Übersetzung und wähle „KI fragen“.",
 "问答": "Fragen & Antworten",
 "问答 - PaperMap": "Fragen & Antworten - PaperMap",
 "问问这个页面的内容…… ⌘↩ 发送": "Frag etwas zu dieser Seite… ⌘↩ zum Senden",

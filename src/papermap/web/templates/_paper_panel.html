@@ -12,6 +12,10 @@
       <button type="button" class="icon-btn list-toggle" data-action="toggle-list" aria-controls="paper-list-pane" aria-expanded="true" aria-label="{{ _("收起论文列表") }}" title="{{ _("收起论文列表") }}"><span class="list-chevron" aria-hidden="true">‹</span><span class="list-caption">{{ _("展开论文列表") }}</span></button>
       <h1 title="{{ p.title }}">{{ p.title or _("(无标题)") }}</h1>
       <button type="button" class="star-btn {{ 'on' if p.starred }}" data-star="{{ 1 if p.starred else 0 }}" title="{{ _("星标") }}">{{ '★' if p.starred else '☆' }}</button>
+      {% if notes_text is not none %}
+      <button type="button" class="ghost-btn paper-chat-toggle" data-action="toggle-chat" aria-expanded="false"
+              aria-controls="paper-chat-{{ p.id }}" title="{{ _("和模型一起讨论这篇论文") }}"><span aria-hidden="true">✦</span> {{ _("问 AI") }}</button>
+      {% endif %}
     </div>
     <p class="meta">
       {{ p.first_author or '' }}{% if p.year %} {{ p.year }}{% endif %}{% if p.journal %} · <em>{{ p.journal }}</em>{% endif %}
@@ -79,7 +83,8 @@
       {% if p.status != 'ignored' %}<button class="ghost-btn danger-btn" data-action="delete-paper" type="button" title="{{ _("移到回收站：从列表、学科和地图里去掉；可以在「已删除」里恢复") }}">{{ _("删除") }}</button>{% endif %}
     </div>
   </header>
-  <div class="panel-split">
+  <div class="paper-workbench">
+  <div class="paper-reading"><div class="panel-split">
     {% if has_pdf %}
     <section class="pdf-col"><iframe data-src="/reader/{{ p.id }}?embed=1" title="{{ _("PDF 阅读器") }}"></iframe></section>
     <div class="split-handle" title="{{ _("拖动调整宽度") }}"></div>
@@ -88,7 +93,6 @@
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="card" type="button">{{ _("卡片") }}</button>
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">{{ _("我的笔记") }}</button>{% endif %}
-      {% if notes_text is not none %}<button class="tab" data-tab="chat" type="button" title="{{ _("和模型一起讨论这篇论文") }}">{{ _("AI 对话") }}</button>{% endif %}
       {% if translation %}<button class="tab" data-tab="translation" type="button">{{ _("译文对照") }}</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
       {% if has_pdf and p.status == 'done' %}<button class="tab" data-tab="updates" type="button" title="{{ _("这篇论文对你的研究问题改变了什么") }}">{{ _("变化") }}{% if update_pending %} <b class="badge">{{ update_pending }}</b>{% endif %}</button>{% endif %}
@@ -118,19 +122,15 @@
     {% if backlinks %}<h3>{{ _("提到这篇论文的地方") }}</h3><ul class="backlinks">{% for b in backlinks %}<li>{% if b.paper_id %}<a href="/?id={{ b.paper_id }}">{{ b.label }}</a>{% else %}{{ b.label }}{% endif %}<br><span class="muted small">{{ b.snippet }}</span></li>{% endfor %}</ul>{% endif %}
   </div>
   {% endif %}
-  {% if notes_text is not none %}
-  <div class="tab-body chat-body" data-body="chat" data-chat="{{ p.id }}" hidden>
-    {{ chat_inner() }}
-  </div>
-  {% endif %}
   {% if translation %}
-  <div class="tab-body" data-body="translation" hidden>
+  <div class="tab-body" data-body="translation" data-translation-version="{{ translation_version }}" hidden>
     <p class="muted small">{{ _("由") }} {{ translation.service }}（{{ translation.model }}{{ _("）翻译，") }}{{ translation.generated }}{{ _("。仅供阅读参考，引用以原文为准。") }}{% for n in translation.notes %}<br>⚠️ {{ n }}{% endfor %}</p>
     <div class="bilingual">
       {% for para in translation.paragraphs %}
-      {% if para.kind == 'meta' %}<p class="bi-src bi-meta">{{ para.src }}</p>
-      {% elif para.kind == 'heading' %}<h3 class="bi-src">{{ para.src }}</h3><h3 class="bi-tr">{{ para.tr }}</h3>
-      {% else %}<p class="bi-src">{{ para.src }}</p><p class="bi-tr">{{ para.tr }}</p>{% endif %}
+      {% set page = para.page + 1 if translation_pages_current and para.page is integer and para.page >= 0 and para.endPage == para.page else none %}
+      {% set tag = 'h3' if para.kind == 'heading' else 'p' %}
+      <{{ tag }} class="bi-src{% if para.kind == 'meta' %} bi-meta{% endif %}" data-tr-anchor="{{ loop.index0 }}-src"{% if page is not none %} data-quote-page="{{ page }}"{% endif %}>{{ para.src }}</{{ tag }}>
+      {% if para.kind != 'meta' %}<{{ tag }} class="bi-tr" data-tr-anchor="{{ loop.index0 }}-tr"{% if page is not none %} data-quote-page="{{ page }}"{% endif %}>{{ para.tr }}</{{ tag }}>{% endif %}
       {% endfor %}
     </div>
   </div>
@@ -168,5 +168,13 @@
   </div>
     </div>
     </section>
+  </div></div>
+  {% if notes_text is not none %}
+  <aside id="paper-chat-{{ p.id }}" class="ai-drawer paper-chat-drawer" data-paper-chat-drawer hidden aria-label="{{ _("AI 对话") }}">
+    <div class="ai-drawer-head"><strong>✦ {{ _("AI 对话") }}</strong><span class="grow"></span>
+      <button type="button" class="icon-btn" data-action="close-chat" aria-label="{{ _("收起") }}" title="{{ _("收起") }}">×</button></div>
+    <div class="ai-drawer-body chat-body" data-chat="{{ p.id }}">{{ chat_inner() }}</div>
+  </aside>
+  {% endif %}
   </div>
 </article>

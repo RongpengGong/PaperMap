@@ -27,14 +27,18 @@
   document.addEventListener("contextmenu", e => {
     const sel = window.getSelection();
     const text = sel && sel.rangeCount ? sel.toString().trim() : "";
-    if (text.length < 2) return;
+    if (!text) return;
     if (e.target.closest("input, textarea, select, .ProseMirror, .card-editing, .pm-editor-host")) return;
     const range = sel.getRangeAt(0);
     const node = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
     if (!node || !node.closest("#main_content, .ai-drawer")) return;
+    const panel = node.closest(".panel"), pid = panel ? panel.dataset.paper : null;
+    const grid = node.closest('[data-body="translation"] .bilingual');
+    const canAsk = grid && grid.contains(e.target) && panel?.querySelector("[data-paper-chat-drawer]");
+    if (!canAsk && text.length < 2) return;
+    const page = canAsk ? Number(node.closest("[data-quote-page]")?.dataset.quotePage) || null : null;
     e.preventDefault(); e.stopPropagation();
     close();
-    const panel = node.closest(".panel"), pid = panel ? panel.dataset.paper : null;
     const card = node.closest("[data-card-body]");
     const inChat = node.closest(".chat-msg");
     pop = document.createElement("div");
@@ -47,6 +51,7 @@
         <button type="button" class="sel-fmt" data-fmt="bold" title="${t("加粗")}"><b>B</b></button>
         <button type="button" class="sel-fmt" data-fmt="italic" title="${t("斜体")}"><i>I</i></button>
         <button type="button" class="sel-fmt" data-fmt="underline" title="${t("下划线")}"><u>U</u></button></div>` : "")
+      + (canAsk ? `<button type="button" class="sel-act" data-act="ask">✦ ${t("问 AI")}</button>` : "")
       + `<button type="button" class="sel-act" data-act="clip">☆ ${t("收藏这句")}</button>`
       + `<button type="button" class="sel-act" data-act="copy">${t("复制")}</button>`;
     document.body.appendChild(pop);
@@ -67,6 +72,7 @@
     });
     pop.addEventListener("click", async ev => {
       const b = ev.target.closest("button"); if (!b) return;
+      if (b.dataset.act === "ask") { close(); window.pmChatAsk(pid, text, page); return; }
       if (b.dataset.act === "copy") { navigator.clipboard && navigator.clipboard.writeText(text); say(t("已复制")); close(); return; }
       if (b.dataset.act === "clip") {
         const r = await post("/api/clips", { text, paper_id: pid, source: card ? "card" : inChat ? "chat" : "page",

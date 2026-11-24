@@ -47,7 +47,8 @@ Under **设置 → AI 服务 → 翻译**, choose the default service for select
 - **Writing**: pick papers (starred, purpose tag, group, field) and the model drafts a passage from their cards only, with every claim cited; export Word and BibTeX.
 - **Citation check**: upload a Word manuscript; each citing sentence is checked against the cited paper's own text, with a verbatim quotation and page.
 - **Clippings**: right-click any selected text to save it; a weekly AI digest groups clippings into cited knowledge points.
-- **AI chat** next to the PDF (any configured model, reasoning effort for ChatGPT/Claude subscriptions) and an **Ask AI** drawer on every other page. Ending a discussion keeps it under "earlier discussions" and offers its summary for your notes.
+- **Ask AI** beside the paper title opens or closes the right-hand conversation. In the bilingual view, select original or translated text, right-click **Ask AI**, then send your question. You can choose any configured model and set the reasoning effort for ChatGPT or Claude subscriptions. Ending a discussion keeps it under “Earlier discussions” and lets you review its summary for your notes.
+- The bilingual view remembers your paragraph for each paper and translation in the current window, including when you switch papers, open the chat, or resize the window.
 - **Right-click formatting** in cards (highlight, custom colours, bold) without opening the editor; every change can be undone from the card's version history.
 - **⌘K** (Ctrl+K) jumps to any page, paper, field or question; the sidebar folds into sections; "What to read today" sits on top of the paper list; **Status** (under More) checks model, index, backups, sync and background jobs.
 - **Safety**: deleted papers go to a trash for 30 days; the whole knowledge folder can be mirrored daily to an external drive or cloud folder.

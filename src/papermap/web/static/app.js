@@ -112,22 +112,35 @@
     const r = await fetch("/papers/list?" + listParams());
     list.innerHTML = await r.text();
   }
+  let panelRequest = 0;
   async function openPaper(id, push = true) {
     if (!detail) { location.href = "/?id=" + id; return; }
+    // A background refresh for the previous paper must not interrupt navigation.
+    if (!push && (list.dataset.selected !== String(id) || detail.querySelector(".panel")?.dataset.paper !== String(id))) return;
+    const request = ++panelRequest;
     list.dataset.selected = id;
     list.querySelectorAll(".paper-row").forEach(a => a.classList.toggle("selected", a.dataset.id == id));
     const r = await fetch(`/paper/${id}/panel`);
     if (!r.ok) return;
     const html = await r.text();
+    if (request !== panelRequest) return;
+    const next = new DOMParser().parseFromString(html, "text/html").querySelector(".panel");
+    if (!next) return;
     const old = detail.querySelector(".panel");
-    if (old && old.dataset.paper == id && old.querySelector(".pdf-col iframe[src]")) {
-      // same paper refreshed (e.g. a job finished): keep the PDF where the reader is
-      const doc = new DOMParser().parseFromString(html, "text/html");
+    window.pmTranslationPosition?.capture();
+    const samePaper = old?.dataset.paper === String(id);
+    const drawer = samePaper && old.querySelector("[data-paper-chat-drawer]");
+    const freshDrawer = next.querySelector("[data-paper-chat-drawer]");
+    if (samePaper && old.querySelector(".pdf-col iframe[src]") && next.querySelector(".pdf-col")) {
+      // Keep the live PDF and conversation while updating the paper's metadata.
       const typing = document.activeElement && document.activeElement.classList.contains("notes");
-      old.querySelector(".panel-head").replaceWith(doc.querySelector(".panel-head"));
-      if (!typing) old.querySelector(".side-col").replaceWith(doc.querySelector(".side-col"));
+      old.querySelector(".panel-head").replaceWith(next.querySelector(".panel-head"));
+      if (!typing) old.querySelector(".side-col").replaceWith(next.querySelector(".side-col"));
+      if (!drawer && freshDrawer) old.querySelector(".paper-workbench").append(freshDrawer);
+      if (drawer && !freshDrawer) drawer.remove();
     } else {
-      detail.innerHTML = html;
+      if (drawer && freshDrawer) freshDrawer.replaceWith(drawer);
+      detail.replaceChildren(next);
     }
     initPanel();
     if (push) history.replaceState(null, "", "/?" + new URLSearchParams({ ...Object.fromEntries(listParams()), id }));
@@ -171,12 +184,15 @@
     const panel = document.querySelector(".panel"); if (!panel) return;
     const id = panel.dataset.paper;
     if (window.pmPanelEditors) window.pmPanelEditors(panel);
+    const translationPosition = window.pmTranslationPosition?.attach(panel);
     // right-hand tabs; the last one used is remembered across papers
     const showTab = name => {
       const tab = panel.querySelector(`.tab[data-tab="${name}"]`) || panel.querySelector(".tab");
       if (!tab) return;
+      if (tab.dataset.tab !== "translation") translationPosition?.leave();
       panel.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
       panel.querySelectorAll(".tab-body").forEach(b => b.hidden = b.dataset.body !== tab.dataset.tab);
+      if (tab.dataset.tab === "translation") translationPosition?.show();
     };
     panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { showTab(tab.dataset.tab); pref("pm_side_tab", tab.dataset.tab); }));
     showTab(pref("pm_side_tab") || "card");
