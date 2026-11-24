@@ -35,7 +35,8 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
         return dict(lan=mobile.status(), addresses=mobile.addresses(), papers=rows, code=code,
                     qr=_pairing_image(code) if code else "", error=error,
                     selected_address=selected_address, selected_ids=selected_ids, processing=processing, inbox=inbox,
-                    remembered=bool(last), new_ids={r["id"] for r in rows if since and (r["created_at"] or "") > since})
+                    remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False,
+                    new_ids={r["id"] for r in rows if since and (r["created_at"] or "") > since})
 
     def page(request, **kwargs):
         fragment = request.headers.get("x-papermap-panel") == "mobile"
@@ -71,6 +72,14 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
     def stop(request: Request, csrf: str = Form(...)):
         check_csrf(csrf, csrf_token)
         mobile.stop()
+        if request.headers.get("x-papermap-panel") == "mobile":
+            return page(request)
+        return RedirectResponse("/settings?section=mobile", status_code=303)
+
+    @app.post("/settings/mobile/revoke")
+    def revoke(request: Request, csrf: str = Form(...)):
+        check_csrf(csrf, csrf_token)
+        mobile.revoke()
         if request.headers.get("x-papermap-panel") == "mobile":
             return page(request)
         return RedirectResponse("/settings?section=mobile", status_code=303)

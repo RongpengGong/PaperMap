@@ -70,10 +70,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @asynccontextmanager
     async def lifespan(app):
         async with hooks.lifespan(app), mcp_api.lifespan(registry) as transport:
+            mobile.resume()  # a share that was on when PaperMap quit reopens with the same pairing
             try:
                 yield {"papermap_mcp": transport}
             finally:
-                await run_in_threadpool(mobile.stop)
+                await run_in_threadpool(mobile.close)
 
     app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_route("/mcp", mcp_api.ReadOnlyEndpoint(registry), methods=["POST", "GET", "DELETE"])

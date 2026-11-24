@@ -43,9 +43,17 @@ def phone_controls(config, registry, monkeypatch):
             return self.code
 
         def stop(self):
+            self.kept = self.code is not None or getattr(self, "kept", False)
             self.shared = []
             self.code = None
             self.processing = False
+
+        def paired(self):
+            return self.code is not None or getattr(self, "kept", False)
+
+        def revoke(self):
+            self.stop()
+            self.kept = False
 
         def pairing(self):
             if not self.code:
@@ -149,3 +157,15 @@ def test_sharing_no_papers_says_what_the_phone_will_miss(phone_controls):
                           data={"csrf": tok, "address": controls.ips[0], "inbox": "true"})
     assert lists_only.status_code == 200 and controls.code
     assert "这次没有共享任何论文" in lists_only.text
+
+
+def test_a_kept_pairing_can_be_revoked(phone_controls):
+    web, controls = phone_controls
+    tok = _token(web)
+    assert "/settings/mobile/revoke" not in web.get("/settings/mobile/panel", headers=FRAGMENT).text
+    web.post("/settings/mobile/start", headers=FRAGMENT, data={"csrf": tok, "address": controls.ips[0], "inbox": "true"})
+    stopped = web.post("/settings/mobile/stop", headers=FRAGMENT, data={"csrf": tok}).text
+    assert "/settings/mobile/revoke" in stopped  # closed, but the phone's pairing still works next time
+    assert web.post("/settings/mobile/revoke", data={"csrf": "wrong"}).status_code == 403
+    revoked = web.post("/settings/mobile/revoke", headers=FRAGMENT, data={"csrf": tok}).text
+    assert "/settings/mobile/revoke" not in revoked and not controls.paired()

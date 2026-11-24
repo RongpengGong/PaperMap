@@ -14,7 +14,8 @@
       {% else %}
       <form action="/settings/mobile/show" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _("显示配对码") }}</button></form>
       {% endif %}
-      <p class="muted">{{ _("关闭共享或退出电脑端会让本次配对码失效。手机已下载的论文仍可离线阅读。") }}</p>
+      {% if lan.movedPort %}<p class="notice" role="status">{{ _("原来的端口被其他程序占用，这次换了新端口：手机需要重新扫码一次。") }}</p>{% endif %}
+      <p class="muted">{{ _("电脑重启或更新后会自动恢复共享，手机不用重新扫码。关闭共享后再开启，只要电脑地址没变，手机也不用重新扫码。") }}</p>
       <form action="/settings/mobile/stop" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ _("关闭共享") }}</button></form>
     </section>
     {% else %}
@@ -36,5 +37,12 @@
       <p class="muted">{{ _("生成任务会使用电脑已配置的模型或翻译服务，可能发送论文内容并产生费用。关闭共享后，已提交的任务会继续处理。") }}</p>
       <p class="warn-text small" data-mobile-none {% if selected_ids %}hidden{% endif %}>{{ _("没有勾选论文：手机只能查看新文献和待审核，已下载论文的卡片、译文和摘录不会同步。") }}</p>
       <button {% if not addresses %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
+    </form>
+    {% endif %}
+    {% if paired %}
+    <form class="card" action="/settings/mobile/revoke" method="post">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p class="muted">{{ _("手机丢失或不再使用时，可以撤销配对：旧的配对码立即失效，之后配对任何设备都需要重新扫码。手机已下载的论文仍可离线阅读。") }}</p>
+      <button class="secondary">{{ _("撤销配对") }}</button>
     </form>
     {% endif %}

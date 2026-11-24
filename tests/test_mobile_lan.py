@@ -127,6 +127,13 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         assert lan.status() == {'active': False}
         with pytest.raises(httpx.ConnectError):
             web.get('/v1/papers')
+    # Sharing again keeps the pairing: the phone's saved address, CA, pin and token still work.
+    again = lan.start('127.0.0.1', [2])
+    assert (again['url'], again['token'], again['pin'], again['libraryId']) == (
+        pair['url'], pair['token'], pair['pin'], pair['libraryId'])
+    with client(pair) as web:
+        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [2]
+    lan.revoke()
     replacement = lan.start('127.0.0.1', [2])
     assert replacement['libraryId'] == pair['libraryId']
     assert replacement['token'] != pair['token'] and replacement['pin'] != pair['pin']
@@ -135,6 +142,70 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [2]
     lan.stop()
     lan.stop()
+
+
+def test_a_share_on_at_quit_reopens_with_the_same_pairing(lan, config, registry, monkeypatch):
+    monkeypatch.setattr(mobile_lan, '_RESUME_EVERY', 0.05)
+    pair = lan.start('127.0.0.1', [1, 2], inbox=True)
+    saved = config.data_dir / 'mobile_pairing.json'
+    assert saved.stat().st_mode & 0o077 == 0  # the token and keys are readable by this user only
+    lan.close()  # PaperMap quits
+    assert lan.remembered()['active'] is True
+    registry.execute("UPDATE papers SET status='ignored' WHERE id=2")  # gone since; resumes without it
+    restarted = mobile_lan.MobileLan(config, registry)
+    try:
+        restarted.resume()
+        restarted._resumer.join(5)
+        assert restarted.status() == {'active': True, 'address': '127.0.0.1', 'paperIds': [1], 'inbox': True}
+        with client(pair) as web:  # the phone's stored pairing, untouched
+            assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
+        restarted.stop()  # the user closes it: no reopening on the next start
+        assert restarted.remembered()['active'] is False
+    finally:
+        restarted.close()
+    later = mobile_lan.MobileLan(config, registry)
+    later.resume()
+    assert later._resumer is None and later.status() == {'active': False}
+
+
+def test_resume_waits_for_the_address_and_a_taken_port_is_given_up(lan, config, registry, monkeypatch):
+    monkeypatch.setattr(mobile_lan, '_RESUME_EVERY', 0.05)
+    pair = lan.start('127.0.0.1', [1])
+    port = int(pair['url'].rsplit(':', 1)[1])
+    lan.close()
+    nets = {}
+    monkeypatch.setattr(mobile_lan, '_networks', lambda: dict(nets))
+    blocker = socket.socket()
+    blocker.bind(('127.0.0.1', port))
+    blocker.listen()
+    restarted = mobile_lan.MobileLan(config, registry)
+    try:
+        restarted.resume()
+        restarted._resumer.join(0.2)
+        assert restarted.status() == {'active': False}  # still on another network
+        nets['127.0.0.1'] = ipaddress.IPv4Network('127.0.0.0/8')
+        restarted._resumer.join(5)
+        status = restarted.status()
+        assert status['active'] and status['movedPort']
+        moved = restarted.pairing()
+        assert moved['url'] != pair['url'] and (moved['token'], moved['pin']) == (pair['token'], pair['pin'])
+    finally:
+        blocker.close()
+        restarted.close()
+
+
+def test_a_damaged_or_foreign_pairing_file_starts_a_new_pairing(lan, config):
+    first = lan.start('127.0.0.1', [1])
+    lan.stop()
+    saved = config.data_dir / 'mobile_pairing.json'
+    data = __import__('json').loads(saved.read_text('utf-8'))
+    saved.write_text(__import__('json').dumps({**data, 'libraryId': str(uuid.uuid4())}), 'utf-8')
+    second = lan.start('127.0.0.1', [1])
+    assert second['token'] != first['token'] and second['pin'] != first['pin']
+    lan.stop()
+    saved.write_text('{not json', 'utf-8')
+    third = lan.start('127.0.0.1', [1])
+    assert third['token'] not in (first['token'], second['token'])
 
 
 def test_vpn_and_tunnels_are_not_offered_and_wifi_comes_first(monkeypatch):
