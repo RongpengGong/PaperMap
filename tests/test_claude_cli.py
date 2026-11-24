@@ -195,6 +195,7 @@ def test_text_json_context_and_tokens_pass_through_stdin_only(monkeypatch):
     assert args[args.index("--tools") + 1] == ""
     assert args[args.index("--setting-sources") + 1] == "user"
     assert "--safe-mode" in args and "--bare" not in args
+    assert "--disable-slash-commands" in args
     assert "--strict-mcp-config" in args and "--no-session-persistence" in args
     assert args[args.index("--mcp-config") + 1] == '{"mcpServers":{}}'
     assert args[args.index("--disallowedTools") + 1] == "mcp__*"

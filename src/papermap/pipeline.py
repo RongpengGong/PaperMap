@@ -776,10 +776,7 @@ class Pipeline:
     def _job_skill(self, job: dict, progress) -> str:
         from . import skills_runtime as sr
 
-        skills = sr.discover(self.config)
-        sk = skills.get(job["arg"])
-        if sk is None:
-            raise ValueError(f"skill '{job['arg']}' not found")
+        sk = sr.require_skill(self.config, job["arg"])
         pdf, card = self._paper_files(job["paper_id"])
         progress(0, 1)
         out = sr.run(sk, self.config, self.registry, self.llm, job["paper_id"], pdf, card)
@@ -837,7 +834,10 @@ class Pipeline:
         return gaps.model_terms(self.llm, question, gap)
 
     def submit_skill(self, paper_id: int, skill_id: str) -> int:
+        from . import skills_runtime as sr
+
         self._paper_files(paper_id)
+        sr.require_skill(self.config, skill_id)
         return self.jobs.submit("skill", paper_id, skill_id)
 
     def _auto_jobs(self, paper_id: int) -> None:

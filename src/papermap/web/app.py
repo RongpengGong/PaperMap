@@ -281,11 +281,29 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                     translation = json.loads(tj.read_text("utf-8"))
                 except ValueError:
                     translation = None
-            for sk in skills.values():
-                f = sr.output_path(card, sk.id)
-                if f.exists():
-                    outputs.append({"id": sk.id, "label": sk.label,
-                                    "html": md_html(_split_front(f.read_text("utf-8"))[1])})
+            # Reports stay with their paper after the generating skill is uninstalled.
+            relative = Path(row["kb_path"]).parent
+            if (not relative.is_absolute() and ".." not in relative.parts
+                    and card.parent.resolve() == config.knowledge_dir.resolve() / relative):
+                prefix = card.stem + "."
+                for f in sorted(card.parent.glob("*.md")):
+                    if not f.name.startswith(prefix) or f.is_symlink() or not f.is_file():
+                        continue
+                    sid = f.stem[len(prefix):]
+                    if not sid or sid in {"notes", "translation", "annotations"}:
+                        continue
+                    try:
+                        front, body = _split_front(f.read_text("utf-8"))
+                    except (OSError, UnicodeError):
+                        continue
+                    if not isinstance(front, dict) or front.get("skill") != sid:
+                        continue
+                    if not {"skill_name", "title", "doi", "model", "generated"} <= front.keys():
+                        continue
+                    name = front["skill_name"]
+                    if isinstance(name, str) and name.strip():
+                        outputs.append({"id": sid, "label": skills[sid].label if sid in skills else name,
+                                        "html": md_html(body)})
         jobs = registry.query("SELECT * FROM jobs WHERE paper_id=? ORDER BY id DESC LIMIT 6", (paper_id,))
         tr_cfg = config.raw.get("translation") or {}
         from .. import notelinks
@@ -1242,9 +1260,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def paper_skill(paper_id: int, request: Request):
         body = await json_body(request)
         try:
-            pipeline.submit_skill(paper_id, str(body.get("skill", "")))
+            await run_in_threadpool(pipeline.submit_skill, paper_id, str(body.get("skill", "")))
         except ValueError as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": _gettext(str(exc))}
         return {"ok": True}
 
     @app.post("/api/import")
@@ -1810,13 +1828,20 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         skills = sr.discover(config)
         return render(request, "skills.html", skills=sorted(skills.values(), key=lambda k: (not k.supported, k.source != "builtin", k.label)),
-                      default_skill=sr.default_skill_id(config, skills), sources=sr.SOURCES,
+                      default_skill=sr.default_skill_id(config, skills),
                       auto=bool((config.raw.get("skills") or {}).get("auto_new_papers")), saved=saved,
                       skills_dir=config.data_dir / "skills")
 
     @app.post("/skills")
     def skills_save(csrf: str = Form(...), default: str = Form(""), auto: str = Form("")):
+        from .. import skills_runtime as sr
+
         _check_csrf(csrf, csrf_token)
+        if default:
+            try:
+                sr.require_skill(config, default)
+            except ValueError as exc:
+                raise HTTPException(400, _gettext(str(exc))) from exc
         sk = config.raw.setdefault("skills", {})
         sk["default"] = default
         sk["auto_new_papers"] = bool(auto)
@@ -1829,9 +1854,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
         body = await json_body(request)
         try:
-            sk = sr.install(config, Path(str(body.get("path", ""))))
+            sk = await run_in_threadpool(sr.install, config, Path(str(body.get("path", ""))))
         except (ValueError, OSError) as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": _gettext(str(exc))}
         return {"ok": True, "id": sk.id, "supported": sk.supported, "reason": sk.reason}
 
     @app.post("/shutdown")

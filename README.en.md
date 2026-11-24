@@ -42,6 +42,8 @@ Under **设置 → AI 服务 → 翻译**, choose the default service for select
 
 ## Plugins and local API
 
+Open Skills to choose how PaperMap reads a paper. The list includes the built-in close-reading skill, skills installed for the current PaperMap library, and skills provided by enabled PaperMap plugins. Use Add skill to install a separate copy of a folder containing `SKILL.md`.
+
 Open Settings → Application → Plugins and API to install the reading-club export template or Python event inspector. Issue a token there to let local tools query papers, import PDFs and subscribe to events. [Plugin guide and examples (Chinese)](src/papermap/extension_examples/GUIDE.md)
 
 To look up evidence from Claude Code or another local MCP client, create a read-only MCP token on the same settings page. Copy the Streamable HTTP configuration and keep PaperMap open. Ask the client to find excerpts marked as opposing your research question and return their page numbers and links to the original PDF. [Claude Code configuration example (Chinese)](src/papermap/extension_examples/GUIDE.md#从-claude-code-查询-papermap-证据)

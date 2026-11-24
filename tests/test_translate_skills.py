@@ -93,14 +93,14 @@ def test_service_failure_falls_back_to_main_model(config, registry, pdfs, monkey
 
 def test_skill_discovery_and_safety(config, tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
-    claude = tmp_path / "home" / ".claude" / "skills"
-    (claude / "reader").mkdir(parents=True)
-    (claude / "reader" / "SKILL.md").write_text("---\nname: reader\ndescription: reads\n---\nRead it. See ../shared/core/x.md\n")
-    (claude / "shared" / "core").mkdir(parents=True)
-    (claude / "shared" / "core" / "x.md").write_text("SHARED REFERENCE")
-    (claude / "scripted" / "scripts").mkdir(parents=True)
-    (claude / "scripted" / "SKILL.md").write_text("---\nname: scripted\n---\nRun python scripts/x.py")
-    (claude / "scripted" / "scripts" / "x.py").write_text("print(1)")
+    local = config.data_dir / "skills"
+    (local / "reader").mkdir(parents=True)
+    (local / "reader" / "SKILL.md").write_text("---\nname: reader\ndescription: reads\n---\nRead it. See ../shared/core/x.md\n")
+    (local / "shared" / "core").mkdir(parents=True)
+    (local / "shared" / "core" / "x.md").write_text("SHARED REFERENCE")
+    (local / "scripted" / "scripts").mkdir(parents=True)
+    (local / "scripted" / "SKILL.md").write_text("---\nname: scripted\n---\nRun python scripts/x.py")
+    (local / "scripted" / "scripts" / "x.py").write_text("print(1)")
     skills = sr.discover(config)
     assert skills["papermap-close-reading"].source == "builtin" and skills["papermap-close-reading"].supported
     assert skills["reader"].supported and not skills["scripted"].supported and "x.py" in skills["scripted"].reason
@@ -112,7 +112,7 @@ def test_skill_discovery_and_safety(config, tmp_path, monkeypatch):
     assert sr.default_skill_id(config, skills) == "papermap-close-reading"
     with pytest.raises(ValueError):
         sr.install(config, tmp_path)
-    installed = sr.install(config, claude / "reader")
+    installed = sr.install(config, local / "reader")
     assert installed.source == "papermap" and (config.data_dir / "skills" / "reader" / "SKILL.md").exists()
 
 

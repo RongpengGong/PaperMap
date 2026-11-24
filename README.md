@@ -86,6 +86,8 @@ papermap                                  # 首次运行会自动创建配置并
 
 ## 插件与本地接口
 
+在「技能」里可以选择默认的论文解读方式。这里列出内置「精读」、你为当前 PaperMap 文献库安装的技能，以及已启用的 PaperMap 插件提供的技能。用「添加技能」选择含 `SKILL.md` 的文件夹即可安装一份独立副本。
+
 在「设置 → 应用 → 插件与接口」安装读书会导出模板或 Python 事件查看器，也可以创建令牌，授权本机工具检索论文和订阅事件。[插件开发指南与示例](src/papermap/extension_examples/GUIDE.md)
 
 想让 Claude Code 查你收集的证据，打开同一页的「通过 MCP 查询文献」，创建只读令牌并复制客户端配置。可以问「哪些论文与我对这个问题的判断相反？给我原句和页码。」回答里的摘录链接可回到本机 PaperMap 阅读器。[MCP 接入示例](src/papermap/extension_examples/GUIDE.md#从-claude-code-查询-papermap-证据)

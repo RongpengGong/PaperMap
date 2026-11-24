@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ _("技能 - PaperMap") }}{% endblock %}
 {% block content %}
+{% set sources = {"builtin": _("PaperMap 自带"), "papermap": _("我添加的"), "plugin": _("扩展插件")} %}
 <h2>{{ _("技能") }}</h2>
-<p class="muted">{{ _("技能是一份写好的「怎么读论文」说明（一个带") }} <code>SKILL.md</code> {{ _("的文件夹，和 Claude、Agentero 的技能格式相同）。在论文详情里选「用技能解读…」，PaperMap 会用你的主模型按技能的要求读全文，结果保存在那篇论文的文件夹里。只支持纯文字技能：带脚本的技能不会被执行。") }}</p>
+<p class="muted">{{ _("这里列出 PaperMap 自带的技能、你为 PaperMap 安装的技能，以及已启用的 PaperMap 插件提供的技能。") }}</p>
+<p class="muted">{{ _("在论文详情里选择「用技能解读…」，主模型会按技能说明阅读全文，并将结果保存到论文文件夹。") }}</p>
 {% if saved %}<div class="notice ok">{{ _("已保存。") }}</div>{% endif %}
 <form method="post" action="/skills" class="card">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -22,7 +24,8 @@
 </form>
 <section class="card" style="margin-top:18px">
   <h3>{{ _("添加技能") }}</h3>
-  <p class="muted small">{{ _("选择一个含") }} <code>SKILL.md</code> {{ _("的文件夹，会复制到") }} <code>{{ skills_dir }}</code>{{ _("。你在 Claude 里装的技能（") }}<code>~/.claude/skills</code>{{ _("）会被自动发现，不用再添加。") }}</p>
+  <p class="muted small">{{ _("选择包含 SKILL.md 的技能文件夹。PaperMap 只运行纯文字技能。") }}</p>
+  <p class="muted small">{{ _("技能安装目录") }} <code>{{ skills_dir }}</code></p>
   <div class="row"><input type="text" id="skill_path" placeholder="{{ _("技能文件夹路径") }}"><button type="button" class="secondary" data-pick-folder="skill_path">{{ _("选择文件夹…") }}</button><button type="button" id="skill_install">{{ _("添加") }}</button></div>
 </section>
 {% endblock %}
