@@ -7,6 +7,9 @@ name = "papermap"
 version = "0.1.0"
 description = "Local literature manager: detect new PDFs, extract DOIs, build a Markdown knowledge map with an LLM."
 requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+readme = "README.en.md"
+authors = [{ name = "Rongpeng Gong" }]
 dependencies = [
   "pymupdf>=1.24",
   "pyobjc-framework-Vision>=10; sys_platform == 'darwin'",
