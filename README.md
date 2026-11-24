@@ -1,179 +1,145 @@
-# PaperMap · 本地文献知识地图
+<h1 align="center">PaperMap · 本地文献知识地图</h1>
 
-[English](README.en.md)
+<h3 align="center">把你读过的论文，变成一张会自己长大的知识地图</h3>
 
-PaperMap 在你自己的电脑上运行。你把论文 PDF 放进一个文件夹，它会自动：
+<p align="center">
+  论文、卡片、笔记和对话都保存在你自己的电脑上。导入 PDF 后自动写卡片、分类、建学科页；读的时候和 AI 讨论原文，写的时候逐句核对引用。
+</p>
 
-1. **识别新论文**：读出 DOI，到 Crossref / OpenAlex 核对，重复的文件（改名、换位置、预印本 vs 正式版）不会重复处理；
-2. **写论文卡片**：一句话结论、研究设计、方法与软件、主要发现、局限性；
-3. **按研究范式分类**：单细胞、空间转录组、湿实验机制、临床队列、预测模型……（多标签，分类表可以自己改）；
-4. **画知识地图**：每个学科一个页面，汇总代表文献、常用工具、方法进展、不同论文之间相互矛盾的结论；
-5. **发现新方向**：遇到分类表覆盖不到的方向，攒够几篇后问你要不要建立新学科，并生成一本**学习手册**。
+<p align="center">
+  <b>中文</b> | <a href="README.en.md">English</a>
+</p>
 
-所有内容都是普通的 Markdown 文件，可以直接用 [Obsidian](https://obsidian.md) 打开，也可以只用 PaperMap 自带的网页。
+<p align="center">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-已测试-1B54E8?style=for-the-badge&logo=apple&labelColor=20242D">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-34D399?style=for-the-badge&logo=python&logoColor=white&labelColor=20242D">
+  <img alt="local first" src="https://img.shields.io/badge/数据-只存本机-E3B341?style=for-the-badge&labelColor=20242D">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/GITHUB_OWNER/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
+</p>
 
-> **隐私提示**：每篇新论文的文本（标题、摘要、关键章节）会发送到**你自己选择的** AI 模型服务商（例如 DeepSeek）。放在被排除的子文件夹（默认 `_private`、`drafts`）里的 PDF 永远不会被读取或发送。PaperMap 不内置任何密钥，也不会把数据发给作者。
+如果 PaperMap 对你有帮助，欢迎点右上角的 **⭐ Star**，也欢迎[赞助](#赞助)支持后续开发。
 
 ---
 
-## 安装
+## 为什么做 PaperMap
 
-### 方式一：直接下载（推荐给不写代码的用户）
+读文献的人常常遇到这些问题：
 
-1. 下载对应系统的压缩包（`PaperMap-Windows` 或 `PaperMap-macOS`），解压到任意位置。
-2. **macOS**：把 `PaperMap.app` 拖进「应用程序」文件夹，双击打开。第一次打开如果提示「无法验证开发者」，请在「系统设置 → 隐私与安全性」里点「仍要打开」；如果提示要访问「文稿」或「下载」文件夹，点「允许」（PaperMap 只读取你指定的入口文件夹）。
-   **Windows**：双击 `PaperMap\PaperMap.exe`。
-3. 浏览器会自动打开 PaperMap 的设置页。PaperMap 没有自己的窗口：它常驻在**菜单栏（macOS 右上角）/ 任务栏通知区域（Windows 右下角）**，点那个小图标可以「打开 PaperMap」「打开知识库文件夹」「登录时自动启动」「退出」。再次双击应用也只会打开浏览器，不会重复启动。
+* **读过就忘。** 读了几十篇，过几个月想不起哪篇说了什么、用的什么方法、样本多大。
+* **知识是零散的。** 论文在 Zotero，笔记在 Obsidian，和 AI 的讨论留在网页里，彼此串不起来。
+* **领域全貌要自己拼。** 一个方向有哪些研究范式、哪些结论互相矛盾、哪里还缺证据，只能从头梳理。
+* **写作时心里没底。** 稿件里这句话后面引的那篇，原文真的这么说吗？
 
-### 方式二：用 Python 安装（需要 Python 3.10 或更新版本）
+PaperMap 在你自己的电脑上运行。它把每篇论文读成一张结构化卡片，按研究范式和主题归类，为每个学科维护一个随新论文更新的页面，并且让每个结论都能点回 PDF 里的原句。
+
+---
+
+## 核心功能
+
+### 1. 导入即整理
+* **拖进来就行。** 把 PDF 拖进窗口，或者让 PaperMap 监听一个文件夹（包括 Zotero 的存储目录，只读不改）。
+* **识别与去重。** 读出 DOI，到 Crossref / OpenAlex 核对；改名副本、预印本与正式版只保留一张卡片。
+* **论文卡片。** 一句话结论、研究设计（样本、物种、平台）、方法与软件、主要发现、局限。卡片可以直接编辑，改坏了能退回任何一个历史版本。
+* **多标签分类。** 方法学（单细胞、空间转录组、湿实验、临床队列……）× 主题（分类表可自定义），拿不准的进「待审核」。
+
+### 2. 知识地图与学科
+* **交互式知识地图**：学科、论文、研究问题之间的关系一目了然。
+* **学科页**：代表文献、常用工具、方法进展、**相互矛盾的结论**；新论文进来自动追加，定期由模型整合。
+* **新学科检测**：分类表覆盖不到的方向攒够几篇后提示你建立，并生成一本**学习手册**（A 部分只引用你库里的论文，B 部分是标明需核实的背景知识）。
+
+### 3. 边读边想
+* **内置 PDF 阅读器**：目录、搜索、高亮、批注、框选图表、本机 OCR、划词翻译、全文段落对照翻译。
+* **AI 对话**：在论文旁边和任意已配置的模型讨论（ChatGPT / Claude 订阅可选推理强度），回答标页码、点击跳回 PDF；PDF 里选中一段即可「问 AI」。每个页面右侧都有「问 AI」抽屉。讨论结束后，要点经你确认才写进笔记。
+* **右键即用**：在卡片里选中文字右键，直接高亮、改颜色、加粗；任何地方选中都能「收藏这句」。**收藏簿**每周由 AI 按主题归纳成知识点，每条标出处。
+* **技能**：用「精读」等提示词技能深度解读一篇论文（不执行任何脚本）。
+
+### 4. 证据与研究问题
+* **证据笔记**：围绕研究问题摘录原句（锚定到页码和位置），标「支持 / 相反 / 待核对」，并排对照样本、方法和结论。
+* **这篇论文改变了什么**：新论文进来时对照已有证据生成「更新卡」，两边都要引用原文，由你确认才生效。
+* **证据缺口**：记下还缺什么证据；新论文可能补上时提醒你，并给出值得先读的段落。
+* **预印本 → 正式版**：两个版本并存，旧摘录仍指向原页；改动或消失的段落会提示你核对。
+
+### 5. 追踪新文献
+* 每天从 **OpenAlex、PubMed、bioRxiv / medRxiv** 查找与你的学科、证据缺口、关注作者相关的新论文，以及引用了你库里论文的新文章。
+* 关机几天后自动补查；同一篇被多个来源发现只出现一次，并写明推荐理由；每周一条系统通知简报。
+* 「收进来」时自动寻找合法的开放获取 PDF，走正常的导入流程。
+
+### 6. 写作与引用核对
+* **写作**：选一组论文（星标、用途标签、分组、学科），模型只根据它们写一段带引用的文字，缺的证据单独列出；导出 Word / BibTeX。
+* **引用核对**：上传 Word 稿件，逐句检查被引论文是否真的支持这句话：支持 / 部分支持 / 没找到 / 相反，每条给出原文句子和页码；给不出原句的判断不被采信。
+* 另外还有**全库问答**、**全文搜索**、**对比表**、**数据资源表**（GEO / SRA 等登录号）、**引用网络**、**BibTeX / RIS 导出**。
+
+### 7. 数据始终在你手里
+* 知识库是普通的 **Markdown 文件夹**，可以直接用 [Obsidian](https://obsidian.md) 打开；状态保存在本机 SQLite。
+* 每天自动备份数据库；可以把整个知识库每天**同步到移动硬盘或云盘文件夹**；删除的论文进回收站 30 天。
+* **⌘K** 快速跳转、可折叠侧边栏、「今天读什么」、状态检查、简体 / 繁體 / English / Deutsch 界面。
+* 本机只读 **MCP 服务**和插件接口：让 Claude Code 等工具查询你的证据（只监听 127.0.0.1）。
+
+> **隐私**：论文文本（标题、摘要、关键章节）会发送到**你自己选择的**模型服务商。放在排除文件夹（默认 `_private`、`drafts`）里的 PDF 不会被读取或发送。PaperMap 不内置任何密钥，也不会把数据发给作者。
+
+---
+
+## 快速开始
+
+### 安装
+
+**macOS 应用**：从 [Releases](https://github.com/GITHUB_OWNER/PaperMap/releases) 下载 `PaperMap-macOS.zip`，解压后把 `PaperMap.app` 拖进「应用程序」。应用还没有经过 Apple 公证：第一次打开如果提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。
+
+**用 Python 安装**（Python 3.10+）：
 
 ```bash
-pip install "papermap @ git+<仓库地址>"     # 或在源码目录里：pip install .
-papermap                                  # 首次运行会自动创建配置并打开浏览器
+pip install "papermap[desktop] @ git+https://github.com/GITHUB_OWNER/PaperMap"
+papermap            # 首次运行会创建配置并打开窗口
 ```
 
-也可以用 `uv tool install .` 安装。
+> Windows 版可以构建，但还没有在 Windows 上完整实测，欢迎反馈问题。
+
+### 第一次使用（3 分钟）
+
+1. **连接模型**：「设置 → AI 服务 → 模型与账号」。可以用 **ChatGPT 订阅**或 **Claude 订阅（本机 Claude Code）** 登录，也可以填 DeepSeek、Anthropic、OpenAI、Gemini、Kimi、智谱、通义等的 API Key，或任何 OpenAI / Anthropic 兼容的自定义服务。点「测试连接」看到 ✓ 再保存。
+2. **导入论文**：把 PDF 拖进窗口；或在「设置 → 文献库 → 导入与文件夹」加一个自动导入文件夹（比如 Zotero 的 `storage`，只读不改）。一次导入 5 篇以上会先估算费用，等你确认。
+3. **看「使用指南」**（左侧「更多」里），按 **⌘K** 随时跳转。
+
+**费用**：以 DeepSeek 为例，一篇长文（卡片 + 分类）不到 1 美分；用 ChatGPT / Claude 订阅不另外计费。可以在设置里设每月预算。
+
+更详细的说明（每个页面、翻译服务、插件与 MCP、命令行、开机自启、数据位置、常见问题）见 **[docs/USAGE.md](docs/USAGE.md)**。
 
 ---
-
-## 第一次使用（3 分钟）
-
-1. **连接模型**：打开「设置 → AI 服务 → 模型与账号」，选择一种方式：
-   - **ChatGPT 订阅**：点击「Continue with ChatGPT」，在系统浏览器里授权 PaperMap 使用套餐。返回设置页，选择账号可用的模型，再选「推理强度」并保存。档位随模型变化，也可以保留「模型默认」。适用资格和额度见 [OpenAI 说明](https://developers.openai.com/siwc/quickstart)。换电脑时重新授权。
-   - **Claude 订阅**需要先安装本机 Claude Code。在设置中点「用官方 Claude Code 登录」，终端会启动 Claude Code 并打开浏览器。完成登录并回到设置后，PaperMap 会自动刷新账号状态。选择模型和推理强度，点「测试连接」发送一条简短的测试消息，收到回复后保存。用量以本机 Claude Code 账号为准。按量使用 Claude API 可单独选择「Anthropic Claude API」并填写 API Key。[Claude Code 安装指南](https://code.claude.com/docs/en/setup)
-   - 选 **DeepSeek 官方**：只要粘贴 Key（在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建），选模型即可。
-   - 或选 **自定义**：填 Base URL、API Key、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API）和模型名。点「获取模型列表」可以直接选。适合中转服务、其他厂商或本地模型。
-   - 点「**测试连接**」，看到 ✓ 再保存。
-2. **选入口文件夹**：打开「设置 → 文献库 → 导入与文件夹」。默认是 `~/PaperMap/inbox`。可以改成：
-   - Zotero 的存储目录（通常是 `~/Zotero/storage`）——PaperMap **只读不改**，不会移动或重命名任何文件，不会破坏 Zotero 的链接；
-   - 浏览器的下载文件夹，或任何你放论文的地方。可以填多个。
-3. **放 PDF**：把论文放进入口文件夹（子文件夹也会被扫描）。几十秒后首页就会出现，卡片生成后可以在「知识地图」「学科」里看到。
-
-一次放很多篇（默认 5 篇以上）时，PaperMap 会先**估算费用**，在首页等你点「开始处理」；中途关掉也没关系，下次会从断点继续。
-
----
-
-## 日常使用
-
-| 页面 | 做什么 |
-|---|---|
-| 论文 | 所有论文和处理状态，点开看卡片。「继续阅读」可以回到最近读过的论文和上次停留的位置 |
-| 证据笔记 | 按研究问题汇集不同论文的摘录、页码和自己的判断，可以定位原文或导出 Markdown |
-| 知识地图 | 交互式网络图：蓝 = 方法，橙 = 主题，灰 = 论文；勾选「只看学科」看学科之间的联系 |
-| 学科 | 每个学科的 hub 页：概述、代表文献、常用工具、方法进展、争议、交叉；「立即整合」让模型重写概述和争议 |
-| 手册 | 学习手册：**A 部分**只写你库里有 DOI 出处的内容；**B 部分**是模型补充的背景知识（标明需核实） |
-| 工具 | 被多篇论文用到的软件包，各自一页 |
-| 待审核 | 模型拿不准的分类、DOI 对不上的文件、提议的新学科（建立 / 合并 / 拒绝） |
-| 分类表 | 切换预设或直接编辑分类表；改完可以一键重新分类 |
-| 费用 | 本月花费、按用途和日期的统计、再处理 10 篇大约多少钱 |
-| 设置 | 模型服务、价格、预算、语言、文件夹、排除规则…… |
-| 新文献 | 每天从 OpenAlex、PubMed、bioRxiv/medRxiv 找和你的学科、证据缺口、关注作者相关的新论文；每周一发简报；「收进来」会找合法的开放获取 PDF |
-| 问答 | 向整个文献库提问，只根据库里的论文、笔记和批注回答，每句标出处 |
-| 写作 | 选一组论文（星标、用途、分组、学科），只用它们的卡片写一段带引用的文字；可下载 Word / BibTeX |
-| 引用核对 | 上传 Word 稿件，逐句检查引用的论文是否真的支持这句话，每条给出原文句子和页码 |
-| 收藏簿 | 右键收藏的句子；AI 每周按主题归纳成知识点，每条标出处 |
-| 状态检查 | 一眼看到模型、索引、备份、同步、后台任务是否正常（在左侧「更多」里） |
-
-**左侧栏**：常用的几项一直显示，其余按「阅读与笔记 / 写作 / 知识整理 / 资料 / 更多」折叠，展开状态会记住。按 **⌘K**（Windows：Ctrl+K）可以跳到任意页面、论文、学科或研究问题。论文列表顶部的「今天读什么」汇总最值得读的几篇。
-
-**边读边用 AI**：论文右栏的「AI 对话」可以选任何已配置的模型（ChatGPT、Claude 订阅可选推理强度），回答标页码、点击跳 PDF；PDF 里选中一段点「问 AI」。其他页面右边有「✦ 问 AI」抽屉。点「结束讨论」后模型总结要点，原对话收进「以前的讨论」，要点经你确认才写进笔记。
-
-**右键**：在卡片里选中文字右键，可以直接高亮、改文字颜色（可自定义）、加粗；在任何页面选中文字右键都能「收藏这句」。
-
-**不怕删错**：删除的论文先进回收站（默认 30 天，可以恢复）；卡片改坏了可以在「历史版本」里退回；设置里可以把整个知识库每天同步到移动硬盘或云盘。
-
-**你的笔记不会被覆盖**：卡片里「与我相关的点」、学科页和手册里「我的笔记」这几块，程序永远不会改动。
-
-在 PDF 里选中一段话，点「摘到证据笔记」，选择或新建一个研究问题。可以标为「支持」「相反」或「待核对」，也可以写下自己的解释。在左栏打开「证据笔记」，点「定位原文」就会回到对应页面，并标出摘录的位置。每条摘录对应一页，跨页的段落可以分两次摘录。
-
-选中一个研究问题，切换到「证据对照」，可以逐篇比较样本来源、分析单位、方法、结果和局限。点击原句核对 PDF，在表下记录当前判断和证据缺口。
-
-- 阅读时点「框选图表」，在一页内拖出一个区域，填写图号或表号与解读。缩略图和原文摘录一样，点击可返回对应版本的 PDF。论文详情的「文件与日志 → 补充材料」也可添加补充 PDF，再摘录其中的表格。
-- 证据旁点「也用于其他问题…」，可以把同一段原文或图表用于另一个问题，并单独填写立场和笔记。
-- 同一个问题下的多篇论文若提到相同数据登录号，证据对照会列出各篇的上下文。核对样本后，可按两篇论文记录是否重叠。
-
-在「设置 → AI 服务 → 翻译」选择划词翻译的默认服务。小牛文本 API 需要 App ID 和 API Key，智谱的免费模型 GLM-4.7-Flash 需要模型标准 API Key，腾讯混元翻译需要腾讯云 TokenHub 广州地域的 API Key。设置页提供各家的官方入口。论文详情中的「翻译全文」也可以单独选服务。全文翻译会保存已返回的段落，关闭应用后再打开会自动接着翻。服务报错后，用原设置重试即可复用已保存的段落。
-
-**费用**：以 DeepSeek 为例，一篇 Nature 长文（卡片 + 分类）大约 2 万输入 + 4 千输出 token，按官方闲时价不到 1 美分。设置里可以设每月预算，用完自动暂停。自定义服务请在「价格」里照账单填写单价、倍率，以及是否高峰翻倍，费用统计才准。
-
----
-
-## 插件与本地接口
-
-在「技能」里可以选择默认的论文解读方式。这里列出内置「精读」、你为当前 PaperMap 文献库安装的技能，以及已启用的 PaperMap 插件提供的技能。用「添加技能」选择含 `SKILL.md` 的文件夹即可安装一份独立副本。
-
-在「设置 → 应用 → 插件与接口」安装读书会导出模板或 Python 事件查看器，也可以创建令牌，授权本机工具检索论文和订阅事件。[插件开发指南与示例](src/papermap/extension_examples/GUIDE.md)
-
-想让 Claude Code 查你收集的证据，打开同一页的「通过 MCP 查询文献」，创建只读令牌并复制客户端配置。可以问「哪些论文与我对这个问题的判断相反？给我原句和页码。」回答里的摘录链接可回到本机 PaperMap 阅读器。[MCP 接入示例](src/papermap/extension_examples/GUIDE.md#从-claude-code-查询-papermap-证据)
-
-## 开机自动运行
-
-```bash
-papermap autostart install      # 登录后自动在后台运行（macOS / Windows / Linux）
-papermap autostart status
-papermap autostart uninstall
-```
-
-打包版（应用程序）：直接在菜单栏 / 托盘图标的菜单里勾选「登录时自动启动」即可。之后随时在浏览器打开 <http://127.0.0.1:8765>，或点菜单栏图标「打开 PaperMap」。要退出，点图标菜单里的「退出 PaperMap」（或设置页底部的按钮）。
-
----
-
-## 数据放在哪里
-
-默认在主目录下的 `PaperMap/`：
-
-```
-PaperMap/
-├── config.yaml        设置（包括你在网页里填的 Key，只存本机）
-├── papermap.db        处理状态和索引
-├── taxonomy.yaml      你编辑过的分类表（如果改过）
-├── logs/
-└── knowledge/         知识库本体：可以直接作为 Obsidian 仓库打开
-    ├── papers/        论文卡片
-    ├── fields/        学科页
-    ├── handbooks/     学习手册
-    ├── concepts/      工具页
-    └── _pending/      待定的新学科
-```
-
-**备份 / 换电脑**：备份知识库和状态数据库。配置文件可能包含 API Key。换机时跳过保存 ChatGPT 登录凭据的 `chatgpt/` 目录，在新设备上重新登录。设置里可以打开「用 git 自动记录知识库的每次改动」，任何一次改动都能回滚（需要电脑上装了 git）。
-
----
-
-## 常见问题
-
-- **扫描页怎么摘录？** 在 Mac 上打开扫描页，PaperMap 会用系统的 Vision 在本机识别文字。遇到图文混合页，也可以点阅读器里的「识别本页」。识别后的文字可以选中、摘录和搜索；摘录会注明「本机 OCR」，方便对照扫描原图。
-- **没有 DOI 的论文**（学位论文、会议摘要）：照常处理，卡片标注「无 DOI」，靠文件内容和标题去重。
-- **补充材料 PDF**：按文件名和首页特征识别，跳过，不花钱。
-- **DOI 对不上**：会进「待审核」，你可以手动填正确的 DOI 或按无 DOI 处理。
-- **端口被占用**：设置文件里改 `web.port`。
-- **网络断了 / 服务商限流**：自动重试；处理不了的论文会留到下次，不会丢。
-
----
-
-## 命令行（可选）
-
-```
-papermap                 首次设置 + 运行 + 打开浏览器
-papermap init            在命令行里交互式生成配置
-papermap scan [--yes]    扫描一次入口文件夹并处理
-papermap run [--open]    常驻监听 + 网页
-papermap serve           只开网页
-papermap classify [--stale|--all]   分类（改分类表后用 --stale 重新分类）
-papermap pending         列出 / 建立 / 合并 / 拒绝待定新学科
-papermap consolidate     整合到期的学科页
-papermap handbook [slug] 生成学习手册
-papermap reprocess       重新生成卡片（例如换了 prompt 版本）
-papermap status          库概况
-papermap autostart ...   开机自启
-```
 
 ## 开发
 
 ```bash
-uv venv && uv pip install -e ".[dev,build]"
-pytest                          # 测试
-python packaging/build.py       # 打包到 dist/（需在目标系统上构建）
+git clone https://github.com/GITHUB_OWNER/PaperMap && cd PaperMap
+python -m venv .venv && .venv/bin/pip install -e ".[dev,desktop]"
+.venv/bin/python -m pytest -q          # 400+ 个测试
+.venv/bin/papermap serve --port 8799   # 只开网页，用浏览器调试
+.venv/bin/pip install -e ".[build]" && .venv/bin/python packaging/build.py   # 打包桌面应用
 ```
 
-GitHub Actions（`.github/workflows/build.yml`）会在 Windows 和 macOS 上跑测试并打包。
+设计文档和各阶段的决策记录在 [CLAUDE.md](CLAUDE.md)。欢迎提 Issue 和 Pull Request。
+
+---
+
+## 赞助
+
+PaperMap 是利用业余时间开发的个人项目，免费开源。如果它帮你省下了时间，欢迎请作者喝杯咖啡，支持后续开发 ☕
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/assets/sponsor/wechat.png" alt="微信支付" width="200"><br><sub>微信支付</sub></td>
+    <td align="center"><img src="docs/assets/sponsor/alipay.jpg" alt="支付宝" width="200"><br><sub>支付宝</sub></td>
+    <td align="center"><img src="docs/assets/sponsor/paypal.jpg" alt="PayPal" width="200"><br><sub>PayPal</sub></td>
+  </tr>
+</table>
+
+---
+
+## 致谢
+
+* 元数据来自 [Crossref](https://www.crossref.org/) 与 [OpenAlex](https://openalex.org/)；新文献来自 OpenAlex、[PubMed](https://pubmed.ncbi.nlm.nih.gov/) 与 [bioRxiv / medRxiv](https://www.biorxiv.org/)；开放获取全文来自 [PMC Open Access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/)。
+* PDF 解析使用 [PyMuPDF](https://pymupdf.readthedocs.io/)，笔记编辑器基于 [Tiptap](https://tiptap.dev/)，桌面窗口基于 [pywebview](https://pywebview.flowrl.com/)。
+* README 的结构参考了 [Agentero](https://github.com/poco-ai/Agentero)。
+
+## 开源许可证
+
+见 [LICENSE](LICENSE)。第三方组件及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

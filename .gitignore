@@ -14,3 +14,7 @@ dist/
 *.spec
 build.log
 packaging/editor/node_modules/
+
+# local only
+.claude/
+thesis_missing_pdfs.md
