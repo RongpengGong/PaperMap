@@ -404,7 +404,23 @@
   }
   const closedKey = "pm_closed_groups";
   const closed = () => { try { return new Set(JSON.parse(localStorage.getItem(closedKey) || "[]")); } catch (e) { return new Set(); } };
+  // Sidebar sections: open = the user's choice (remembered), or the section holding the current page.
+  const NAV_KEY = "pm_nav_open";
+  const navOpen = () => { try { return new Set(JSON.parse(localStorage.getItem(NAV_KEY) || "[]")); } catch (e) { return new Set(); } };
+  document.addEventListener("toggle", e => {
+    const d = e.target; if (!d.matches || !d.matches("details[data-nav-group]") || d._pmSetting) return;
+    const o = navOpen(); if (d.open) o.add(d.dataset.navGroup); else o.delete(d.dataset.navGroup);
+    try { localStorage.setItem(NAV_KEY, JSON.stringify([...o])); } catch (err) { /* private mode */ }
+  }, true);
+  function applyNavGroups() {
+    const o = navOpen();
+    document.querySelectorAll("details[data-nav-group]").forEach(d => {
+      const want = d.hasAttribute("data-here") || o.has(d.dataset.navGroup);
+      if (d.open !== want) { d._pmSetting = true; d.open = want; setTimeout(() => { d._pmSetting = false; }, 0); }
+    });
+  }
   function applyCollapsed() {
+    applyNavGroups();
     const c = closed();
     document.querySelectorAll("[data-children-of]").forEach(el => el.hidden = c.has(el.dataset.childrenOf));
     document.querySelectorAll(".caret.has").forEach(el => el.classList.toggle("closed", c.has(el.dataset.toggle)));

@@ -48,6 +48,11 @@ function toolbar(editor, opts) {
       const s = document.createElement("button"); s.type = "button"; s.className = "pm-swatch"; s.style.setProperty("--c", c); s.title = tr(name);
       s.addEventListener("click", () => { apply(c); pop.hidden = true; sync(); }); pop.appendChild(s);
     }
+    const pick = document.createElement("label"); pick.className = "pm-swatch custom"; pick.title = tr("自定义颜色");
+    const inp = document.createElement("input"); inp.type = "color"; inp.value = items[0][0];
+    inp.addEventListener("input", () => { pick.style.setProperty("--c", inp.value); });
+    inp.addEventListener("change", () => { apply(inp.value); pop.hidden = true; sync(); });
+    pick.appendChild(inp); pop.appendChild(pick);
     const x = document.createElement("button"); x.type = "button"; x.className = "pm-swatch none"; x.title = tr("清除"); x.textContent = "∅";
     x.addEventListener("click", () => { clear(); pop.hidden = true; sync(); }); pop.appendChild(x);
     b.addEventListener("click", () => { pop.hidden = !pop.hidden; });

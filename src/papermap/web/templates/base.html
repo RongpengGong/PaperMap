@@ -26,11 +26,15 @@
 {%- endif %}</svg>
 {%- endmacro -%}
 {%- set path = request.url.path -%}
-{%- set nav = [
-  ('/', 'papers', _('论文')), ('/tracking', 'tracking', _('新文献')), ('/evidence', 'evidence', _('证据笔记')), ('/qa', 'qa', _('问答')), ('/write', 'write', _('写作')), ('/citecheck', 'citecheck', _('引用核对')), ('/clips', 'clips', _('收藏簿')), ('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')),
-  ('/handbooks', 'handbooks', _('手册')), ('/concepts', 'concepts', _('工具')), ('/figures', 'figures', _('图片库')), ('/resources', 'resources', _('数据资源')), ('/citations', 'citations', _('引用')), ('/review', 'review', _('待审核')),
+{%- set nav = [('/', 'papers', _('论文')), ('/tracking', 'tracking', _('新文献')), ('/review', 'review', _('待审核'))] -%}
+{#- Everything else in collapsible sections; a section opens by itself when the current page is in it. -#}
+{%- set nav_groups = [
+  ('read', _('阅读与笔记'), [('/evidence', 'evidence', _('证据笔记')), ('/qa', 'qa', _('问答')), ('/clips', 'clips', _('收藏簿'))]),
+  ('write', _('写作'), [('/write', 'write', _('写作')), ('/citecheck', 'citecheck', _('引用核对'))]),
+  ('know', _('知识整理'), [('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')), ('/handbooks', 'handbooks', _('手册')), ('/concepts', 'concepts', _('工具'))]),
+  ('data', _('资料'), [('/figures', 'figures', _('图片库')), ('/resources', 'resources', _('数据资源')), ('/citations', 'citations', _('引用'))]),
 ] -%}
-{%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志')), ('/settings', 'settings', _('设置'))] -%}
+{%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志'))] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
 <html lang="{{ html_lang() }}" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><script>window.PM_LANG="{{ ui_lang() }}";window.t=function(s){var m=window.PM_T;return (m&&s&&m[s])||s;};</script>{% if ui_lang() != 'zh-CN' %}<script src="/i18n/{{ ui_lang() }}.js?v={{ static_v }}"></script>{% endif %}<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -80,11 +84,25 @@
     <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span>{% if ic == 'review' and review_count %}<b class="badge">{{ review_count }}</b>{% endif %}{% if ic == 'tracking' and tracking_badge %}<b class="badge soft" title="{{ _("值得一读的新候选") }}">{{ tracking_badge }}</b>{% endif %}</a>
     {% endif %}
     {% endfor %}
+    {% for key, title, items in nav_groups %}
+    {% set ns = namespace(here=false) %}{% for href, ic, label in items %}{% if is_active(href)|trim %}{% set ns.here = true %}{% endif %}{% endfor %}
+    <details class="nav-group" data-nav-group="{{ key }}" {% if ns.here %}open data-here{% endif %}>
+      <summary class="nav-group-head"><span class="nav-caret"></span><span>{{ title }}</span></summary>
+      {% for href, ic, label in items %}
+      <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
+      {% endfor %}
+    </details>
+    {% endfor %}
   </nav>
   <nav class="nav nav-bottom" aria-label="{{ _("工具与设置") }}">
-    {% for href, ic, label in nav2 %}
-    <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
-    {% endfor %}
+    {% set ns2 = namespace(here=false) %}{% for href, ic, label in nav2 %}{% if is_active(href)|trim %}{% set ns2.here = true %}{% endif %}{% endfor %}
+    <details class="nav-group" data-nav-group="more" {% if ns2.here %}open data-here{% endif %}>
+      <summary class="nav-group-head"><span class="nav-caret"></span><span>{{ _("更多") }}</span></summary>
+      {% for href, ic, label in nav2 %}
+      <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
+      {% endfor %}
+    </details>
+    <a class="{{ is_active('/settings') }}" href="/settings" title="{{ _("设置") }}" {% if is_active('/settings') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>{{ _("设置") }}</span></a>
     <a class="cost-line" href="/costs">{{ _("本月 $") }}{{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>
   </nav>
 </aside>

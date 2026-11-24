@@ -904,3 +904,29 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .chat-old .chat-msg { margin:6px 0; max-width:100%; }
 .chat-old-sum { margin:6px 0; padding:6px 10px; border-left:3px solid var(--accent); font-size:12.5px; }
 .chat-summary { margin-bottom:8px; }
+
+/* collapsible sidebar sections */
+.nav-group { margin-top:4px; }
+.nav-group-head { display:flex; align-items:center; gap:6px; min-height:28px; padding:4px 9px; border-radius:8px; list-style:none; cursor:pointer;
+  color:var(--muted); font-size:11.5px; font-weight:650; letter-spacing:.04em; user-select:none; }
+.nav-group-head::-webkit-details-marker { display:none; }
+.nav-group-head:hover { background:var(--side-hover); color:var(--fg); }
+.nav-caret { width:8px; height:8px; border-right:1.6px solid currentColor; border-bottom:1.6px solid currentColor; transform:rotate(-45deg); transition:transform .15s; margin:0 3px 0 1px; }
+.nav-group[open] > .nav-group-head .nav-caret { transform:rotate(45deg); margin-top:-3px; }
+.nav-group > a { margin-left:6px; }
+.nav-bottom .nav-group { margin:0 0 2px; }
+/* the pop-up's buttons must not inherit the big filled default button style */
+.sel-pop button { margin:0; box-shadow:none; line-height:1; }
+.sel-pop .sel-row { flex-wrap:nowrap; }
+.sel-pop .sel-lbl { width:28px; flex:none; color:var(--muted); font-size:11px; }
+.sel-pop .sel-fc, .sel-pop .sel-fmt { display:inline-grid; place-items:center; width:26px; height:26px; padding:0; flex:none;
+  border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font-size:13px; font-weight:700; }
+.sel-pop .sel-fc:hover, .sel-pop .sel-fmt:hover { background:var(--side); border-color:var(--accent); }
+.sel-pop .sel-fmt { width:34px; }
+.sel-pop .pm-swatch { flex:none; padding:0; }
+.sel-pop .pm-swatch:hover { background:var(--c); transform:scale(1.12); }
+.sel-pop .sel-act { display:block; width:100%; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--fg); text-align:left; font-size:12.5px; font-weight:500; }
+.sel-pop .sel-act:hover { background:var(--side-hover); }
+.sel-custom, .pm-swatch.custom { position:relative; display:inline-grid; place-items:center; width:22px; height:22px; flex:none; border-radius:50%; cursor:pointer;
+  background:conic-gradient(#f04438, #fdb022, #12b76a, #2e90fa, #7a5af8, #ee46bc, #f04438); border:1px solid rgba(0,0,0,.12); }
+.sel-custom input, .pm-swatch.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:0; padding:0; }

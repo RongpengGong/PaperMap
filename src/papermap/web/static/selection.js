@@ -39,8 +39,11 @@
     const inChat = node.closest(".chat-msg");
     pop = document.createElement("div");
     pop.className = "sel-pop";
-    pop.innerHTML = (card ? `<div class="sel-row">${HL.map(([c, n]) => `<button type="button" class="pm-swatch" style="--c:${c}" data-hl="${c}" title="${t("高亮")} · ${t(n)}"></button>`).join("")}</div>
-      <div class="sel-row">${FC.map(([c, n]) => `<button type="button" class="sel-fc" style="color:${c}" data-fc="${c}" title="${t("文字颜色")} · ${t(n)}">A</button>`).join("")}
+    pop.innerHTML = (card ? `<div class="sel-row"><span class="sel-lbl">${t("高亮")}</span>${HL.map(([c, n]) => `<button type="button" class="pm-swatch" style="--c:${c}" data-hl="${c}" title="${t("高亮")} · ${t(n)}"></button>`).join("")}
+        <label class="sel-custom" title="${t("自定义高亮颜色")}"><input type="color" value="#ffe08a" data-custom="hl"></label></div>
+      <div class="sel-row"><span class="sel-lbl">${t("文字")}</span>${FC.map(([c, n]) => `<button type="button" class="sel-fc" style="color:${c}" data-fc="${c}" title="${t("文字颜色")} · ${t(n)}">A</button>`).join("")}
+        <label class="sel-custom" title="${t("自定义文字颜色")}"><input type="color" value="#b42318" data-custom="fc"></label></div>
+      <div class="sel-row">
         <button type="button" class="sel-fmt" data-fmt="bold" title="${t("加粗")}"><b>B</b></button>
         <button type="button" class="sel-fmt" data-fmt="italic" title="${t("斜体")}"><i>I</i></button>
         <button type="button" class="sel-fmt" data-fmt="underline" title="${t("下划线")}"><u>U</u></button></div>` : "")
@@ -51,6 +54,17 @@
     pop.style.left = Math.max(6, Math.min(innerWidth - w - 6, e.clientX)) + "px";
     pop.style.top = Math.max(6, Math.min(innerHeight - h - 6, e.clientY)) + "px";
     const occ = card ? occurrence(card, range, text) : 0;
+    const format = async (kind, color) => {
+      const r = await post(`/paper/${pid}/card/format`, { text, occurrence: occ, kind, color: color || "" });
+      close();
+      if (!r.ok) { say(r.message || t("操作失败")); return; }
+      card.innerHTML = r.html;
+      say(t("已保存到卡片（可在「历史版本」里撤销）"));
+    };
+    pop.addEventListener("change", ev => {
+      const inp = ev.target.closest("[data-custom]"); if (!inp) return;
+      format(inp.dataset.custom === "hl" ? "highlight" : "color", inp.value);
+    });
     pop.addEventListener("click", async ev => {
       const b = ev.target.closest("button"); if (!b) return;
       if (b.dataset.act === "copy") { navigator.clipboard && navigator.clipboard.writeText(text); say(t("已复制")); close(); return; }
@@ -59,12 +73,7 @@
                                              url: location.pathname + location.search });
         say(r.ok ? t("已收藏到收藏簿") : (r.message || t("操作失败"))); close(); return;
       }
-      const kind = b.dataset.hl ? "highlight" : b.dataset.fc ? "color" : b.dataset.fmt;
-      const r = await post(`/paper/${pid}/card/format`, { text, occurrence: occ, kind, color: b.dataset.hl || b.dataset.fc || "" });
-      close();
-      if (!r.ok) { say(r.message || t("操作失败")); return; }
-      card.innerHTML = r.html;
-      say(t("已保存到卡片（可在「历史版本」里撤销）"));
+      format(b.dataset.hl ? "highlight" : b.dataset.fc ? "color" : b.dataset.fmt, b.dataset.hl || b.dataset.fc);
     });
   }, true);
 })();
