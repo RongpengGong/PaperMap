@@ -35,6 +35,12 @@
     panel.removeAttribute("aria-busy");
     panel.replaceChildren();
   }
+  // Sharing no papers is allowed (lists only), but say what the phone will then miss.
+  panel.addEventListener("change", event => {
+    if (event.target.name !== "paper_id") return;
+    const hint = panel.querySelector("[data-mobile-none]");
+    if (hint) hint.hidden = !!panel.querySelector('input[name="paper_id"]:checked');
+  });
   panel.addEventListener("submit", event => {
     event.preventDefault();
     if (!panel.hasAttribute("aria-busy")) update(event.target);

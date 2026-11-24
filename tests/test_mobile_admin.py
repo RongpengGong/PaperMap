@@ -137,3 +137,15 @@ def test_pairing_qr_decodes_to_exact_displayed_payload(phone_controls, registry)
     assert ok
     assert [str(item.payloadStringValue()) for item in request.results()] == [text]
     assert json.loads(text) == controls.code
+
+
+def test_sharing_no_papers_says_what_the_phone_will_miss(phone_controls):
+    web, controls = phone_controls
+    tok = _token(web)
+    form = web.get("/settings/mobile/panel", headers=FRAGMENT).text
+    hint = nodes(form).all(lambda n: "data-mobile-none" in n.attrs)[0]
+    assert "hidden" not in hint.attrs  # nothing is ticked yet
+    lists_only = web.post("/settings/mobile/start", headers=FRAGMENT,
+                          data={"csrf": tok, "address": controls.ips[0], "inbox": "true"})
+    assert lists_only.status_code == 200 and controls.code
+    assert "这次没有共享任何论文" in lists_only.text

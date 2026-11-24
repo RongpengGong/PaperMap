@@ -3,6 +3,7 @@
     <section class="card">
       <h2>{{ _("正在共享") }}</h2>
       <p>{{ lan.address }} · {{ lan.paperIds|length }} {{ _("篇论文") }}</p>
+      {% if not lan.paperIds %}<p class="notice" role="status">{{ _("这次没有共享任何论文：手机上已下载的论文不会更新卡片、译文和摘录。需要同步论文时，请关闭共享，勾选论文后重新开启。") }}</p>{% endif %}
       {% if lan.processing %}<p>{{ _("本次配对已允许手机导入 PDF、请求生成卡片和译文。") }}</p>{% endif %}
       {% if lan.inbox %}<p>{{ _("手机可以查看「新文献」和「待审核」列表。") }}</p>{% endif %}
       <ul class="small">{% for p in papers if p.id in lan.paperIds %}<li>{{ p.title }}</li>{% endfor %}</ul>
@@ -33,6 +34,7 @@
       <label class="inline"><input type="checkbox" name="processing" value="true" {% if processing %}checked{% endif %}>
         {{ _("允许本次配对的设备导入 PDF，并使用电脑服务生成译文和论文卡片") }}</label>
       <p class="muted">{{ _("生成任务会使用电脑已配置的模型或翻译服务，可能发送论文内容并产生费用。关闭共享后，已提交的任务会继续处理。") }}</p>
+      <p class="warn-text small" data-mobile-none {% if selected_ids %}hidden{% endif %}>{{ _("没有勾选论文：手机只能查看新文献和待审核，已下载论文的卡片、译文和摘录不会同步。") }}</p>
       <button {% if not addresses %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
     </form>
     {% endif %}
