@@ -2,6 +2,6 @@
 {% block title %}学习手册 - PaperMap{% endblock %}
 {% block content %}
 <p><a href="/handbooks">← 全部手册</a>{% if f %} · <a href="/field/{{ f.slug }}">学科页</a>{% endif %}</p>
-<div class="card md handbook">{{ body_html|safe }}</div>
+<div class="card md handbook" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
 <p class="muted">文件：<code>knowledge/{{ rel }}</code>（「我的笔记」一块重新生成时不会改动）</p>
 {% endblock %}

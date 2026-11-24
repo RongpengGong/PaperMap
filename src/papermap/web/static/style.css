@@ -647,3 +647,9 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .ucard-rewrite label { display: grid; gap: 3px; font-size: 12.5px; }
 .ucard-rewrite textarea { width: 100%; }
 .tab .badge { font-size: 10px; }
+
+/* editable "my notes" block on tool / field / handbook pages */
+.kb-user-edit { margin-left: 10px; font-size: 12px; vertical-align: middle; }
+.kb-user { border-radius: 8px; }
+.kb-user:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); cursor: text; }
+.kb-user-text { width: 100%; min-height: 140px; margin: 6px 0; }

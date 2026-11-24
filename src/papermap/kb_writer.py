@@ -217,6 +217,16 @@ def read_user_section(path: Path) -> str | None:
     return m.group(1) if m else None
 
 
+def write_user_section(path: Path, text: str) -> None:
+    """Replace only the user's block (edited from the app); everything else stays as generated."""
+    body = path.read_text("utf-8")
+    pattern = re.escape(USER_BEGIN) + r"\n?.*?\n?" + re.escape(USER_END)
+    if not re.search(pattern, body, re.DOTALL):
+        raise ValueError("这个页面没有「我的笔记」区域")
+    text = text.replace(USER_BEGIN, "").replace(USER_END, "").strip("\n")
+    atomic_write(path, re.sub(pattern, lambda _: f"{USER_BEGIN}\n{text}\n{USER_END}", body, count=1, flags=re.DOTALL))
+
+
 def read_added(path: Path) -> str | None:
     if not path.exists():
         return None

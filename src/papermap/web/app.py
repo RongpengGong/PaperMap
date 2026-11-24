@@ -1237,6 +1237,51 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         rows.sort(key=lambda r: -int(r["papers"] or 0))
         return render(request, "concepts.html", rows=rows)
 
+    def _kb_notes_path(rel: str) -> Path:
+        if not re.fullmatch(r"(concepts|fields|handbooks)/[\w.\-]+\.md", rel or "") or ".." in rel:
+            raise HTTPException(404)
+        path = config.knowledge_dir / rel
+        if not path.is_file():
+            raise HTTPException(404)
+        return path
+
+    def _notes_hints() -> set[str]:
+        from .. import handbook as hb, kb_fields as kf
+
+        hints = {"（写下用法、参数心得、踩过的坑…）", "(usage notes)"}
+        for mod in (hb, kf):
+            for h in getattr(mod, "H", {}).values():
+                if isinstance(h, dict) and h.get("notes_hint"):
+                    hints.add(h["notes_hint"])
+        return hints
+
+    @app.get("/api/kb/notes")
+    def kb_notes_get(rel: str):
+        from ..kb_writer import read_user_section
+
+        text = read_user_section(_kb_notes_path(rel))
+        if text is None:
+            raise HTTPException(404)
+        placeholder = text.strip() in _notes_hints()
+        return {"ok": True, "text": "" if placeholder else text, "hint": text.strip() if placeholder else ""}
+
+    @app.post("/api/kb/notes")
+    async def kb_notes_save(request: Request):
+        from ..kb_writer import read_user_section, write_user_section
+
+        body = await json_body(request)
+        text = body.get("text")
+        if not isinstance(text, str) or len(text) > 100_000:
+            return {"ok": False, "message": "笔记最多 10 万个字符"}
+        path = _kb_notes_path(str(body.get("rel", "")))
+        try:
+            write_user_section(path, text)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        pipeline.kb_commit(f"Edit notes in {body.get('rel')}")
+        note = read_user_section(path) or ""
+        return {"ok": True, "html": md_html(note) if note.strip() else ""}
+
     @app.get("/concept/{slug}", response_class=HTMLResponse)
     def concept_page(request: Request, slug: str):
         path = config.knowledge_dir / "concepts" / f"{slug}.md"
