@@ -4,6 +4,7 @@
       <h2>{{ _("正在共享") }}</h2>
       <p>{{ lan.address }} · {{ lan.paperIds|length }} {{ _("篇论文") }}</p>
       {% if lan.processing %}<p>{{ _("本次配对已允许手机导入 PDF、请求生成卡片和译文。") }}</p>{% endif %}
+      {% if lan.inbox %}<p>{{ _("手机可以查看「新文献」和「待审核」列表。") }}</p>{% endif %}
       <ul class="small">{% for p in papers if p.id in lan.paperIds %}<li>{{ p.title }}</li>{% endfor %}</ul>
       {% if code %}
       <p>{{ _("让手机或平板与电脑连上同一 Wi-Fi，在鸿蒙版文献库点「扫描电脑二维码」。") }}</p>
@@ -23,9 +24,12 @@
         <select name="address" required>{% for addr in addresses %}<option value="{{ addr }}" {% if addr == selected_address %}selected{% endif %}>{{ addr }}</option>{% endfor %}</select>
       </label>
       {% if not addresses %}<p role="status">{{ _("尚未找到局域网地址，请连接 Wi-Fi 后刷新。") }}</p>{% endif %}
+      {% if remembered %}<p class="muted">{{ _("已按上次共享的论文勾选好。手机重新扫码后会沿用原来的离线论文和笔记。") }}</p>{% endif %}
       <fieldset style="margin:1rem 0;max-height:38vh;overflow:auto"><legend>{{ _("选择要在手机上阅读的论文") }}</legend>
-        {% for p in papers %}<label class="inline" style="display:flex;margin:.5rem 0"><input type="checkbox" name="paper_id" value="{{ p.id }}" {% if p.id in selected_ids %}checked{% endif %}> {{ p.title }}</label>{% else %}<p>{{ _("暂无已入库的论文") }}</p>{% endfor %}
+        {% for p in papers %}<label class="inline" style="display:flex;margin:.5rem 0"><input type="checkbox" name="paper_id" value="{{ p.id }}" {% if p.id in selected_ids %}checked{% endif %}> {{ p.title }}{% if p.id in new_ids %} <span class="badge">{{ _("上次共享后入库") }}</span>{% endif %}</label>{% else %}<p>{{ _("暂无已入库的论文") }}</p>{% endfor %}
       </fieldset>
+      <label class="inline"><input type="checkbox" name="inbox" value="true" {% if inbox %}checked{% endif %}>
+        {{ _("让手机查看「新文献」和「待审核」列表（只有标题、期刊和推荐理由，不含其他论文的全文和卡片）") }}</label>
       <label class="inline"><input type="checkbox" name="processing" value="true" {% if processing %}checked{% endif %}>
         {{ _("允许本次配对的设备导入 PDF，并使用电脑服务生成译文和论文卡片") }}</label>
       <p class="muted">{{ _("生成任务会使用电脑已配置的模型或翻译服务，可能发送论文内容并产生费用。关闭共享后，已提交的任务会继续处理。") }}</p>

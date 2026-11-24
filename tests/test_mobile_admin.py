@@ -30,8 +30,8 @@ def phone_controls(config, registry, monkeypatch):
             return {"active": bool(self.code), "address": self.ips[0] if self.ips else "",
                     "paperIds": self.shared, "processing": self.processing}
 
-        def start(self, address, ids, *, processing=False):
-            if not ids and not processing:
+        def start(self, address, ids, *, processing=False, inbox=False):
+            if not ids and not processing and not inbox:
                 raise ValueError("请选择要共享的论文。")
             if address not in self.ips:
                 raise ValueError("请选择此电脑的局域网 IPv4 地址。")

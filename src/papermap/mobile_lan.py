@@ -12,6 +12,8 @@ import re
 import secrets
 import socket
 import ssl
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -26,15 +28,25 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from . import mobile_sync, mobile_work
+from . import llm as llm_mod, mobile_inbox, mobile_match, mobile_sync, mobile_work
 
 _PRIVATE = tuple(ipaddress.ip_network(s) for s in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
-_PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|companion|pages/(0|[1-9][0-9]{0,8})))?')
+_PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|companion|match|pages/(0|[1-9][0-9]{0,8})))?')
 _MAX_BODY = 256 * 1024
 _UPLOAD_ROUTE = re.compile(r'/v1/uploads/([a-f0-9]{64})(?:/chunks/(0|[1-9][0-9]{0,8}))?')
 _TASK_ROUTE = re.compile(r'/v1/tasks/([a-f0-9-]{36})')
+_INBOX_ROUTE = re.compile(r'/v1/inbox/new/([1-9][0-9]{0,17})')
 _MAX_CLIENTS = 8
 _LOG = logging.getLogger(__name__)
+
+
+# VPN and other point-to-point tunnels (utun, ppp, ipsec, WireGuard...) are never reachable from a phone on
+# the same Wi-Fi; a school or company VPN often uses a private 172.x address that would otherwise be picked.
+_TUNNEL = re.compile(r'^(utun|ppp|ipsec|tun|tap|wg|gif|stf|awdl|llw|zt|tailscale|nordlynx|anpi|ap\d|bridge\d{3})', re.I)
+
+
+def _is_tunnel(name: str, item) -> bool:
+    return bool(_TUNNEL.match(name)) or bool(getattr(item, 'ptp', None)) or item.netmask == '255.255.255.255'
 
 
 def _networks() -> dict[str, ipaddress.IPv4Network]:
@@ -44,7 +56,7 @@ def _networks() -> dict[str, ipaddress.IPv4Network]:
         if not active.get(name) or not active[name].isup:
             continue
         for item in records:
-            if item.family != socket.AF_INET or not item.netmask:
+            if item.family != socket.AF_INET or not item.netmask or _is_tunnel(name, item):
                 continue
             interface = ipaddress.IPv4Interface(f'{item.address}/{item.netmask}')
             # Restrict direct peers to the interface netmask AND the RFC1918 range.
@@ -55,7 +67,54 @@ def _networks() -> dict[str, ipaddress.IPv4Network]:
 
 
 def addresses() -> list[str]:
-    return sorted(_networks(), key=ipaddress.IPv4Address)
+    """Home and office networks first (192.168.x, then 10.x, then 172.16-31.x): the first one is the default."""
+    rank = {16: 0, 8: 1, 12: 2}  # prefix length of the RFC1918 block the address belongs to
+    nets = _networks()
+
+    def key(addr: str):
+        block = next((p for p in _PRIVATE if ipaddress.IPv4Address(addr) in p), None)
+        return (rank.get(block.prefixlen if block else 0, 3), ipaddress.IPv4Address(addr))
+    return sorted(nets, key=key)
+
+
+def computer_name() -> str:
+    # Shown in the phone's device list, so several paired computers can be told apart.
+    name = ''
+    if sys.platform == 'darwin':
+        try:
+            name = subprocess.run(['scutil', '--get', 'ComputerName'], capture_output=True, text=True,
+                                  timeout=3).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            name = ''
+    if not name:
+        name = os.environ.get('COMPUTERNAME') or socket.gethostname()
+    name = re.sub(r'\.local$', '', name)
+    return re.sub(r'[\x00-\x1f\x7f]', ' ', name).strip()[:60] or 'PaperMap'
+
+
+_SHARE_STATE = 'mobile_share.json'
+
+
+def remembered(config) -> dict:
+    """What was shared last time, offered again so re-pairing after an address change is one click."""
+    try:
+        data = json.loads((Path(config.data_dir) / _SHARE_STATE).read_text('utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    ids = [i for i in data.get('paperIds') or [] if type(i) is int and i > 0]
+    return {'paperIds': ids, 'address': str(data.get('address') or ''), 'inbox': data.get('inbox') is not False,
+            'processing': data.get('processing') is True, 'at': str(data.get('at') or '')}
+
+
+def _remember(config, address, ids, processing, inbox) -> None:
+    state = {'paperIds': sorted(set(ids)), 'address': address, 'processing': bool(processing), 'inbox': bool(inbox),
+             'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}
+    try:
+        (Path(config.data_dir) / _SHARE_STATE).write_text(json.dumps(state), 'utf-8')
+    except OSError:
+        _LOG.warning('Could not remember the shared papers')
 
 
 def _identity(address: str) -> tuple[ssl.SSLContext, str, str]:
@@ -99,13 +158,15 @@ class _Listener(ThreadingHTTPServer):
     daemon_threads = False
     allow_reuse_address = False
 
-    def __init__(self, address, network, context, info, config, registry, revisions, processor=None):
+    def __init__(self, address, network, context, info, config, registry, revisions, processor=None, inbox=False):
         self.network = network
         self.context = context
         self.info = info
         self.config = config
         self.registry = registry
         self.revisions = revisions
+        self.inbox = inbox
+        self.pipeline = processor
         self.slots = threading.BoundedSemaphore(_MAX_CLIENTS)
         self.stopped = threading.Event()
         self.work = mobile_work.MobileWork(processor, revisions, self.stopped) if processor else None
@@ -258,6 +319,20 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, 'not_available')
 
+    def _inbox(self):
+        if not self.server.inbox:
+            self._error(403, 'inbox_disabled')
+            return
+        decision = _INBOX_ROUTE.fullmatch(self.path)
+        if self.path == '/v1/inbox' and self.command == 'GET':
+            self._json(200, mobile_inbox.overview(self.server.registry))
+        elif decision and self.command == 'POST':
+            body = self._body()
+            if body is not None:
+                self._json(200, mobile_inbox.decide(self.server.registry, int(decision[1]), body.get('action')))
+        else:
+            self._error(404, 'not_available')
+
     def _pdf(self, source, pid, revision):
         # Hash the open handle once per file identity, including after an in-place edit.
         # Mobile checks the digest of the assembled chunks before publishing its copy.
@@ -319,9 +394,12 @@ class _Handler(BaseHTTPRequestHandler):
 
             upd = appupdate.state(server.config)  # cached answer only: the phone never triggers a GitHub request
             self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
-                             'processing': server.work is not None,
+                             'processing': server.work is not None, 'inbox': server.inbox,
                              'desktop': {'version': upd['current'], 'latestVersion': upd.get('latest') or '',
                                          'updateAvailable': upd['newer'], 'releaseUrl': upd.get('url') or ''}})
+            return
+        if self.path == '/v1/inbox' or self.path.startswith('/v1/inbox/'):
+            self._inbox()
             return
         if self.path == '/v1/tasks' or self.path.startswith(('/v1/uploads/', '/v1/tasks/')):
             self._processing()
@@ -345,6 +423,15 @@ class _Handler(BaseHTTPRequestHandler):
                 self._error(409, 'revision_changed')
             else:
                 self._json(200, paper)
+        elif self.command == 'POST' and resource == 'match':
+            body = self._body()
+            if body is not None:
+                # The model is only used when this pairing allowed the phone to use the computer's services.
+                llm = server.pipeline.llm if body.get('model') is True and server.pipeline is not None else None
+                if body.get('model') is True and llm is None:
+                    self._error(403, 'processing_disabled')
+                    return
+                self._json(200, mobile_match.suggest(*args, revision, body.get('quote'), body.get('page'), llm))
         elif self.command == 'GET' and resource == 'companion':
             self._json(200, mobile_sync.read_companion(*args, revision))
         elif self.command == 'GET' and resource == 'pdf':
@@ -361,6 +448,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(exc.status, exc.code)
         except mobile_sync.RevisionConflict:
             self._error(409, 'revision_changed')
+        except (llm_mod.BudgetExceeded, llm_mod.LLMError, llm_mod.LLMHTTPError):
+            self._error(502, 'model_failed')
         except (LookupError, FileNotFoundError):
             self._error(404, 'not_available')
         except (ValueError, RecursionError):
@@ -399,8 +488,11 @@ class MobileLan:
 
     addresses = staticmethod(addresses)
 
-    def start(self, address: str, selected_ids, *, processing=False) -> dict:
-        if not isinstance(selected_ids, (list, tuple, set)) or not (selected_ids or processing):
+    def remembered(self) -> dict:
+        return remembered(self.config)
+
+    def start(self, address: str, selected_ids, *, processing=False, inbox=False) -> dict:
+        if not isinstance(selected_ids, (list, tuple, set)) or not (selected_ids or processing or inbox):
             raise ValueError('请选择要共享的论文。')
         if processing and not self.pipeline:
             raise ValueError('电脑处理服务尚未就绪。')
@@ -420,9 +512,9 @@ class MobileLan:
                     raise ValueError(str(exc)) from exc
             context, ca, pin = _identity(address)
             info = {'v': 1, 'token': secrets.token_urlsafe(32), 'ca': ca, 'pin': pin,
-                    'libraryId': mobile_sync.library_id(self.registry)}
+                    'libraryId': mobile_sync.library_id(self.registry), 'name': computer_name()}
             server = _Listener(address, network, context, info, self.config, self.registry, revisions,
-                               self.pipeline if processing else None)
+                               self.pipeline if processing else None, bool(inbox))
             info['url'] = f'https://{address}:{server.server_port}'
             thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .1},
                                       daemon=True, name='papermap-mobile-lan')
@@ -432,6 +524,7 @@ class MobileLan:
                 server.server_close()
                 raise
             self._listener, self._thread = server, thread
+            _remember(self.config, address, selected_ids, processing, inbox)
             return dict(info)
 
     def stop(self):
@@ -446,7 +539,8 @@ class MobileLan:
             if self._listener:
                 return {'active': True, 'address': self._listener.server_address[0],
                         'paperIds': sorted(self._listener.revisions.copy()),
-                        **({'processing': True} if self._listener.work else {})}
+                        **({'processing': True} if self._listener.work else {}),
+                        **({'inbox': True} if self._listener.inbox else {})}
             return {'active': False}
 
     def pairing(self) -> dict:

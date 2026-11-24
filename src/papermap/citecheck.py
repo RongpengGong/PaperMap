@@ -62,7 +62,8 @@ REF_HEAD = re.compile(r"^\s*(references?|bibliography|literature( cited)?|works 
 NUM_CIT = re.compile(r"\[(\d+(?:\s*[-–,]\s*\d+)*)\]")
 AY_CIT = re.compile(r"\(([^()]*?(?:19|20)\d\d[a-z]?[^()]*)\)")
 AY_ONE = re.compile(r"([A-Z][\w'’\-]+(?:\s+(?:and|&)\s+[A-Z][\w'’\-]+|\s+et\s+al\.?)?),?\s+((?:19|20)\d\d)[a-z]?")
-SENT_SPLIT = re.compile(r"(?<=[.!?。！？])\s+(?=[A-Z\[(“\"0-9一-鿿])")
+# English sentences end with . ! ? and a space; Chinese ones with 。！？； and no space at all.
+SENT_SPLIT = re.compile(r"(?<=[。！？；])\s*|(?<=[.!?])\s+(?=[A-Z\[(“\"0-9\u4e00-\u9fff])")
 
 
 def _expand(spec: str) -> list[int]:

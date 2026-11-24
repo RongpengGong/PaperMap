@@ -138,3 +138,11 @@ def test_mirror_trash_purge_and_weekly_digest(config, registry, pdfs, tmp_path):
     assert sent and "A new paper" in sent[0][1]
     assert tracking.maybe_digest(config, registry, send=lambda t, b: sent.append(1)) is None and len(sent) == 1
     assert "本周简报" in c.get("/tracking").text
+
+
+def test_sentences_split_in_chinese_and_english():
+    zh = "工具加快了聚类 (Wolf et al., 2018)；Squidpy 统一了空间数据 [2]。零膨胀仍有争论 [3]！"
+    parts = [p for p in citecheck.SENT_SPLIT.split(zh) if p and p.strip()]
+    assert len(parts) == 3 and parts[1].startswith("Squidpy")
+    en = "Clustering is fast [1]. Squidpy unifies data [2]. e.g. this stays."
+    assert len([p for p in citecheck.SENT_SPLIT.split(en) if p and p.strip()]) == 2  # no split before "e.g."

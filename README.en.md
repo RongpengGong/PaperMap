@@ -17,6 +17,11 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/RongpengGong/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/screenshots/paper.jpg" alt="PaperMap: PDF on the left, paper card on the right" width="100%" />
+  <br/><sub>Read the PDF on the left, with the generated paper card on the right; switch to AI chat to ask while you read. Screenshots use the built-in open-access sample papers.</sub>
+</p>
+
 If PaperMap helps you, please give it a **⭐ Star** – and consider [sponsoring](#sponsor) its development.
 
 ---
@@ -75,6 +80,16 @@ PaperMap runs on your own computer. It reads every paper into a structured card,
 * **⌘K** quick jump, collapsible sidebar, "What to read today", a status page, and a Simplified Chinese / Traditional Chinese / English / German interface.
 * A local read-only **MCP server** and plugin API so tools like Claude Code can query your evidence (listens on 127.0.0.1 only).
 
+<details>
+<summary><b>More screenshots (knowledge map, field page, writing, citation check)</b></summary>
+<br/>
+
+<p align="center"><img src="docs/assets/screenshots/map.jpg" alt="Knowledge map" width="90%" /><br/><sub>Knowledge map: methods (blue), topics (orange), papers (grey) and citations between papers</sub></p>
+<p align="center"><img src="docs/assets/screenshots/field.jpg" alt="Field page" width="90%" /><br/><sub>Field page: key papers, tools, method progress and conflicting findings, updated as papers arrive</sub></p>
+<p align="center"><img src="docs/assets/screenshots/write.jpg" alt="Writing" width="90%" /><br/><sub>Writing: a cited passage drafted only from the papers you chose</sub></p>
+<p align="center"><img src="docs/assets/screenshots/citecheck.jpg" alt="Citation check" width="90%" /><br/><sub>Citation check: a verdict per sentence, with the quotation and page</sub></p>
+</details>
+
 > **Privacy**: paper text (title, abstract, key sections) is sent to **the model provider you choose**. PDFs in excluded folders (default `_private`, `drafts`) are never read or sent. PaperMap ships with no keys and sends nothing to its author.
 
 ---
@@ -83,7 +98,7 @@ PaperMap runs on your own computer. It reads every paper into a structured card,
 
 ### Install
 
-**macOS app**: download `PaperMap-macOS.zip` from [Releases](https://github.com/RongpengGong/PaperMap/releases), unzip and drag `PaperMap.app` into Applications. The app is not notarised yet: if macOS says it cannot verify the developer, allow it under System Settings → Privacy & Security.
+**macOS / Windows app**: download the matching zip from [Releases](https://github.com/RongpengGong/PaperMap/releases) (`AppleSilicon`, `Intel` or `Windows`). On macOS, unzip and drag `PaperMap.app` into Applications. The app is not notarised yet: if macOS says it cannot verify the developer, allow it under System Settings → Privacy & Security.
 
 **With Python** (3.10+):
 
@@ -98,7 +113,8 @@ papermap            # creates a configuration on first run and opens the window
 
 1. **Connect a model** in Settings → AI services → Models and accounts: sign in with a **ChatGPT plan** or a **Claude subscription (local Claude Code)**, or enter an API key for DeepSeek, Anthropic, OpenAI, Gemini, Kimi, Zhipu, Qwen…, or any OpenAI / Anthropic-compatible service. Click **Test connection** before saving.
 2. **Import papers**: drag PDFs into the window, or add an import folder under Settings → Library → Import and folders (e.g. Zotero's `storage`, read-only). Batches of 5+ papers show a cost estimate first.
-3. **Open the Guide** (under More in the sidebar) and press **⌘K** to jump anywhere.
+3. **No papers yet?** Click "Import sample papers" on the welcome card, in the guide or in the empty paper list: PaperMap downloads 6 CC BY papers from the PMC open-access collection into their own group.
+4. **Open the Guide** (under More in the sidebar) and press **⌘K** to jump anywhere. "More → Report a problem" builds a report with private details removed; the sidebar tells you when a new version is out.
 
 **Cost**: with DeepSeek, a long paper (card + classification) costs less than one US cent; ChatGPT / Claude subscriptions add no extra cost. You can set a monthly budget.
 

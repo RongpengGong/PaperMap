@@ -17,6 +17,11 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/RongpengGong/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/screenshots/paper.jpg" alt="PaperMap 论文阅读：左边 PDF，右边卡片" width="100%" />
+  <br/><sub>左边读原文，右边是自动生成的论文卡片；也可以切到「AI 对话」边读边问。截图来自内置的开放获取示例论文。</sub>
+</p>
+
 如果 PaperMap 对你有帮助，欢迎点右上角的 **⭐ Star**，也欢迎[赞助](#赞助)支持后续开发。
 
 ---
@@ -75,6 +80,16 @@ PaperMap 在你自己的电脑上运行。它把每篇论文读成一张结构�
 * **⌘K** 快速跳转、可折叠侧边栏、「今天读什么」、状态检查、简体 / 繁體 / English / Deutsch 界面。
 * 本机只读 **MCP 服务**和插件接口：让 Claude Code 等工具查询你的证据（只监听 127.0.0.1）。
 
+<details>
+<summary><b>点击展开：更多界面截图（知识地图、学科页、写作、引用核对）</b></summary>
+<br/>
+
+<p align="center"><img src="docs/assets/screenshots/map.jpg" alt="知识地图" width="90%" /><br/><sub>知识地图：方法学（蓝）、主题（橙）、论文（灰）与论文之间的引用</sub></p>
+<p align="center"><img src="docs/assets/screenshots/field.jpg" alt="学科页" width="90%" /><br/><sub>学科页：代表文献、常用工具、方法进展和相互矛盾的结论，随新论文自动更新</sub></p>
+<p align="center"><img src="docs/assets/screenshots/write.jpg" alt="写作" width="90%" /><br/><sub>写作：只用你选的论文写一段带引用的文字</sub></p>
+<p align="center"><img src="docs/assets/screenshots/citecheck.jpg" alt="引用核对" width="90%" /><br/><sub>引用核对：逐句给出判断、原文句子和页码</sub></p>
+</details>
+
 > **隐私**：论文文本（标题、摘要、关键章节）会发送到**你自己选择的**模型服务商。放在排除文件夹（默认 `_private`、`drafts`）里的 PDF 不会被读取或发送。PaperMap 不内置任何密钥，也不会把数据发给作者。
 
 ---
@@ -83,7 +98,7 @@ PaperMap 在你自己的电脑上运行。它把每篇论文读成一张结构�
 
 ### 安装
 
-**macOS 应用**：从 [Releases](https://github.com/RongpengGong/PaperMap/releases) 下载 `PaperMap-macOS.zip`，解压后把 `PaperMap.app` 拖进「应用程序」。应用还没有经过 Apple 公证：第一次打开如果提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。
+**macOS / Windows 应用**：从 [Releases](https://github.com/RongpengGong/PaperMap/releases) 下载对应的压缩包（Apple 芯片选 `AppleSilicon`，Intel Mac 选 `Intel`，Windows 选 `Windows`）。macOS 上解压后把 `PaperMap.app` 拖进「应用程序」。应用还没有经过 Apple 公证：第一次打开如果提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。
 
 **用 Python 安装**（Python 3.10+）：
 
@@ -98,7 +113,8 @@ papermap            # 首次运行会创建配置并打开窗口
 
 1. **连接模型**：「设置 → AI 服务 → 模型与账号」。可以用 **ChatGPT 订阅**或 **Claude 订阅（本机 Claude Code）** 登录，也可以填 DeepSeek、Anthropic、OpenAI、Gemini、Kimi、智谱、通义等的 API Key，或任何 OpenAI / Anthropic 兼容的自定义服务。点「测试连接」看到 ✓ 再保存。
 2. **导入论文**：把 PDF 拖进窗口；或在「设置 → 文献库 → 导入与文件夹」加一个自动导入文件夹（比如 Zotero 的 `storage`，只读不改）。一次导入 5 篇以上会先估算费用，等你确认。
-3. **看「使用指南」**（左侧「更多」里），按 **⌘K** 随时跳转。
+3. **还没有论文？** 在欢迎页、使用指南或空的论文列表里点「导入示例论文」，PaperMap 会从 PMC 开放获取库下载 6 篇 CC BY 论文放进单独分组，马上就能看到效果。
+4. **看「使用指南」**（左侧「更多」里），按 **⌘K** 随时跳转。遇到问题可以在「更多 → 反馈问题」生成去掉了隐私信息的报告；有新版本时侧边栏底部会提示。
 
 **费用**：以 DeepSeek 为例，一篇长文（卡片 + 分类）不到 1 美分；用 ChatGPT / Claude 订阅不另外计费。可以在设置里设每月预算。
 

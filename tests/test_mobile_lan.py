@@ -135,3 +135,112 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [2]
     lan.stop()
     lan.stop()
+
+
+def test_vpn_and_tunnels_are_not_offered_and_wifi_comes_first(monkeypatch):
+    import socket
+    from types import SimpleNamespace as NS
+
+    from papermap import mobile_lan
+
+    addr = lambda a, m, ptp=None: NS(family=socket.AF_INET, address=a, netmask=m, ptp=ptp)  # noqa: E731
+    monkeypatch.setattr(mobile_lan.psutil, "net_if_addrs", lambda: {
+        "utun4": [addr("172.21.41.75", "255.255.0.0", "172.21.41.75")],   # school VPN, point-to-point
+        "ppp0": [addr("10.8.0.2", "255.255.255.255")],
+        "en5": [addr("172.20.10.3", "255.255.255.240")],                  # phone hotspot
+        "en0": [addr("192.168.178.30", "255.255.255.0")],                 # home Wi-Fi
+        "lo0": [addr("127.0.0.1", "255.0.0.0")],
+    })
+    monkeypatch.setattr(mobile_lan.psutil, "net_if_stats", lambda: {n: NS(isup=True) for n in ("utun4", "ppp0", "en5", "en0", "lo0")})
+    assert mobile_lan.addresses() == ["192.168.178.30", "172.20.10.3"]
+
+
+def test_inbox_is_opt_in_and_files_suggestions_away(lan, registry):
+    from papermap import tracking
+
+    tracking.ensure_schema(registry)
+    registry.execute(
+        "INSERT INTO track_candidates (doi, title, title_key, journal, authors_json, score, status, created_at, updated_at) "
+        "VALUES ('10.1038/s41586-026-00001-1', 'A spatial atlas of the liver', 'a spatial atlas of the liver', "
+        "'Nature', '[\"Ada Lovelace\"]', 7.5, 'new', '2026-11-24', '2026-11-24')")
+    registry.execute("UPDATE papers SET status='doi_unverified' WHERE id=2")
+
+    pair = lan.start('127.0.0.1', [1])
+    with client(pair) as web:
+        assert web.get('/v1/papers').json()['inbox'] is False
+        assert web.get('/v1/inbox').status_code == 403
+    lan.stop()
+
+    pair = lan.start('127.0.0.1', [], inbox=True)
+    assert lan.status()['inbox'] is True
+    with client(pair) as web:
+        assert web.get('/v1/papers').json()['inbox'] is True
+        box = web.get('/v1/inbox').json()
+        [new] = box['newPapers']
+        assert new['title'] == 'A spatial atlas of the liver' and new['url'] == 'https://doi.org/10.1038/s41586-026-00001-1'
+        assert new['authors'] == ['Ada Lovelace']
+        assert [(r['kind'], r['title']) for r in box['review']] == [('doi', 'refs_only')]
+        # Only the titles of unshared papers are visible, never their files.
+        assert web.get('/v1/papers').json()['papers'] == []
+        bad = web.post(f"/v1/inbox/new/{new['id']}", json={'action': 'take_in'})
+        assert bad.status_code == 400
+        assert web.post(f"/v1/inbox/new/{new['id']}", json={'action': 'dismissed'}).json() == {'ok': True}
+        assert web.get('/v1/inbox').json()['newPapers'] == []
+
+
+def test_pairing_names_the_computer_and_the_share_is_remembered(lan, config, monkeypatch):
+    monkeypatch.setattr(mobile_lan, 'computer_name', lambda: 'Lab Mac')
+    assert lan.remembered() == {}
+    pair = lan.start('127.0.0.1', [2, 1], inbox=False)
+    assert pair['name'] == 'Lab Mac'
+    lan.stop()
+    last = lan.remembered()
+    assert last['paperIds'] == [1, 2] and last['address'] == '127.0.0.1'
+    assert last['inbox'] is False and last['processing'] is False and last['at']
+    (config.data_dir / 'mobile_share.json').write_text('[1]', 'utf-8')
+    assert lan.remembered() == {}
+
+
+def test_computer_name_has_no_control_characters(monkeypatch):
+    monkeypatch.setattr(mobile_lan.sys, 'platform', 'linux')
+    monkeypatch.setattr(mobile_lan.socket, 'gethostname', lambda: 'ws-12.local\n')
+    monkeypatch.delenv('COMPUTERNAME', raising=False)
+    assert mobile_lan.computer_name() == 'ws-12'
+
+
+def test_phone_excerpts_are_relocated_by_text_and_the_model_only_on_request(lan, registry):
+    pair = lan.start('127.0.0.1', [1])
+    with client(pair) as web:
+        [paper] = web.get('/v1/papers').json()['papers']
+        base = f"/v1/papers/{paper['id']}/{paper['revision']}"
+        seg = web.get(base + '/pages/1').json()['segments'][0]
+        # A changed line break and hyphenation still find the same paragraph without any model.
+        quote = seg['text'][:120].replace(' ', '\n', 2)
+        hit = web.post(base + '/match', json={'quote': quote, 'page': 0}).json()
+        assert hit['found'] and hit['by'] == 'text' and hit['segmentId'] == seg['id'] and hit['page'] == 1
+        miss = web.post(base + '/match', json={'quote': 'Zebrafish fins regenerate within days.', 'page': 1}).json()
+        assert miss['found'] is False
+        # The model needs the "use the computer's services" permission of this pairing.
+        assert web.post(base + '/match', json={'quote': 'x y z', 'page': 0, 'model': True}).status_code == 403
+        assert web.post(base + '/match', json={'quote': '', 'page': 0}).status_code == 400
+
+
+def test_the_model_chooses_among_the_closest_paragraphs(config, registry, pdfs):
+    from papermap import mobile_match
+
+    pdf = pdfs['paper']
+    pid = registry.create_paper(title='paper', status='done')
+    registry.upsert_file(hashlib.sha256(pdf.read_bytes()).hexdigest(), str(pdf), pdf.stat().st_size, pdf.stat().st_mtime, pid)
+    revision = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    class Model:
+        asked = []
+
+        def chat_json(self, system, user, validate, purpose, paper_id=None, max_tokens=0):
+            self.asked.append(user)
+            assert validate({'choice': 0}) == [] and validate({'choice': 99})
+            return SimpleNamespace(data={'choice': 0, 'reason': '意思相同'})
+
+    model = Model()
+    out = mobile_match.suggest(config, registry, pid, revision, 'The cohort was followed for longer than planned.', 0, model)
+    assert out['found'] and out['by'] == 'model' and out['reason'] == '意思相同' and len(model.asked) == 1
