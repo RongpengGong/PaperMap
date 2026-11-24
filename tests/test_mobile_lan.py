@@ -388,3 +388,43 @@ def test_phone_settles_review_items_only_when_the_share_allows_it(config, regist
             assert taken == [cid]
     finally:
         lan.close()
+
+
+def test_phone_backups_are_kept_beside_the_library_and_restored(lan, config, registry, monkeypatch):
+    import json as _json
+    from papermap import mobile_backup
+
+    pdf = b'%PDF-1.7\n' + b'x' * (mobile_backup.CHUNK + 300) + b'\n%%EOF'
+    rev = hashlib.sha256(pdf).hexdigest()
+    pair = lan.start('127.0.0.1', [], inbox=True)
+    papers_before = registry.one("SELECT count(*) AS n FROM papers")["n"]
+    with client(pair) as web:
+        assert web.get('/v1/papers').json()['backups'] is True
+        assert web.get('/v1/backups').json()['backups'] == []
+        assert web.post(f'/v1/backups/{rev}', json={'byteSize': len(pdf)}).json() == {'offset': 0}
+        first = pdf[:mobile_backup.CHUNK]
+        octet = {'Content-Type': 'application/octet-stream'}
+        assert web.post(f'/v1/backups/{rev}/chunks/0', content=first, headers=octet).json()['offset'] == len(first)
+        # Reconnecting resumes where the copy stopped; a wrong offset is refused.
+        assert web.post(f'/v1/backups/{rev}', json={'byteSize': len(pdf)}).json() == {'offset': len(first)}
+        assert web.post(f'/v1/backups/{rev}/chunks/0', content=first, headers=octet).status_code == 409
+        web.post(f'/v1/backups/{rev}/chunks/{len(first)}', content=pdf[len(first):], headers=octet)
+        meta = {'title': 'Phone paper', 'pageCount': 3, 'notes': [{'quote': 'q'}], 'ink': {'v': 1, 'strokes': []}}
+        assert web.post(f'/v1/backups/{rev}/finish', json=meta).json() == {'ok': True}
+        [item] = web.get('/v1/backups').json()['backups']
+        assert item['title'] == 'Phone paper' and item['byteSize'] == len(pdf) and item['pageCount'] == 3
+        assert web.get(f'/v1/backups/{rev}/pdf').content == pdf
+        assert web.get(f'/v1/backups/{rev}/meta').json()['notes'] == [{'quote': 'q'}]
+        # A second backup of the same PDF only refreshes the notes.
+        assert web.post(f'/v1/backups/{rev}', json={'byteSize': len(pdf)}).json()['done'] is True
+        # Bytes that do not match the revision are thrown away.
+        bad = hashlib.sha256(b'other').hexdigest()
+        web.post(f'/v1/backups/{bad}', json={'byteSize': 5})
+        web.post(f'/v1/backups/{bad}/chunks/0', content=b'%PDF!', headers=octet)
+        assert web.post(f'/v1/backups/{bad}/finish', json=meta).status_code == 409
+        assert web.get(f'/v1/backups/{bad}/pdf').status_code == 404
+        monkeypatch.setattr(mobile_backup, 'MAX_TOTAL', len(pdf) + 10)
+        other = hashlib.sha256(b'third').hexdigest()
+        assert web.post(f'/v1/backups/{other}', json={'byteSize': 100}).status_code == 507
+    assert registry.one("SELECT count(*) AS n FROM papers")["n"] == papers_before  # never imported
+    assert (config.data_dir / 'phone_backup' / rev / 'paper.pdf').read_bytes() == pdf

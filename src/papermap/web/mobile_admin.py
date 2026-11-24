@@ -35,7 +35,10 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
             OR (status IN ('new','extracting','error') AND kb_path IS NOT NULL)
             ORDER BY title COLLATE NOCASE, id""")
         code = json.dumps(pairing, separators=(",", ":")) if pairing else ""
-        return dict(lan=mobile.status(), addresses=mobile.addresses(), papers=rows, code=code,
+        from .. import mobile_backup
+
+        backup = mobile_backup.summary(mobile.config) if hasattr(mobile, "config") else {"count": 0}
+        return dict(lan=mobile.status(), addresses=mobile.addresses(), backup=backup, papers=rows, code=code,
                     qr=_pairing_image(code) if code else "", error=error,
                     selected_address=selected_address, selected_ids=selected_ids, processing=processing, inbox=inbox,
                     review=review, remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False,

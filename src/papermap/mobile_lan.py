@@ -28,7 +28,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from . import llm as llm_mod, mobile_inbox, mobile_match, mobile_sync, mobile_work
+from . import llm as llm_mod, mobile_backup, mobile_inbox, mobile_match, mobile_sync, mobile_work
 
 _PRIVATE = tuple(ipaddress.ip_network(s) for s in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
 _PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|companion|match|pages/(0|[1-9][0-9]{0,8})))?')
@@ -36,6 +36,7 @@ _MAX_BODY = 256 * 1024
 _UPLOAD_ROUTE = re.compile(r'/v1/uploads/([a-f0-9]{64})(?:/chunks/(0|[1-9][0-9]{0,8}))?')
 _TASK_ROUTE = re.compile(r'/v1/tasks/([a-f0-9-]{36})')
 _INBOX_ROUTE = re.compile(r'/v1/inbox/new/([1-9][0-9]{0,17})')
+_BACKUP_ROUTE = re.compile(r'/v1/backups/([a-f0-9]{64})(?:/(chunks/(0|[1-9][0-9]{0,9})|finish|meta|pdf))?')
 _MAX_CLIENTS = 8
 _PAIRING = 'mobile_pairing.json'  # private: the token and keys that let a paired phone reconnect after a restart
 _CA_DAYS = 5 * 365
@@ -367,13 +368,13 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         return False
 
-    def _body(self, *, chunk=False):
+    def _body(self, *, chunk=False, limit=None):
         lengths = self.headers.get_all('Content-Length', [])
         if self.headers.get('Transfer-Encoding') or len(lengths) != 1 or not re.fullmatch(r'[0-9]{1,9}', lengths[0]):
             self._error(400, 'invalid_length')
             return None
         size = int(lengths[0])
-        if size > (mobile_work.CHUNK if chunk else _MAX_BODY):
+        if size > (mobile_work.CHUNK if chunk else limit or _MAX_BODY):
             self._error(413, 'chunk_too_large' if chunk else 'changes_too_large')
             return None
         raw = self.rfile.read(size)
@@ -433,6 +434,35 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, mobile_inbox.act(actions[0], actions[1], body))
         else:
             self._error(404, 'not_available')
+
+    def _backups(self):
+        config = self.server.config
+        if self.path == '/v1/backups' and self.command == 'GET':
+            self._json(200, {'v': 1, 'backups': mobile_backup.listing(config), **mobile_backup.summary(config)})
+            return
+        route = _BACKUP_ROUTE.fullmatch(self.path)
+        if not route:
+            self._error(404, 'not_available')
+            return
+        revision, action, offset = route[1], route[2], route[3]
+        if self.command == 'POST' and action is None:
+            body = self._body()
+            if body is not None:
+                self._json(200, mobile_backup.begin(config, revision, body.get('byteSize')))
+        elif self.command == 'POST' and offset is not None:
+            body = self._body(chunk=True)
+            if body is not None:
+                self._json(200, mobile_backup.chunk(config, revision, int(offset), body, 0))
+        elif self.command == 'POST' and action == 'finish':
+            body = self._body(limit=mobile_backup.MAX_META)
+            if body is not None:
+                self._json(200, mobile_backup.finish(config, revision, body))
+        elif self.command == 'GET' and action == 'meta':
+            self._json(200, mobile_backup.meta(config, revision))
+        elif self.command == 'GET' and action == 'pdf':
+            self._pdf(mobile_backup.pdf_file(config, revision), 'backup:' + revision, revision)
+        else:
+            self._error(405, 'method_not_allowed')
 
     def _pdf(self, source, pid, revision):
         # Hash the open handle once per file identity, including after an in-place edit.
@@ -496,12 +526,15 @@ class _Handler(BaseHTTPRequestHandler):
             upd = appupdate.state(server.config)  # cached answer only: the phone never triggers a GitHub request
             self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
                              'processing': server.work is not None, 'inbox': server.inbox,
-                             'reviewActions': server.actions is not None,
+                             'reviewActions': server.actions is not None, 'backups': True,
                              'desktop': {'version': upd['current'], 'latestVersion': upd.get('latest') or '',
                                          'updateAvailable': upd['newer'], 'releaseUrl': upd.get('url') or ''}})
             return
         if self.path in ('/v1/inbox', '/v1/review') or self.path.startswith('/v1/inbox/'):
             self._inbox()
+            return
+        if self.path == '/v1/backups' or self.path.startswith('/v1/backups/'):
+            self._backups()
             return
         if self.path == '/v1/tasks' or self.path.startswith(('/v1/uploads/', '/v1/tasks/')):
             self._processing()
@@ -546,7 +579,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _dispatch(self):
         try:
             self._route()
-        except mobile_work.WorkError as exc:
+        except (mobile_work.WorkError, mobile_backup.BackupError) as exc:
             self._error(exc.status, exc.code)
         except mobile_sync.RevisionConflict:
             self._error(409, 'revision_changed')

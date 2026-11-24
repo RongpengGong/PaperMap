@@ -43,6 +43,14 @@
       <button {% if not addresses %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
     </form>
     {% endif %}
+    {% if backup.count %}
+    <section class="card">
+      <h2>{{ _("手机论文备份") }}</h2>
+      <p>{{ backup.count }} {{ _("篇") }} · {{ "%.1f"|format(backup.bytes / 1048576) }} MB</p>
+      <p class="muted">{{ _("手机自己导入的论文备份在这里，用于换手机或重装后恢复。它们不进文献库，不生成卡片，也不会发给模型。") }}</p>
+      <p class="small"><code>{{ backup.path }}</code></p>
+    </section>
+    {% endif %}
     {% if paired %}
     <form class="card" action="/settings/mobile/revoke" method="post">
       <input type="hidden" name="csrf" value="{{ csrf }}">
