@@ -21,16 +21,18 @@
     <div class="chat-log" data-chat-log></div>
     <div class="chat-compose">
       <div class="chat-quote" data-chat-quote hidden><span data-chat-quote-text></span><button type="button" class="icon-btn" data-chat-quote-x title="{{ _("去掉引用") }}">×</button></div>
-      <textarea rows="2" data-chat-text placeholder="{{ _("问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送") }}"></textarea>
-      <div class="chat-compose-foot">
-        <button type="button" class="ghost-btn" data-chat-end title="{{ _("结束这次讨论：模型总结要点，原对话收进「以前的讨论」，开始新的对话；要点由你确认后写入笔记") }}">{{ _("结束讨论") }}</button>
-        <span class="grow"></span>
-        <select class="chat-enter" data-chat-enter title="{{ _("用哪个键发送；另一个用来换行") }}">
-          <option value="enter">{{ _("↩ 发送，⇧↩ 换行") }}</option>
-          <option value="cmd">{{ _("⌘↩ 发送，↩ 换行") }}</option>
-        </select>
-        <button type="button" data-chat-send>{{ _("发送") }}</button>
+      <div class="chat-input">
+        <textarea rows="2" data-chat-text placeholder="{{ _("问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送") }}"></textarea>
+        <div class="chat-compose-foot">
+          <button type="button" class="chat-end-btn" data-chat-end title="{{ _("结束这次讨论：模型总结要点，原对话收进「以前的讨论」，开始新的对话；要点由你确认后写入笔记") }}">{{ _("结束讨论") }}</button>
+          <span class="chat-privacy" tabindex="0" title="{{ _("论文全文、卡片和你的笔记会发给所选模型的服务商；费用计入费用页。") }}">ⓘ</span>
+          <span class="grow"></span>
+          <select class="chat-enter" data-chat-enter title="{{ _("用哪个键发送；另一个用来换行") }}">
+            <option value="enter" title="{{ _("↩ 发送，⇧↩ 换行") }}">{{ _("↩ 发送") }}</option>
+            <option value="cmd" title="{{ _("⌘↩ 发送，↩ 换行") }}">{{ _("⌘↩ 发送") }}</option>
+          </select>
+          <button type="button" class="chat-send" data-chat-send title="{{ _("发送") }}"><span>{{ _("发送") }}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
       </div>
-      <p class="muted small chat-privacy">{{ _("论文全文、卡片和你的笔记会发给所选模型的服务商；费用计入费用页。") }}</p>
     </div>
 {% endmacro %}

@@ -40,6 +40,17 @@ On macOS, scanned pages gain a selectable text layer through Apple Vision on you
 
 Under **设置 → AI 服务 → 翻译**, choose the default service for selected text. NiuTrans requires an App ID and API key. Zhipu's free GLM-4.7-Flash model requires a standard model API key. Tencent HY-MT2-Lite uses a Tencent Cloud TokenHub API key for Guangzhou. The settings page links to each provider. You can also choose a service for an individual paper under **翻译全文**. PaperMap saves completed passages and resumes the translation queue when you reopen the app. If a service fails, retry with the same settings to reuse the saved passages.
 
+### Newer tools
+
+- **New literature**: daily searches of OpenAlex, PubMed and bioRxiv/medRxiv around your fields, evidence gaps and followed authors, with a weekly digest notification. "Take in" fetches a legal open-access PDF.
+- **Writing**: pick papers (starred, purpose tag, group, field) and the model drafts a passage from their cards only, with every claim cited; export Word and BibTeX.
+- **Citation check**: upload a Word manuscript; each citing sentence is checked against the cited paper's own text, with a verbatim quotation and page.
+- **Clippings**: right-click any selected text to save it; a weekly AI digest groups clippings into cited knowledge points.
+- **AI chat** next to the PDF (any configured model, reasoning effort for ChatGPT/Claude subscriptions) and an **Ask AI** drawer on every other page. Ending a discussion keeps it under "earlier discussions" and offers its summary for your notes.
+- **Right-click formatting** in cards (highlight, custom colours, bold) without opening the editor; every change can be undone from the card's version history.
+- **⌘K** (Ctrl+K) jumps to any page, paper, field or question; the sidebar folds into sections; "What to read today" sits on top of the paper list; **Status** (under More) checks model, index, backups, sync and background jobs.
+- **Safety**: deleted papers go to a trash for 30 days; the whole knowledge folder can be mirrored daily to an external drive or cloud folder.
+
 ## Plugins and local API
 
 Open Skills to choose how PaperMap reads a paper. The list includes the built-in close-reading skill, skills installed for the current PaperMap library, and skills provided by enabled PaperMap plugins. Use Add skill to install a separate copy of a folder containing `SKILL.md`.

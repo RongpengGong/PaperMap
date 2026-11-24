@@ -43,7 +43,7 @@
     let quote = null, loaded = false, count = 0;
     if (isPage) {
       const pv = box.querySelector(".chat-privacy");
-      if (pv) pv.textContent = t("当前页面的文字（必要时加上文献库概况）会发给所选模型的服务商；费用计入费用页。");
+      if (pv) pv.title = t("当前页面的文字（必要时加上文献库概况）会发给所选模型的服务商；费用计入费用页。");
     }
 
     const busy = on => { box.classList.toggle("chat-busy", on); sendBtn.disabled = on; };

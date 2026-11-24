@@ -37,7 +37,7 @@
     <div class="list-title">{{ icon('folder') if current_collection else icon('inbox') }}<span>{{ current_collection.name if current_collection else _('未分组') }}</span><i class="muted small">{{ papers|length }} {{ _("篇") }}{% if current_collection %} {{ _("· 导入的 PDF 会自动放进这个分组") }}{% endif %}</i></div>
     {% endif %}
     <div class="library-list-scroll">
-      {% if not c %}{% include "_recent_reading.html" %}{% endif %}
+      {% if not c %}{% include "_today.html" %}{% include "_recent_reading.html" %}{% endif %}
       <div id="paper_list" data-selected="{{ selected or '' }}" data-c="{{ c }}">{% include "_paper_list.html" %}</div>
     </div>
   </section>

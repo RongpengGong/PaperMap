@@ -350,6 +350,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       plugin_exports=[{"id": key, "name": item["name"], "extension": item.get("extension", "md")}
                                       for key, item in export_templates(config).items()],
                       purposes_menu=_purposes.all_tags(registry),
+                      today=app.state.today_items() if not (q or status or c) else [],
                       trash_expiring=__import__("papermap.trash", fromlist=["expiring"]).expiring(config, registry),
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
@@ -2348,6 +2349,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .tracking_routes import mount_tracking
 
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
+    from .extras_routes import mount_extras
+
+    mount_extras(app, config, registry, pipeline, render, _gettext, _fname)
     from .writing_routes import mount_writing
 
     mount_writing(app, config, registry, pipeline, render, json_body, md_html, _gettext, _check_csrf, csrf_token, _flat_tree)

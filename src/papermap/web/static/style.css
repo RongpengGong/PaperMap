@@ -793,13 +793,10 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .chat-dots { display:inline-flex; gap:4px; } .chat-dots i { width:6px; height:6px; border-radius:50%; background:var(--muted, #98a2b3); animation:chatdot 1s infinite ease-in-out; }
 .chat-dots i:nth-child(2) { animation-delay:.15s; } .chat-dots i:nth-child(3) { animation-delay:.3s; }
 @keyframes chatdot { 0%,80%,100% { opacity:.25; transform:translateY(0); } 40% { opacity:1; transform:translateY(-3px); } }
-.chat-compose { position:sticky; bottom:0; z-index:2; padding:8px 0 4px; background:var(--bg, #fff); border-top:1px solid var(--line); }
-.chat-compose textarea { width:100%; resize:vertical; min-height:52px; border-radius:10px; font-size:13.5px; }
 .chat-compose-foot, .chat-summary-foot { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
 .chat-quote { display:flex; align-items:flex-start; gap:6px; margin-bottom:6px; padding:6px 8px; border-left:3px solid var(--accent);
   background:var(--accent-soft); border-radius:6px; font-size:12px; }
 .chat-quote span { flex:1; max-height:4.8em; overflow:auto; white-space:pre-wrap; }
-.chat-privacy { margin:6px 0 0; font-size:11px; }
 .chat-summary { padding:12px; border-radius:12px; background:var(--accent-soft); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
 .chat-summary textarea { width:100%; font-size:13px; }
 .chat-busy [data-chat-send] { opacity:.6; }
@@ -930,3 +927,92 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .sel-custom, .pm-swatch.custom { position:relative; display:inline-grid; place-items:center; width:22px; height:22px; flex:none; border-radius:50%; cursor:pointer;
   background:conic-gradient(#f04438, #fdb022, #12b76a, #2e90fa, #7a5af8, #ee46bc, #f04438); border:1px solid rgba(0,0,0,.12); }
 .sel-custom input, .pm-swatch.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:0; padding:0; }
+
+/* chat input: one rounded box holding the text and its actions (no default button margins) */
+.chat-compose { position:sticky; bottom:0; z-index:2; padding:10px 0 14px; background:var(--card); }
+.chat-input { border:1px solid var(--line-strong, var(--line)); border-radius:14px; background:var(--card); transition:border-color .15s, box-shadow .15s; }
+.chat-input:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.chat-input textarea { display:block; width:100%; min-height:56px; max-height:40vh; resize:none; margin:0; padding:11px 13px 4px;
+  border:0; border-radius:14px 14px 0 0; background:transparent; font-size:13.5px; line-height:1.6; box-shadow:none; outline:none; }
+.chat-input textarea:focus { box-shadow:none; outline:none; }
+.chat-compose-foot { display:flex; align-items:center; gap:6px; padding:4px 6px 6px 8px; margin:0; flex-wrap:nowrap; }
+.chat-compose-foot button, .chat-summary-foot button, .chat-top button { margin:0; }
+.chat-end-btn { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:var(--card); color:var(--muted);
+  font-size:12px; font-weight:500; white-space:nowrap; }
+.chat-end-btn:hover { background:var(--side); color:var(--fg); border-color:var(--line-strong, var(--line)); }
+.chat-privacy { display:inline-grid; place-items:center; width:20px; height:20px; color:var(--muted); font-size:13px; cursor:help; border-radius:50%; }
+.chat-privacy:hover, .chat-privacy:focus { color:var(--accent); background:var(--accent-soft); outline:none; }
+.chat-enter { height:28px; width:auto; max-width:130px; margin:0; padding:0 22px 0 8px; border:1px solid transparent; border-radius:999px;
+  background-color:transparent; color:var(--muted); font-size:11.5px; text-overflow:ellipsis; }
+.chat-enter:hover { border-color:var(--line); }
+.chat-send { display:inline-flex; align-items:center; gap:5px; height:30px; padding:0 12px 0 14px; border-radius:999px; font-size:12.5px; font-weight:600; white-space:nowrap; }
+.chat-send svg { width:15px; height:15px; }
+.chat-send:disabled { opacity:.55; }
+.chat-summary-foot { display:flex; align-items:center; gap:8px; margin-top:8px; }
+.chat-top { gap:6px; padding:8px 0; }
+.chat-top .ghost-btn { height:28px; padding:0 10px; border-radius:999px; font-size:12px; white-space:nowrap; }
+.chat-top select { height:28px; border-radius:8px; }
+/* the paper panel's tab bar scrolls sideways instead of wrapping onto a second line */
+.side-col .tabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+.side-col .tabs::-webkit-scrollbar { display:none; }
+
+/* what to read today */
+.today { margin:8px 10px 4px; padding:9px 11px; border-radius:12px; background:linear-gradient(160deg, var(--accent-soft), transparent 85%);
+  border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.today-head { display:flex; align-items:center; }
+.today-head h2 { margin:0; font-size:12px; font-weight:700; color:var(--accent); }
+.today-head .icon-btn { margin:0; width:22px; height:22px; padding:0; border:0; background:transparent; color:var(--muted); }
+.today ol { margin:4px 0 0; padding:0; list-style:none; counter-reset:t; }
+.today li { counter-increment:t; }
+.today a { display:flex; flex-direction:column; gap:1px; padding:5px 4px 5px 22px; position:relative; border-radius:7px; color:var(--fg); text-decoration:none; }
+.today a::before { content:counter(t); position:absolute; left:4px; top:6px; width:13px; height:13px; border-radius:50%; background:var(--accent);
+  color:#fff; font-size:9px; font-weight:700; display:grid; place-items:center; }
+.today a:hover { background:var(--side-hover); }
+.today-t { font-size:12px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.today small { color:var(--muted); font-size:10.5px; }
+.today-new { margin-right:4px; padding:0 5px; border-radius:4px; background:var(--accent); color:#fff; font-size:10px; font-style:normal; }
+
+/* ⌘K quick jump */
+.jump { position:fixed; inset:0; z-index:300; display:flex; justify-content:center; align-items:flex-start; padding-top:12vh; background:rgba(15,23,42,.28); backdrop-filter:blur(2px); }
+.jump-box { width:min(620px, 92vw); border-radius:14px; background:var(--card); box-shadow:0 24px 60px rgba(0,0,0,.25); overflow:hidden; border:1px solid var(--line); }
+.jump-box input { width:100%; margin:0; padding:15px 18px; border:0; border-bottom:1px solid var(--line); background:transparent; font-size:15px; outline:none; box-shadow:none; }
+.jump-list { max-height:56vh; overflow-y:auto; padding:6px; margin:0; list-style:none; }
+.jump-list li { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:9px; cursor:pointer; }
+.jump-list li.on { background:var(--accent-soft); }
+.jump-kind { flex:none; min-width:42px; padding:1px 6px; border-radius:6px; background:var(--toolbar); color:var(--muted); font-size:10.5px; text-align:center; }
+.jump-list li.on .jump-kind { background:var(--accent); color:#fff; }
+.jump-label { flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.jump-hint { flex:none; max-width:40%; color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.jump-foot { padding:7px 14px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
+.jump-empty { padding:16px; color:var(--muted); font-size:12.5px; }
+.side-search { position:relative; }
+.side-kbd { position:absolute; right:8px; top:50%; transform:translateY(-50%); padding:0 5px; border:1px solid var(--line); border-radius:5px; color:var(--muted);
+  font-size:10.5px; background:var(--card); cursor:pointer; }
+
+/* status check */
+.status-page { max-width:820px; }
+.status-hero { display:flex; align-items:center; gap:10px; margin:6px 0 18px; padding:14px 16px; border-radius:12px; border:1px solid var(--line); background:var(--card); font-size:15px; }
+.status-group h2 { margin:18px 0 6px; font-size:13px; color:var(--muted); font-weight:650; }
+.status-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); margin-bottom:6px; }
+.status-label { width:120px; flex:none; font-weight:600; font-size:13px; }
+.status-detail { flex:1; min-width:0; color:var(--muted); font-size:12.5px; overflow-wrap:anywhere; }
+.status-row .ghost-btn { margin:0; height:26px; padding:0 10px; font-size:12px; }
+.status-dot { width:10px; height:10px; flex:none; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+.warn > .status-dot { background:#dc6803; box-shadow:0 0 0 3px #dc680322; }
+.error > .status-dot { background:var(--warn); box-shadow:0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+/* guide */
+.guide-page { max-width:980px; }
+.guide-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; margin:14px 0 22px; }
+.guide-card { display:flex; flex-direction:column; gap:6px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--fg); text-decoration:none; transition:border-color .15s, transform .15s; }
+.guide-card:hover { border-color:var(--accent); transform:translateY(-1px); text-decoration:none; }
+.guide-card b { color:var(--accent); font-size:14px; }
+.guide-card span { color:var(--muted); font-size:12.5px; line-height:1.6; }
+.guide-tips li { margin:6px 0; line-height:1.6; font-size:13px; }
+/* first-run welcome */
+.welcome { position:fixed; inset:0; z-index:400; display:grid; place-items:center; background:rgba(15,23,42,.3); backdrop-filter:blur(2px); }
+.welcome-box { width:min(480px, 92vw); padding:20px 22px 16px; border-radius:16px; background:var(--card); box-shadow:0 24px 60px rgba(0,0,0,.25); }
+.welcome-box h2 { margin:0 0 10px; font-size:17px; color:var(--accent); }
+.welcome-box ul { margin:0 0 14px; padding:0; list-style:none; }
+.welcome-box li { padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; line-height:1.55; }
+.welcome-box li b { display:inline-block; min-width:92px; color:var(--fg); }
+.welcome-foot { display:flex; align-items:center; gap:8px; } .welcome-foot button, .welcome-foot .ghost-btn { margin:0; }

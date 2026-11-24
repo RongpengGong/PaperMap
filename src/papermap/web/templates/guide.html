@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ _("使用指南 - PaperMap") }}{% endblock %}
+{% block content %}
+<div class="guide-page">
+  <h1>{{ _("使用指南") }}</h1>
+  <p class="muted">{{ _("PaperMap 把你读的论文变成一张会自己长大的知识地图。下面是最常用的操作，每一项都可以直接点进去试。") }}</p>
+  <div class="guide-grid">
+    <a class="guide-card" href="/"><b>① {{ _("导入论文") }}</b><span>{{ _("把 PDF 拖进窗口，或点左上角「导入 PDF」。PaperMap 会识别 DOI、生成卡片、自动分类，还可以翻译全文。") }}</span></a>
+    <a class="guide-card" href="/"><b>② {{ _("边读边问") }}</b><span>{{ _("打开论文，左边 PDF、右边卡片。PDF 里选中一段文字：高亮、批注、翻译、摘到证据笔记，或点「问 AI」带着原文提问。") }}</span></a>
+    <a class="guide-card" href="/clips"><b>③ {{ _("右键收藏和改格式") }}</b><span>{{ _("在卡片或任何页面选中文字后右键：收藏到收藏簿；在卡片里还能直接高亮、改颜色、加粗。收藏簿每周由 AI 帮你归纳成知识点。") }}</span></a>
+    <a class="guide-card" href="/evidence"><b>④ {{ _("围绕研究问题攒证据") }}</b><span>{{ _("在证据笔记里建研究问题，把原句摘进来，标支持或反对；记下证据缺口，新论文碰到缺口时会提醒你。") }}</span></a>
+    <a class="guide-card" href="/tracking"><b>⑤ {{ _("追踪新文献") }}</b><span>{{ _("每天自动从 OpenAlex、PubMed、bioRxiv 找和你的学科、缺口、关注作者相关的新论文，每周一发简报。点「收进来」就进库。") }}</span></a>
+    <a class="guide-card" href="/write"><b>⑥ {{ _("写作和引用核对") }}</b><span>{{ _("「写作」只用你库里的论文写一段带引用的文字；「引用核对」上传你的 Word 稿，逐句检查引用是否真的被原文支持。") }}</span></a>
+    <a class="guide-card" href="/map"><b>⑦ {{ _("知识地图和学科") }}</b><span>{{ _("学科页会随新论文自动更新，定期整合争议和进展；出现新方向时，在「待审核」里决定是否建立新学科。") }}</span></a>
+    <a class="guide-card" href="#" data-jump><b>⑧ {{ _("快速跳转") }}</b><span>{{ _("按 ⌘K（Windows 上 Ctrl+K），输入几个字就能跳到任意页面、论文、学科或研究问题。") }}</span></a>
+    <a class="guide-card" href="/settings?section=backup"><b>⑨ {{ _("别丢数据") }}</b><span>{{ _("设置 → 备份与恢复：每天自动备份数据库；打开「同步知识库」把卡片、笔记和 PDF 副本也同步到移动硬盘或云盘。") }}</span></a>
+  </div>
+  <h2>{{ _("小提示") }}</h2>
+  <ul class="guide-tips">
+    <li>{{ _("每个页面右边的「✦ 问 AI」可以和模型讨论当前页面；结束讨论后要点可以写进笔记。") }}</li>
+    <li>{{ _("论文里的「用途」标签（引言可引用、方法参考…）会出现在左侧栏，右键可以导出 BibTeX。") }}</li>
+    <li>{{ _("删除的论文先进回收站，30 天内可以在列表筛选「已删除 / 已忽略」里恢复。") }}</li>
+    <li>{{ _("论文文字会发送给你配置的模型服务商；只想用免费服务时，在设置里选择相应的模型和翻译服务。") }}</li>
+    <li>{{ _("左侧「更多」→「状态检查」可以一眼看到备份、同步、索引和后台任务是否正常。") }}</li>
+  </ul>
+</div>
+{% endblock %}

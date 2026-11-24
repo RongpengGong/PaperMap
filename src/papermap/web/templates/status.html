@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _("状态检查 - PaperMap") }}{% endblock %}
+{% block content %}
+<div class="status-page">
+  <h1>{{ _("状态检查") }}</h1>
+  <div class="status-hero {{ worst }}">
+    <span class="status-dot"></span>
+    <b>{% if worst == 'ok' %}{{ _("一切正常") }}{% elif worst == 'warn' %}{{ _("有几处值得留意") }}{% else %}{{ _("有需要处理的问题") }}{% endif %}</b>
+    <span class="muted small">{{ _("每次打开这一页都会重新检查") }}</span>
+  </div>
+  {% for g, items in groups.items() %}
+  <section class="status-group">
+    <h2>{{ g }}</h2>
+    {% for c in items %}
+    <div class="status-row {{ c.level }}">
+      <span class="status-dot"></span>
+      <span class="status-label">{{ c.label }}</span>
+      <span class="status-detail">{{ c.detail }}</span>
+      {% if c.link %}<a class="ghost-btn" href="{{ c.link }}">{{ _("查看") }}</a>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

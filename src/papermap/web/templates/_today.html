@@ -1,0 +1,8 @@
+{% if today %}
+<section class="today" id="today_box" aria-labelledby="today_h">
+  <div class="today-head"><h2 id="today_h">☀ {{ _("今天读什么") }}</h2><span class="grow"></span>
+    <button type="button" class="icon-btn" id="today_hide" title="{{ _("今天不再显示") }}">×</button></div>
+  <ol>{% for x in today %}<li><a href="{{ x.url }}" title="{{ x.title }}"><span class="today-t">{% if x.kind == 'new' %}<i class="today-new">{{ _("新") }}</i>{% endif %}{{ x.title }}</span><small>{{ x.why }}</small></a></li>{% endfor %}</ol>
+</section>
+<script>(function(){try{var k="pm_today_hidden",d=new Date().toDateString(),b=document.getElementById("today_box");if(localStorage.getItem(k)===d)b.hidden=true;document.getElementById("today_hide").onclick=function(){localStorage.setItem(k,d);b.hidden=true;};}catch(e){}})();</script>
+{% endif %}
