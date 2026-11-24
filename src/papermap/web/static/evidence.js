@@ -10,7 +10,7 @@
       body: JSON.stringify({csrf: document.body.dataset.csrf, ...data})
     });
     const value = await res.json();
-    if (!res.ok || !value.ok) throw Error(value.message || value.detail || "操作未完成，请重试。");
+    if (!res.ok || !value.ok) throw Error(value.message || value.detail || t("操作未完成，请重试。"));
     return value;
   }
   const dialog = document.getElementById("evidence-dialog");
@@ -28,14 +28,14 @@
       if (dialog.open) return;
       form.reset(); selected = item; save.disabled = true; problem(error, "");
       picker.replaceChildren(); title.hidden = true; form.querySelector(".ev-new-label").hidden = true;
-      document.getElementById("capture-page").textContent = "第 " + (item.page + 1) + " 页 · " + (item.source === "ocr" ? "本机 OCR" : "PDF 原文");
+      document.getElementById("capture-page").textContent = t("第 ") + (item.page + 1) + t(" 页 · ") + (item.source === "ocr" ? t("本机 OCR") : t("PDF 原文"));
       document.getElementById("capture-quote").textContent = item.quote;
       dialog.showModal();
       try {
         const {questions} = await api("/api/evidence/questions");
         if (!dialog.open || selected !== item) return;
         for (const q of questions) picker.add(new Option(q.title, q.id));
-        picker.add(new Option("新建研究问题…", ""));
+        picker.add(new Option(t("新建研究问题…"), ""));
         let last;
         try { last = localStorage.getItem("papermap.evidenceQuestion"); } catch (_) {}
         if (questions.some(q => String(q.id) === last)) picker.value = last;
@@ -58,7 +58,7 @@
         });
         try { localStorage.setItem("papermap.evidenceQuestion", String(result.question_id)); } catch (_) {}
         dialog.close(); window.getSelection()?.removeAllRanges();
-        window.pmToast(result.created ? "已加入证据笔记" : "这段原文已在该问题的笔记中");
+        window.pmToast(result.created ? t("已加入证据笔记") : t("这段原文已在该问题的笔记中"));
       } catch (err) { problem(error, err.message); }
       finally { saving = false; save.disabled = false; }
     });
@@ -89,8 +89,8 @@
     const link = e.currentTarget;
     try {
       const response = await fetch(link.href);
-      if (!response.ok) throw Error("未能导出证据笔记。");
-      if (await window.pywebview.api.save_text(link.download, await response.text())) window.pmToast("笔记已导出");
+      if (!response.ok) throw Error(t("未能导出证据笔记。"));
+      if (await window.pywebview.api.save_text(link.download, await response.text())) window.pmToast(t("笔记已导出"));
     } catch (err) { problem(error, err.message); }
   });
   for (const row of notebook.querySelectorAll("[data-entry]")) {
@@ -101,7 +101,7 @@
     row.querySelector("[data-cancel]").addEventListener("click", () => { form.reset(); edit(false); });
     const path = "/api/evidence/entries/" + row.dataset.entry + "/";
     row.querySelector("[data-delete]").addEventListener("click", async () => {
-      if (!await pmDialog("从这个研究问题中删除这条摘录及笔记？", {okText:"删除", danger:true})) return;
+      if (!await pmDialog(t("从这个研究问题中删除这条摘录及笔记？"), {okText:t("删除"), danger:true})) return;
       try { await api(path + "delete", {}); location.reload(); } catch (err) { problem(error, err.message); }
     });
     form.addEventListener("submit", async event => {

@@ -23,23 +23,23 @@
 {%- endmacro -%}
 {%- set path = request.url.path -%}
 {%- set nav = [
-  ('/', 'papers', '论文'), ('/evidence', 'evidence', '证据笔记'), ('/qa', 'qa', '问答'), ('/map', 'map', '知识地图'), ('/fields', 'fields', '学科'),
-  ('/handbooks', 'handbooks', '手册'), ('/concepts', 'concepts', '工具'), ('/figures', 'figures', '图片库'), ('/resources', 'resources', '数据资源'), ('/citations', 'citations', '引用'), ('/review', 'review', '待审核'),
+  ('/', 'papers', _('论文')), ('/evidence', 'evidence', _('证据笔记')), ('/qa', 'qa', _('问答')), ('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')),
+  ('/handbooks', 'handbooks', _('手册')), ('/concepts', 'concepts', _('工具')), ('/figures', 'figures', _('图片库')), ('/resources', 'resources', _('数据资源')), ('/citations', 'citations', _('引用')), ('/review', 'review', _('待审核')),
 ] -%}
-{%- set nav2 = [('/skills', 'skills', '技能'), ('/taxonomy', 'taxonomy', '分类表'), ('/costs', 'costs', '费用'), ('/events', 'events', '活动日志'), ('/settings', 'settings', '设置')] -%}
+{%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志')), ('/settings', 'settings', _('设置'))] -%}
 {%- macro is_active(href) -%}{{ 'active' if (href == '/' and path == '/') or (href != '/' and path.startswith(href)) or (href == '/fields' and path.startswith('/field/')) or (href == '/handbooks' and path.startswith('/handbook/')) or (href == '/concepts' and path.startswith('/concept/')) }}{%- endmacro -%}
 <!doctype html>
-<html lang="zh" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="{{ html_lang() }}" data-palette="{{ theme.palette }}" data-appearance="{{ theme.mode }}" {% if request.app.state.native_glass %}data-native-glass{% endif %}><head><meta charset="utf-8"><script>window.PM_LANG="{{ ui_lang() }}";window.t=function(s){var m=window.PM_T;return (m&&s&&m[s])||s;};</script>{% if ui_lang() != 'zh-CN' %}<script src="/i18n/{{ ui_lang() }}.js?v={{ static_v }}"></script>{% endif %}<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}PaperMap{% endblock %}</title>
 <link rel="icon" href="/static/icon.png"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}"><link rel="stylesheet" href="/static/themes.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
 <body class="app" data-csrf="{{ csrf }}">
-<a class="skip-link" href="#main_content">跳到内容</a>
+<a class="skip-link" href="#main_content">{{ _("跳到内容") }}</a>
 {% if settings_groups is defined %}
-<aside class="sidebar settings-sidebar" aria-label="设置侧栏">
-  <a class="settings-back" href="/" data-settings-back><span aria-hidden="true">‹</span> 返回文献库</a>
-  <div class="settings-sidebar-title">设置</div>
-  <nav class="settings-nav" aria-label="设置分类">
+<aside class="sidebar settings-sidebar" aria-label="{{ _("设置侧栏") }}">
+  <a class="settings-back" href="/" data-settings-back><span aria-hidden="true">‹</span> {{ _("返回文献库") }}</a>
+  <div class="settings-sidebar-title">{{ _("设置") }}</div>
+  <nav class="settings-nav" aria-label="{{ _("设置分类") }}">
   {% for group_label, entries in settings_groups %}
     <div class="settings-nav-group">
       <h3>{{ group_label }}</h3>
@@ -51,49 +51,49 @@
   </nav>
 </aside>
 {% else %}
-<aside class="sidebar" aria-label="PaperMap 侧栏">
+<aside class="sidebar" aria-label="{{ _("PaperMap 侧栏") }}">
   <div class="brand"><img src="/static/icon.png" alt=""><span>PaperMap</span></div>
-  <form class="side-search" method="get" action="/search" role="search"><input type="search" name="q" aria-label="全文搜索" placeholder="全文搜索…" value="{{ request.query_params.get('q', '') if path == '/search' else '' }}"></form>
-  <button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>导入 PDF</span></button>
+  <form class="side-search" method="get" action="/search" role="search"><input type="search" name="q" aria-label="{{ _("全文搜索") }}" placeholder="{{ _("全文搜索…") }}" value="{{ request.query_params.get('q', '') if path == '/search' else '' }}"></form>
+  <button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>{{ _("导入 PDF") }}</span></button>
   <input type="file" id="import_input" accept="application/pdf,.pdf" multiple hidden>
   {%- set cur_c = request.query_params.get('c', '') -%}
-  <nav class="nav" aria-label="文献与研究">
+  <nav class="nav" aria-label="{{ _("文献与研究") }}">
     {% for href, ic, label in nav %}
     {% if ic == 'papers' %}
-    <a class="coll-root {{ 'active' if path == '/' and not cur_c }}" href="/" data-cid="root">{{ icon('papers') }}<span>全部论文</span><i class="n">{{ all_n }}</i></a>
+    <a class="coll-root {{ 'active' if path == '/' and not cur_c }}" href="/" data-cid="root">{{ icon('papers') }}<span>{{ _("全部论文") }}</span><i class="n">{{ all_n }}</i></a>
     <div class="collections" id="collections">
-      <a class="coll {{ 'active' if path == '/' and cur_c == 'none' }}" href="/?c=none" data-cid="none" style="--d:0"><span class="caret"></span>{{ icon('inbox') }}<span class="name">未分组</span><i class="n">{{ unfiled_n }}</i></a>
+      <a class="coll {{ 'active' if path == '/' and cur_c == 'none' }}" href="/?c=none" data-cid="none" style="--d:0"><span class="caret"></span>{{ icon('inbox') }}<span class="name">{{ _("未分组") }}</span><i class="n">{{ unfiled_n }}</i></a>
       {%- for node in collection_tree recursive %}
       <a class="coll {{ 'active' if path == '/' and cur_c == node.id|string }}" href="/?c={{ node.id }}" data-cid="{{ node.id }}" data-parent="{{ node.parent_id or '' }}" draggable="true" style="--d:{{ node.depth }}" title="{{ node.name }}">
         <span class="caret {{ 'has' if node.children }}" data-toggle="{{ node.id }}"></span>{{ icon('folder') }}<span class="name">{{ node.name }}</span><i class="n">{{ node.n }}</i></a>
       {%- if node.children %}<div class="coll-children" data-children-of="{{ node.id }}">{{ loop(node.children) }}</div>{% endif %}
       {%- endfor %}
-      <button type="button" class="coll-new" id="coll_new">＋ 新建分组</button>
+      <button type="button" class="coll-new" id="coll_new">{{ _("＋ 新建分组") }}</button>
     </div>
     {% else %}
     <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span>{% if ic == 'review' and review_count %}<b class="badge">{{ review_count }}</b>{% endif %}</a>
     {% endif %}
     {% endfor %}
   </nav>
-  <nav class="nav nav-bottom" aria-label="工具与设置">
+  <nav class="nav nav-bottom" aria-label="{{ _("工具与设置") }}">
     {% for href, ic, label in nav2 %}
     <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
     {% endfor %}
-    <a class="cost-line" href="/costs">本月 ${{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>
+    <a class="cost-line" href="/costs">{{ _("本月 $") }}{{ "%.3f"|format(month_cost) }}{% if budget %} / ${{ "%.0f"|format(budget) }}{% endif %}</a>
   </nav>
 </aside>
 {% endif %}
 <main id="main_content" class="content {% block content_class %}{% endblock %}" tabindex="-1">
-{% if settings_groups is not defined and not key_set %}<div class="notice">{% if account_provider in ('chatgpt_plan', 'claude_cli') %}模型订阅尚未连接：请到 <a href="/settings">设置</a> 完成官方登录并检查连接，新论文会先识别和登记。{% else %}尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在 <a href="/settings">设置</a> 里填入 Key 后才会生成。{% endif %}</div>{% endif %}
-{% if settings_groups is not defined and budget_ratio >= 1 %}<div class="notice">本月 LLM 预算已用完，新论文的处理已暂停。到 <a href="/settings?section=processing">论文处理</a> 提高预算后会自动继续。</div>
-{% elif settings_groups is not defined and budget_ratio >= 0.8 %}<div class="notice">本月 LLM 预算已用掉 {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
+{% if settings_groups is not defined and not key_set %}<div class="notice">{% if account_provider in ('chatgpt_plan', 'claude_cli') %}{{ _("模型订阅尚未连接：请到") }} <a href="/settings">{{ _("设置") }}</a> {{ _("完成官方登录并检查连接，新论文会先识别和登记。") }}{% else %}{{ _("尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在") }} <a href="/settings">{{ _("设置") }}</a> {{ _("里填入 Key 后才会生成。") }}{% endif %}</div>{% endif %}
+{% if settings_groups is not defined and budget_ratio >= 1 %}<div class="notice">{{ _("本月 LLM 预算已用完，新论文的处理已暂停。到") }} <a href="/settings?section=processing">{{ _("论文处理") }}</a> {{ _("提高预算后会自动继续。") }}</div>
+{% elif settings_groups is not defined and budget_ratio >= 0.8 %}<div class="notice">{{ _("本月 LLM 预算已用掉") }} {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>松开以导入 PDF</p><span>会复制进你的文献库，原文件不动</span></div></div>
+<div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>{{ _("松开以导入 PDF") }}</p><span>{{ _("会复制进你的文献库，原文件不动") }}</span></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="ctx_menu" class="ctx-menu" hidden></div>
-<div id="lightbox" class="lightbox" hidden><div class="lb-box"><div class="lb-head"><strong id="lb_title"></strong><span class="grow"></span><button type="button" class="ghost-btn" id="lb_explain">讲解这张图</button><button type="button" class="ghost-btn" id="lb_notes" hidden>加到我的笔记</button><a class="ghost-btn" id="lb_page" href="#">在原文中查看</a><button type="button" class="icon-btn" id="lb_close">×</button></div><div class="lb-body"><img id="lb_img" alt=""><div class="lb-side"><p class="small" id="lb_legend"></p><div id="lb_expl" class="md"></div></div></div></div></div>
-<div id="modal" class="modal" hidden><div class="modal-box"><p id="modal_msg"></p><input type="text" id="modal_input" hidden><div class="modal-actions"><button type="button" class="secondary" id="modal_cancel">取消</button><button type="button" id="modal_ok">确定</button></div></div></div>
+<div id="lightbox" class="lightbox" hidden><div class="lb-box"><div class="lb-head"><strong id="lb_title"></strong><span class="grow"></span><button type="button" class="ghost-btn" id="lb_explain">{{ _("讲解这张图") }}</button><button type="button" class="ghost-btn" id="lb_notes" hidden>{{ _("加到我的笔记") }}</button><a class="ghost-btn" id="lb_page" href="#">{{ _("在原文中查看") }}</a><button type="button" class="icon-btn" id="lb_close">×</button></div><div class="lb-body"><img id="lb_img" alt=""><div class="lb-side"><p class="small" id="lb_legend"></p><div id="lb_expl" class="md"></div></div></div></div></div>
+<div id="modal" class="modal" hidden><div class="modal-box"><p id="modal_msg"></p><input type="text" id="modal_input" hidden><div class="modal-actions"><button type="button" class="secondary" id="modal_cancel">{{ _("取消") }}</button><button type="button" id="modal_ok">{{ _("确定") }}</button></div></div></div>
 <script src="/static/app.js?v={{ static_v }}"></script>
 <script src="/static/updates.js?v={{ static_v }}"></script>
 <script src="/static/kbnotes.js?v={{ static_v }}"></script>

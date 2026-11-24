@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}知识地图 - PaperMap{% endblock %}
+{% block title %}{{ _("知识地图 - PaperMap") }}{% endblock %}
 {% block content %}
 <div class="map-bar">
-  <h2>知识地图</h2>
-  <label class="inline"><input type="checkbox" id="fields_only"> 只看学科</label>
-  <label class="inline"><input type="checkbox" id="show_topics" checked> 显示主题</label>
-  <label class="inline"><input type="checkbox" id="show_cites" checked> 论文互引</label>
-  <label class="inline"><input type="checkbox" id="show_questions" checked> 研究问题</label>
-  <span class="legend"><i class="dot method"></i>方法学 <i class="dot topic"></i>主题 <i class="dot paper"></i>论文 <i class="dot question"></i>研究问题</span>
-  <span class="muted">滚轮缩放 · 拖动平移 · 拖动节点 · 点击打开 · 双击适配画面</span>
+  <h2>{{ _("知识地图") }}</h2>
+  <label class="inline"><input type="checkbox" id="fields_only"> {{ _("只看学科") }}</label>
+  <label class="inline"><input type="checkbox" id="show_topics" checked> {{ _("显示主题") }}</label>
+  <label class="inline"><input type="checkbox" id="show_cites" checked> {{ _("论文互引") }}</label>
+  <label class="inline"><input type="checkbox" id="show_questions" checked> {{ _("研究问题") }}</label>
+  <span class="legend"><i class="dot method"></i>{{ _("方法学") }} <i class="dot topic"></i>{{ _("主题") }} <i class="dot paper"></i>{{ _("论文") }} <i class="dot question"></i>{{ _("研究问题") }}</span>
+  <span class="muted">{{ _("滚轮缩放 · 拖动平移 · 拖动节点 · 点击打开 · 双击适配画面") }}</span>
 </div>
 <div id="map_wrap"><canvas id="map"></canvas><div id="tip" hidden></div>
-<p id="map_empty" class="muted" hidden>还没有已分类的论文。论文处理完成后会自动分类，也可以在「分类表」页面点「开始分类」。</p></div>
+<p id="map_empty" class="muted" hidden>{{ _("还没有已分类的论文。论文处理完成后会自动分类，也可以在「分类表」页面点「开始分类」。") }}</p></div>
 <script src="/static/map.js?v={{ static_v }}"></script>
 {% endblock %}

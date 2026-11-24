@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -143,6 +144,13 @@ def _wait_for(url: str, timeout: float = 20) -> None:
         time.sleep(0.15)
 
 
+def _t(cfg, text: str) -> str:
+    """Native menu labels follow the interface language (applied at the next start)."""
+    from . import i18n
+
+    return i18n.translate(i18n.config_language(cfg), text)
+
+
 def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
     """Start watcher + local server, then show the native window (blocks)."""
     import uvicorn
@@ -197,18 +205,18 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
                                         file_types=("PDF (*.pdf)",))
         if res:
             n = import_files(list(res), cfg.imported_dir, pipe.handle_path)
-            window.evaluate_js(f"window.pmToast && pmToast('已导入 {n} 篇，正在处理…')")
+            window.evaluate_js("window.pmToast && pmToast(%s)" % json.dumps(_t(cfg, "已导入 {n} 篇，正在处理…").format(n=n)))
 
     def quit_app():
         _state["quitting"] = True
         window.destroy()
 
     menu = [
-        Menu("文件", [
-            MenuAction("导入 PDF…", import_dialog),
+        Menu(_t(cfg, "文件"), [
+            MenuAction(_t(cfg, "导入 PDF…"), import_dialog),
             MenuSeparator(),
-            MenuAction("打开知识库文件夹", lambda: open_folder(cfg.knowledge_dir)),
-            MenuAction("打开数据文件夹", lambda: open_folder(cfg.data_dir)),
+            MenuAction(_t(cfg, "打开知识库文件夹"), lambda: open_folder(cfg.knowledge_dir)),
+            MenuAction(_t(cfg, "打开数据文件夹"), lambda: open_folder(cfg.data_dir)),
         ]),
     ]
 
@@ -240,10 +248,10 @@ def _windows_tray(base: str, cfg, quit_app):
     from .tray import open_folder
 
     icon = pystray.Icon("PaperMap", image, "PaperMap", menu=pystray.Menu(
-        pystray.MenuItem("打开 PaperMap", lambda: show_window(), default=True),
-        pystray.MenuItem("打开知识库文件夹", lambda: open_folder(cfg.knowledge_dir)),
+        pystray.MenuItem(_t(cfg, "打开 PaperMap"), lambda: show_window(), default=True),
+        pystray.MenuItem(_t(cfg, "打开知识库文件夹"), lambda: open_folder(cfg.knowledge_dir)),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("退出 PaperMap", lambda: (icon.stop(), quit_app())),
+        pystray.MenuItem(_t(cfg, "退出 PaperMap"), lambda: (icon.stop(), quit_app())),
     ))
     icon.run_detached()
     return icon

@@ -71,10 +71,10 @@ def test_theme_saved_and_applied_to_every_page(config, registry):
     assert 'data-palette="blue"' in page and "樱花粉" in page and "纯黑" in page
     tok = _token(c)
     assert c.post("/api/appearance", json={"csrf": tok, "palette": "pink", "mode": "black"}).json()["ok"]
-    assert config.raw["appearance"] == {"palette": "pink", "mode": "black"}
+    assert config.raw["appearance"] == {"palette": "pink", "mode": "black", "language": "zh-CN"}
     assert 'data-palette="pink" data-appearance="black"' in c.get("/").text
     c.post("/api/appearance", json={"csrf": tok, "palette": "neon", "mode": "?"})
-    assert config.raw["appearance"] == {"palette": "blue", "mode": "system"}  # unknown values fall back
+    assert config.raw["appearance"] == {"palette": "blue", "mode": "system", "language": "zh-CN"}  # unknown values fall back
     css = themes.css()
     assert '[data-palette="pink"]' in css and '[data-appearance="black"][data-palette]' in css
     assert '[data-palette="blue"]' not in css  # blue keeps the hand-tuned original

@@ -431,6 +431,12 @@ ACP 连接外部 Agent、MCP 服务、RSS / arXiv 每日推荐 / Cool Papers、S
 
 ---
 
+## 15.5 界面语言（2026-11-24）
+
+- 设置 → 外观 → 界面语言：简体中文（源文本）/ 繁體中文 / English / 日本語。只管菜单、按钮、提示；生成内容的语言仍由「输出语言」决定；用户内容（笔记、标题、论文）永不翻译。
+- 写新界面文字时：模板用 `{{ _("中文") }}`，JS 用 `t("中文")`，Python 里给模板用的标签用 `i18n.L("中文")`；会保存回去的表单值用 `|keep`。学科名用 `fname(f)`（英 / 日界面显示英文名）。
+- 改完运行 `python packaging/i18n/extract_keys.py /tmp/keys.json`，繁体用 `packaging/i18n/make_zh_tw.py`（OpenCC s2twp，开发期依赖）重新生成，英 / 日在 `src/papermap/locales/*.json` 里补；`tests/test_i18n.py` 会检查缺漏。
+
 ## 16. 阶段 7 — 这篇论文改变了什么（2026-11-23 用户确认范围和顺序）
 
 ### 16.1 贯穿全阶段的规则

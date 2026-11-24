@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}论文 - PaperMap{% endblock %}
+{% block title %}{{ _("论文 - PaperMap") }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/resume.css?v={{ static_v }}">{% endblock %}
 {% block scripts %}<script src="/static/resume.js?v={{ static_v }}"></script>{% endblock %}
 {% block content_class %}split-content{% endblock %}
@@ -8,31 +8,31 @@
 <div class="split">
   <section class="list-pane" id="paper-list-pane">
     <div class="list-head">
-      <input type="search" id="q" value="{{ q }}" placeholder="搜索标题、作者、期刊、DOI" autocomplete="off">
-      <select id="status_filter" title="按状态筛选">
-        <option value="">全部 ({{ counts.values()|sum }})</option>
-        {% set names = {'done':'已完成','new':'等待处理','extracting':'处理中','doi_unverified':'DOI 待确认','skipped_supplement':'补充材料','error':'出错'} %}
-        <optgroup label="阅读">
-          <option value="starred" {{ 'selected' if status == 'starred' }}>★ 星标 ({{ rcounts.get('starred', 0) }})</option>
-          <option value="r:unread" {{ 'selected' if status == 'r:unread' }}>未读 ({{ rcounts.get('unread', 0) }})</option>
-          <option value="r:reading" {{ 'selected' if status == 'r:reading' }}>在读 ({{ rcounts.get('reading', 0) }})</option>
-          <option value="r:read" {{ 'selected' if status == 'r:read' }}>已读 ({{ rcounts.get('read', 0) }})</option>
+      <input type="search" id="q" value="{{ q|keep }}" placeholder="{{ _("搜索标题、作者、期刊、DOI") }}" autocomplete="off">
+      <select id="status_filter" title="{{ _("按状态筛选") }}">
+        <option value="">{{ _("全部 (") }}{{ counts.values()|sum }})</option>
+        {% set names = {'done':_('已完成'),'new':_('等待处理'),'extracting':_('处理中'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料'),'error':_('出错')} %}
+        <optgroup label="{{ _("阅读") }}">
+          <option value="starred" {{ 'selected' if status == 'starred' }}>{{ _("★ 星标 (") }}{{ rcounts.get('starred', 0) }})</option>
+          <option value="r:unread" {{ 'selected' if status == 'r:unread' }}>{{ _("未读 (") }}{{ rcounts.get('unread', 0) }})</option>
+          <option value="r:reading" {{ 'selected' if status == 'r:reading' }}>{{ _("在读 (") }}{{ rcounts.get('reading', 0) }})</option>
+          <option value="r:read" {{ 'selected' if status == 'r:read' }}>{{ _("已读 (") }}{{ rcounts.get('read', 0) }})</option>
         </optgroup>
-        <optgroup label="处理状态">
+        <optgroup label="{{ _("处理状态") }}">
         {% for s, n in counts.items() %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ names.get(s, s) }} ({{ n }})</option>{% endfor %}
         </optgroup>
       </select>
-      <button type="button" class="icon-btn" id="export_btn" title="导出参考文献（BibTeX / RIS）">⇪</button>
+      <button type="button" class="icon-btn" id="export_btn" title="{{ _("导出参考文献（BibTeX / RIS）") }}">⇪</button>
     </div>
     {% if bulk %}
     <div class="notice compact">
-      <strong>{{ bulk.papers }} 篇新论文等待处理</strong><br>
-      约 {{ "%.2f"|format(bulk.tokens_in / 1e6) }}M + {{ "%.2f"|format(bulk.tokens_out / 1e6) }}M token{% if bulk.priced %}，约 ${{ "%.3f"|format(bulk.cost_offpeak) }}–${{ "%.3f"|format(bulk.cost_peak) }}{% endif %}
-      <form method="post" action="/bulk/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>开始处理</button></form>
+      <strong>{{ bulk.papers }} {{ _("篇新论文等待处理") }}</strong><br>
+      {{ _("约") }} {{ "%.2f"|format(bulk.tokens_in / 1e6) }}M + {{ "%.2f"|format(bulk.tokens_out / 1e6) }}M token{% if bulk.priced %}{{ _("，约 $") }}{{ "%.3f"|format(bulk.cost_offpeak) }}–${{ "%.3f"|format(bulk.cost_peak) }}{% endif %}
+      <form method="post" action="/bulk/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _("开始处理") }}</button></form>
     </div>
     {% endif %}
     {% if current_collection or c == 'none' %}
-    <div class="list-title">{{ icon('folder') if current_collection else icon('inbox') }}<span>{{ current_collection.name if current_collection else '未分组' }}</span><i class="muted small">{{ papers|length }} 篇{% if current_collection %} · 导入的 PDF 会自动放进这个分组{% endif %}</i></div>
+    <div class="list-title">{{ icon('folder') if current_collection else icon('inbox') }}<span>{{ current_collection.name if current_collection else _('未分组') }}</span><i class="muted small">{{ papers|length }} {{ _("篇") }}{% if current_collection %} {{ _("· 导入的 PDF 会自动放进这个分组") }}{% endif %}</i></div>
     {% endif %}
     <div class="library-list-scroll">
       {% if not c %}{% include "_recent_reading.html" %}{% endif %}
@@ -44,8 +44,8 @@
     {% else %}
     <div class="empty-state">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg>
-      <h2>把 PDF 拖到这里</h2>
-      <p>PaperMap 会识别 DOI、生成论文卡片并自动归入学科。也可以点左上角「导入 PDF」，或在设置里添加自动导入文件夹（例如 Zotero 存储目录）。</p>
+      <h2>{{ _("把 PDF 拖到这里") }}</h2>
+      <p>{{ _("PaperMap 会识别 DOI、生成论文卡片并自动归入学科。也可以点左上角「导入 PDF」，或在设置里添加自动导入文件夹（例如 Zotero 存储目录）。") }}</p>
     </div>
     {% endif %}
   </section>

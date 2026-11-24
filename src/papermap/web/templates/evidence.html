@@ -1,51 +1,51 @@
 {% extends "base.html" %}
-{% block title %}证据笔记 - PaperMap{% endblock %}
+{% block title %}{{ _("证据笔记 - PaperMap") }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">{% endblock %}
 {% block content %}
 {% from "_update_cards.html" import ucard %}
 <div id="evidence-notebook" class="evidence-notebook">
-  <div class="ev-heading"><h1>证据笔记</h1><button type="button" class="secondary" id="new-question">新建研究问题</button></div>
+  <div class="ev-heading"><h1>{{ _("证据笔记") }}</h1><button type="button" class="secondary" id="new-question">{{ _("新建研究问题") }}</button></div>
   <form id="new-question-form" class="ev-create" hidden>
-    <label for="new-question-title">研究问题</label>
-    <input type="text" id="new-question-title" maxlength="300" required placeholder="你想用这些论文回答什么问题？">
-    <div class="ev-actions"><button type="button" class="secondary" id="cancel-question">取消</button><button type="submit">保存问题</button></div>
+    <label for="new-question-title">{{ _("研究问题") }}</label>
+    <input type="text" id="new-question-title" maxlength="300" required placeholder="{{ _("你想用这些论文回答什么问题？") }}">
+    <div class="ev-actions"><button type="button" class="secondary" id="cancel-question">{{ _("取消") }}</button><button type="submit">{{ _("保存问题") }}</button></div>
   </form>
   {% if selected %}
-  <div class="ev-filters"><label for="question-filter">研究问题</label>
+  <div class="ev-filters"><label for="question-filter">{{ _("研究问题") }}</label>
     <select id="question-filter">{% for question in questions %}<option value="{{ question.id }}"{% if selected.id == question.id %} selected{% endif %}>{{ question.title }}（{{ question.total }}）</option>{% endfor %}</select>
-    <a class="ghost-btn" id="evidence-export" href="/evidence/{{ selected.id }}.md" download="PaperMap-证据-{{ selected.id }}.md">导出 Markdown</a>
+    <a class="ghost-btn" id="evidence-export" href="/evidence/{{ selected.id }}.md" download="{{ _("PaperMap-证据-") }}{{ selected.id }}.md">{{ _("导出 Markdown") }}</a>
   </div>
   {% if entries %}<h2 class="ev-question-title">{{ selected.title }}</h2>{% endif %}
   <div class="ev-fields" data-question="{{ selected.id }}">
-    <span class="muted small">挂在学科</span>
-    {% for f in linked_fields %}<span class="group-chip"><a href="/field/{{ f.slug }}">{{ f.name_zh }}</a><button type="button" data-unlink-field="{{ f.id }}" title="从这个学科移除">×</button></span>{% endfor %}
+    <span class="muted small">{{ _("挂在学科") }}</span>
+    {% for f in linked_fields %}<span class="group-chip"><a href="/field/{{ f.slug }}">{{ fname(f) }}</a><button type="button" data-unlink-field="{{ f.id }}" title="{{ _("从这个学科移除") }}">×</button></span>{% endfor %}
     {% set mine = linked_fields|map(attribute='id')|list %}
-    <select data-link-field title="挂到学科，会显示在知识地图上"><option value="">＋ 挂到学科…</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ f.name_zh }}</option>{% endfor %}</select>
-    {% if not linked_fields %}<span class="muted small">挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。</span>{% endif %}
+    <select data-link-field title="{{ _("挂到学科，会显示在知识地图上") }}"><option value="">{{ _("＋ 挂到学科…") }}</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ fname(f) }}</option>{% endfor %}</select>
+    {% if not linked_fields %}<span class="muted small">{{ _("挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。") }}</span>{% endif %}
   </div>
   {% for e in entries %}
   <article class="ev-entry" id="evidence-{{ e.id }}" data-entry="{{ e.id }}">
     <div class="ev-entry-head"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span>
-      <div class="muted small">{{ sources[e.source] }} · 第 {{ e.page+1 }} 页</div></div>
+      <div class="muted small">{{ sources[e.source] }} {{ _("· 第") }} {{ e.page+1 }} {{ _("页") }}</div></div>
     <blockquote>{{ e.quote }}</blockquote>
-    <p class="ev-source">{{ e.title or "未命名论文" }}{% if e.first_author or e.year %} <span class="muted small">· {{ e.first_author or "" }} {{ e.year or "" }}</span>{% endif %}</p>
+    <p class="ev-source">{{ e.title or _("未命名论文") }}{% if e.first_author or e.year %} <span class="muted small">· {{ e.first_author or "" }} {{ e.year or "" }}</span>{% endif %}</p>
     {% if e.note %}<p class="ev-note">{{ e.note }}</p>{% endif %}
     <div class="ev-entry-actions">
-      <a class="ghost-btn" href="{{ anchor_path(e) }}">定位原文 ↗</a>
-      <button type="button" class="secondary" data-edit>编辑笔记</button>
-      <button type="button" class="ghost" data-delete>删除</button>
+      <a class="ghost-btn" href="{{ anchor_path(e) }}">{{ _("定位原文 ↗") }}</a>
+      <button type="button" class="secondary" data-edit>{{ _("编辑笔记") }}</button>
+      <button type="button" class="ghost" data-delete>{{ _("删除") }}</button>
     </div>
     <form data-entry-form hidden>
-      <label for="stance-{{ e.id }}">与问题的关系</label>
+      <label for="stance-{{ e.id }}">{{ _("与问题的关系") }}</label>
       <select id="stance-{{ e.id }}" name="stance">{% for v, text in stances.items() %}<option value="{{ v }}" {% if v==e.stance %}selected{% endif %}>{{ text }}</option>{% endfor %}</select>
-      <label for="note-{{ e.id }}">我的笔记</label><textarea id="note-{{ e.id }}" name="note" maxlength="12000" rows="3">{{ e.note }}</textarea>
-      <div class="ev-actions"><button type="button" class="secondary" data-cancel>取消</button><button type="submit">保存修改</button></div>
+      <label for="note-{{ e.id }}">{{ _("我的笔记") }}</label><textarea id="note-{{ e.id }}" name="note" maxlength="12000" rows="3">{{ e.note|keep }}</textarea>
+      <div class="ev-actions"><button type="button" class="secondary" data-cancel>{{ _("取消") }}</button><button type="submit">{{ _("保存修改") }}</button></div>
     </form>
   </article>
-  {% else %}<p class="ev-empty">这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。</p>{% endfor %}
-  {% if update_cards %}<h2 class="ev-question-title">新论文带来的变化</h2>
+  {% else %}<p class="ev-empty">{{ _("这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。") }}</p>{% endfor %}
+  {% if update_cards %}<h2 class="ev-question-title">{{ _("新论文带来的变化") }}</h2>
   {% for u in update_cards %}{{ ucard(u, 'paper_only', update_outcomes) }}{% endfor %}{% endif %}
-  {% else %}<p class="ev-empty">新建一个研究问题，或在阅读 PDF 时选中原文，点击「摘到证据笔记」。不同论文的摘录可以放在同一问题下。</p>{% endif %}
+  {% else %}<p class="ev-empty">{{ _("新建一个研究问题，或在阅读 PDF 时选中原文，点击「摘到证据笔记」。不同论文的摘录可以放在同一问题下。") }}</p>{% endif %}
   <p class="err-text small" id="notebook-error" role="alert" hidden></p>
 </div>
 {% endblock %}

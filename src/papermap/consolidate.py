@@ -15,13 +15,14 @@ from .extract import LANGUAGE_RULES
 from .extract import load_prompt as _load_prompt
 from .llm import LLMClient, replace_ref_ids
 from .registry import Registry, now_iso
+from .i18n import L
 
 PROMPT_VERSION = "consolidate_v2"
 MAX_PAPERS = 40
 # Fixed places for what the user confirmed, so a large field cannot crowd it out (CLAUDE.md §16.2 task 4).
 CONTRARY_SLOTS = 6   # user-confirmed contrary evidence
 KEY_SLOTS = 8        # other user-confirmed evidence
-REASONS = {"contrary": "相反证据", "key": "关键证据", "added": "最近入库", "published": "最近发表"}
+REASONS = {"contrary": L("相反证据"), "key": L("关键证据"), "added": L("最近入库"), "published": L("最近发表")}
 _REASON_EN = {"contrary": "user-confirmed CONTRARY evidence", "key": "user-confirmed key evidence",
               "added": "recently added to the library", "published": "recently published"}
 

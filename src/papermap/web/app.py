@@ -15,7 +15,7 @@ import markdown as md
 import nh3
 import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -31,17 +31,18 @@ from ..llm import check_connection, list_chatgpt_model_options, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry, now_iso
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
+from ..i18n import L
 
 HERE = Path(__file__).parent
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 LANGS = ("zh", "en", "bilingual")
 SETTINGS_GROUPS = (
-    ("AI 服务", (("models", "模型与账号", "settings"), ("translation", "翻译", "handbooks"))),
-    ("文献库", (("import", "导入与文件夹", "inbox"), ("processing", "论文处理", "papers"),
-                ("library", "知识库位置", "folder"), ("backup", "备份与恢复", "folder"),
-                ("taxonomy", "学科与版本", "fields"))),
-    ("应用", (("appearance", "外观", "settings"), ("extensions", "插件与接口", "skills"),
-             ("application", "后台运行", "events"))),
+    (L("AI 服务"), (("models", L("模型与账号"), "settings"), ("translation", L("翻译"), "handbooks"))),
+    (L("文献库"), (("import", L("导入与文件夹"), "inbox"), ("processing", L("论文处理"), "papers"),
+                ("library", L("知识库位置"), "folder"), ("backup", L("备份与恢复"), "folder"),
+                ("taxonomy", L("学科与版本"), "fields"))),
+    (L("应用"), (("appearance", L("外观"), "settings"), ("extensions", L("插件与接口"), "skills"),
+             ("application", L("后台运行"), "events"))),
 )
 SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROUPS for item in items}
 
@@ -70,6 +71,39 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     # cache-busting for static assets (app updates must not show stale CSS/JS)
     static_v = str(int(max(f.stat().st_mtime for f in (HERE / "static").iterdir())))
     templates.env.globals["static_v"] = static_v
+    from .. import i18n
+
+    def _lang() -> str:
+        return i18n.config_language(config)
+
+    def _gettext(text: str, **kw) -> str:
+        out = i18n.translate(_lang(), text)
+        return out.format(**kw) if kw else out
+
+    def _finalize(value):
+        # labels that Python passes to templates (status names, settings groups...) are translated
+        # only on an exact catalog match; papers, notes and other user content never are
+        if isinstance(value, i18n.L) and _lang() != i18n.SOURCE:
+            return i18n.translate(_lang(), value)
+        return value
+
+    from markupsafe import Markup, escape as _escape
+
+    # form values that are saved back (names, titles, notes) must never be translated
+    templates.env.filters["keep"] = lambda v: Markup(_escape("" if v is None else v))
+    def _fname(row) -> str:
+        """A field's display name: English names for an English / Japanese interface."""
+        try:
+            en, zh = row["name_en"], row["name_zh"]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        return (en or zh or "") if _lang() in ("en", "ja") else (zh or en or "")
+
+    templates.env.globals["fname"] = _fname
+    templates.env.globals["_"] = _gettext
+    templates.env.globals["ui_lang"] = _lang
+    templates.env.globals["html_lang"] = lambda: i18n.HTML_LANG[_lang()]
+    templates.env.finalize = _finalize
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
@@ -1037,8 +1071,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             }
         nodes = [
             {"id": f"f{fid}", "kind": f["axis"], "url": f"/field/{f['slug']}",
-             "label": f["name_en"] if lang == "en" else f["name_zh"],
-             "title": f["name_en"] if lang != "en" else f["name_zh"], "count": counts.get(fid, 0),
+             "label": f["name_en"] if lang == "en" or _lang() in ("en", "ja") else f["name_zh"],
+             "title": f["name_zh"] if lang == "en" or _lang() in ("en", "ja") else f["name_en"], "count": counts.get(fid, 0),
              "retired": f["status"] == "retired"}
             for fid, f in fields.items() if counts.get(fid) or f["status"] == "active"
         ]
@@ -1469,6 +1503,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             data_dir=str(config.data_dir),
             palettes=__import__("papermap.themes", fromlist=["x"]).PALETTES,
             appearances=__import__("papermap.themes", fromlist=["x"]).APPEARANCES,
+            ui_languages=i18n.LANGUAGES,
             swatches=__import__("papermap.themes", fromlist=["x"]).SWATCH,
             backups=backup_mod.list_backups(config)[:30], backup_cfg=backup_mod.settings(config),
             backup_dir=str(backup_mod.backup_dir(config)),
@@ -1718,12 +1753,18 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def account_cancel(provider: str, request: Request):
         return await _account_action(request, provider, "cancel")
 
+    @app.get("/i18n/{code}.js")
+    def i18n_js(code: str):
+        code = i18n.normalize(code)
+        body = "window.PM_T=" + json.dumps(i18n.catalog(code), ensure_ascii=False) + ";"
+        return Response(body, media_type="text/javascript", headers={"Cache-Control": "max-age=86400"})
+
     @app.post("/api/appearance")
     async def api_appearance(body: dict):
         _check_csrf(str(body.get("csrf", "")), csrf_token)
         from ..themes import normalize
 
-        config.raw["appearance"] = normalize(body)
+        config.raw["appearance"] = normalize({**(config.raw.get("appearance") or {}), **body})
         config.save()
         return {"ok": True, **config.raw["appearance"]}
 

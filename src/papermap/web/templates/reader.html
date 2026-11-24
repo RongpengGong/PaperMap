@@ -1,5 +1,5 @@
 {% extends ("bare.html" if embed else "base.html") %}
-{% block title %}{{ p.title }} - 阅读{% endblock %}
+{% block title %}{{ p.title }} {{ _("- 阅读") }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">{% if embed %}
 <script>
   // A standalone window always needs library navigation, even on WebViews
@@ -17,51 +17,51 @@
      data-resume-page="{{ p.reading_page if p.reading_page is not none else '' }}" data-resume-offset="{{ p.reading_offset or 0 }}" data-resume-at="{{ p.reading_at or 0 }}" data-find="{{ find }}">
   <aside class="reader-side" id="reader_side">
     <div class="rs-tabs">
-      <button type="button" class="active" data-rs="toc">目录</button>
-      <button type="button" data-rs="search">搜索</button>
-      <button type="button" data-rs="ann">标注 <i id="ann_count"></i></button>
+      <button type="button" class="active" data-rs="toc">{{ _("目录") }}</button>
+      <button type="button" data-rs="search">{{ _("搜索") }}</button>
+      <button type="button" data-rs="ann">{{ _("标注") }} <i id="ann_count"></i></button>
     </div>
-    <div class="rs-body" data-rs-body="toc"><div id="toc"><p class="muted small pad">读取中…</p></div></div>
+    <div class="rs-body" data-rs-body="toc"><div id="toc"><p class="muted small pad">{{ _("读取中…") }}</p></div></div>
     <div class="rs-body" data-rs-body="search" hidden>
-      <input type="search" id="search_q" placeholder="在全文中搜索（回车）">
+      <input type="search" id="search_q" placeholder="{{ _("在全文中搜索（回车）") }}">
       <div id="search_results"></div>
     </div>
     <div class="rs-body" data-rs-body="ann" hidden><div id="ann_list"></div></div>
   </aside>
   <section class="reader-main">
     <div class="reader-bar">
-      <button type="button" class="icon-btn" id="toggle_side" title="显示/隐藏侧栏">☰</button>
-      {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}" data-show-library-list>← 返回论文列表</a>{% endif %}
+      <button type="button" class="icon-btn" id="toggle_side" title="{{ _("显示/隐藏侧栏") }}">☰</button>
+      {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}" data-show-library-list>{{ _("← 返回论文列表") }}</a>{% endif %}
       <span class="reader-title" title="{{ p.title }}">{{ p.title }}</span>
       <span class="grow"></span>
-      <button type="button" class="ghost-btn" id="reader_ocr" hidden title="用 Mac 本机文字识别处理当前页">识别本页</button>
+      <button type="button" class="ghost-btn" id="reader_ocr" hidden title="{{ _("用 Mac 本机文字识别处理当前页") }}">{{ _("识别本页") }}</button>
       <span class="page-ind"><input type="number" id="page_no" min="1" value="1"> / <span id="page_total">–</span></span>
-      <button type="button" class="icon-btn" id="zoom_out" title="缩小 (⌘-)">−</button>
+      <button type="button" class="icon-btn" id="zoom_out" title="{{ _("缩小 (⌘-)") }}">−</button>
       <span id="zoom_label" class="zoom-label">100%</span>
-      <button type="button" class="icon-btn" id="zoom_in" title="放大 (⌘+)">＋</button>
-      <button type="button" class="ghost-btn" id="zoom_fit" title="适合宽度">适合宽度</button>
+      <button type="button" class="icon-btn" id="zoom_in" title="{{ _("放大 (⌘+)") }}">＋</button>
+      <button type="button" class="ghost-btn" id="zoom_fit" title="{{ _("适合宽度") }}">{{ _("适合宽度") }}</button>
     </div>
     <div class="reader-evidence-notice" id="evidence_location" hidden>
       <span role="status" id="evidence_location_text"></span>
-      <a href="/evidence" id="evidence_location_back">返回证据笔记</a>
-      <button type="button" class="icon-btn" id="evidence_location_close" aria-label="关闭证据定位">×</button>
+      <a href="/evidence" id="evidence_location_back">{{ _("返回证据笔记") }}</a>
+      <button type="button" class="icon-btn" id="evidence_location_close" aria-label="{{ _("关闭证据定位") }}">×</button>
     </div>
     <div class="pages" id="pages"></div>
   </section>
 </div>
 <div id="sel_toolbar" class="sel-toolbar" hidden>
-  {% for name, hex in colors.items() %}<button type="button" class="dot-btn" data-color="{{ name }}" style="--c:{{ hex }}" title="高亮"></button>{% endfor %}
+  {% for name, hex in colors.items() %}<button type="button" class="dot-btn" data-color="{{ name }}" style="--c:{{ hex }}" title="{{ _("高亮") }}"></button>{% endfor %}
   <span class="sep"></span>
-  <button type="button" data-act="evidence">摘到证据笔记</button>
-  <button type="button" data-act="note">批注</button>
-  <button type="button" data-act="translate">翻译</button>
-  <button type="button" data-act="copy">复制</button>
+  <button type="button" data-act="evidence">{{ _("摘到证据笔记") }}</button>
+  <button type="button" data-act="note">{{ _("批注") }}</button>
+  <button type="button" data-act="translate">{{ _("翻译") }}</button>
+  <button type="button" data-act="copy">{{ _("复制") }}</button>
 </div>
 {% include "_evidence_dialog.html" %}
 <div id="tr_popup" class="tr-popup" hidden>
-  <div class="tr-head"><strong>译文</strong><span class="muted small" id="tr_model"></span><span class="grow"></span><button type="button" class="icon-btn" id="tr_close">×</button></div>
+  <div class="tr-head"><strong>{{ _("译文") }}</strong><span class="muted small" id="tr_model"></span><span class="grow"></span><button type="button" class="icon-btn" id="tr_close">×</button></div>
   <div id="tr_text" class="tr-text"></div>
-  <div class="tr-actions"><button type="button" class="ghost-btn" id="tr_copy">复制译文</button><button type="button" class="ghost-btn" id="tr_save">存为批注</button></div>
+  <div class="tr-actions"><button type="button" class="ghost-btn" id="tr_copy">{{ _("复制译文") }}</button><button type="button" class="ghost-btn" id="tr_save">{{ _("存为批注") }}</button></div>
 </div>
 {% endblock %}
 {% block scripts %}<script src="/static/evidence.js?v={{ static_v }}"></script><script src="/static/reader-position.js?v={{ static_v }}"></script><script src="/static/reader.js?v={{ static_v }}"></script>{% endblock %}

@@ -175,7 +175,7 @@
       if (hover) {
         tip.hidden = false;
         tip.textContent = hover.kind === "paper" ? `${hover.title}  (${hover.journal})` :
-          hover.kind === "question" ? `研究问题：${hover.title} · ${hover.count} 条摘录` : `${hover.label} · ${hover.title} · ${hover.count} 篇`;
+          hover.kind === "question" ? `${t("研究问题：")}${hover.title} · ${hover.count} ${t("条摘录")}` : `${hover.label} · ${hover.title} · ${hover.count} ${t("篇")}`;
         const r = wrap.getBoundingClientRect();
         tip.style.left = (ev.clientX - r.left + 14) + "px"; tip.style.top = (ev.clientY - r.top + 10) + "px";
       } else tip.hidden = true;

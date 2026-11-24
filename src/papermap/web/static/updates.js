@@ -18,8 +18,8 @@
     const q = sel.value; sel.value = "";
     const panel = sel.closest(".panel");
     const j = await post(`/paper/${panel.dataset.paper}/update`, { question_id: q });
-    if (!j.ok) { say(j.message || "无法开始"); return; }
-    say("模型正在读全文对照证据，约半分钟，完成后出现在这里");
+    if (!j.ok) { say(j.message || t("无法开始")); return; }
+    say(t("模型正在读全文对照证据，约半分钟，完成后出现在这里"));
     refresh(sel);
     if (window.pmStartPolling) window.pmStartPolling();
   });
@@ -33,8 +33,8 @@
     b.disabled = true;
     const j = await post(`/api/updates/${card.dataset.ucard}`, { action: act });
     b.disabled = false;
-    if (!j.ok) { say(j.message || "操作失败"); return; }
-    if (j.added) say(`已确认，${j.added} 条本文原句存进了证据笔记`);
+    if (!j.ok) { say(j.message || t("操作失败")); return; }
+    if (j.added) say(`${t("已确认，")}${j.added} ${t("条本文原句存进了证据笔记")}`);
     refresh(card);
   });
 
@@ -44,8 +44,8 @@
     const card = form.closest("[data-ucard]");
     const j = await post(`/api/updates/${card.dataset.ucard}`, { action: "rewrite",
       text: form.elements.text.value, outcome: form.elements.outcome.value });
-    if (!j.ok) { say(j.message || "保存失败"); return; }
-    if (j.added) say(`已确认，${j.added} 条本文原句存进了证据笔记`);
+    if (!j.ok) { say(j.message || t("保存失败")); return; }
+    if (j.added) say(`${t("已确认，")}${j.added} ${t("条本文原句存进了证据笔记")}`);
     refresh(card);
   });
 })();

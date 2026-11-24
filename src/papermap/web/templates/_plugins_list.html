@@ -2,19 +2,19 @@
 {% for p in plugins %}
   <article class="ext-item">
     <div class="ext-heading"><div><strong>{{ p.name }}</strong>{% if p.version %} <small class="muted">{{ p.version }}</small>{% endif %}</div>
-      <span class="small {{ 'ok-text' if p.enabled else 'muted' }}">{{ '已启用' if p.enabled else '未启用' }}</span></div>
+      <span class="small {{ 'ok-text' if p.enabled else 'muted' }}">{{ _('已启用') if p.enabled else _('未启用') }}</span></div>
     {% if p.description %}<p>{{ p.description }}</p>{% endif %}
-    <div class="small muted">{{ 'Python 插件' if p.python else '配置插件' }}{% for key in p.contributions if key in labels %} · {{ labels[key] }}{% endfor %}</div>
-    {% if p.python %}<p class="small">声明的权限：{{ p.permissions|join('、') or '未声明' }}{% if p.events %}<br>订阅事件：{{ p.events|join('、') }}{% endif %}</p>{% endif %}
+    <div class="small muted">{{ _('Python 插件') if p.python else _('配置插件') }}{% for key in p.contributions if key in labels %} · {{ labels[key] }}{% endfor %}</div>
+    {% if p.python %}<p class="small">{{ _("声明的权限：") }}{{ p.permissions|join('、') or _('未声明') }}{% if p.events %}<br>{{ _("订阅事件：") }}{{ p.events|join('、') }}{% endif %}</p>{% endif %}
     {% if p.error %}<p class="err-text small">{{ p.error }}</p>{% else %}
-      <div class="row"><button type="button" class="secondary" data-ext-action="toggle" data-plugin="{{ p.id }}" data-name="{{ p.name }}" data-digest="{{ p.digest }}" data-code="{{ 'yes' if p.python else 'no' }}" data-enabled="{{ 'yes' if p.enabled else 'no' }}" data-permissions="{{ p.permissions|join('、') or '未声明' }}">{{ '停用' if p.enabled else ('信任并启用…' if p.python else '启用') }}</button>
-      {% if p.trusted %}<button type="button" class="secondary" data-ext-action="run" data-plugin="{{ p.id }}">运行一次</button>{% endif %}</div>
+      <div class="row"><button type="button" class="secondary" data-ext-action="toggle" data-plugin="{{ p.id }}" data-name="{{ p.name }}" data-digest="{{ p.digest }}" data-code="{{ 'yes' if p.python else 'no' }}" data-enabled="{{ 'yes' if p.enabled else 'no' }}" data-permissions="{{ p.permissions|join('、') or _('未声明') }}">{{ _('停用') if p.enabled else (_('信任并启用…') if p.python else _('启用')) }}</button>
+      {% if p.trusted %}<button type="button" class="secondary" data-ext-action="run" data-plugin="{{ p.id }}">{{ _("运行一次") }}</button>{% endif %}</div>
     {% endif %}
     {% set state = states.get(p.id) %}
     {% if state and state.digest == p.digest and p.enabled %}
-      {% if state.error %}<p class="err-text small">事件处理已暂停：{{ state.error }}</p><button type="button" class="secondary" data-ext-action="retry" data-plugin="{{ p.id }}">重试该事件</button>{% endif %}
-      {% if state.last_result %}<details><summary>最近一次事件结果</summary><pre>{{ state.last_result }}</pre></details>{% endif %}
+      {% if state.error %}<p class="err-text small">{{ _("事件处理已暂停：") }}{{ state.error }}</p><button type="button" class="secondary" data-ext-action="retry" data-plugin="{{ p.id }}">{{ _("重试该事件") }}</button>{% endif %}
+      {% if state.last_result %}<details><summary>{{ _("最近一次事件结果") }}</summary><pre>{{ state.last_result }}</pre></details>{% endif %}
     {% endif %}
   </article>
-{% else %}<p class="ext-empty">尚未安装插件。</p>{% endfor %}
+{% else %}<p class="ext-empty">{{ _("尚未安装插件。") }}</p>{% endfor %}
 </div>

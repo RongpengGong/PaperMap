@@ -37,7 +37,7 @@
     });
     if (sectionField) sectionField.value = id;
     if (title && selected) title.textContent = selected.dataset.title || selected.textContent.trim();
-    if (group && selected) group.textContent = selected.dataset.groupLabel || "设置";
+    if (group && selected) group.textContent = selected.dataset.groupLabel || t("设置");
     if (title) document.title = title.textContent + " - PaperMap";
     if (scroll) scroll.scrollTop = positions.get(id) || 0;
     initialized = true;

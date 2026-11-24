@@ -9,9 +9,10 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from .registry import Registry, now_iso
+from .i18n import L
 
-STANCES = {"pending": "待核对", "supports": "支持", "opposes": "相反"}
-SOURCES = {"native": "PDF 原文", "ocr": "本机 OCR"}
+STANCES = {"pending": L("待核对"), "supports": L("支持"), "opposes": L("相反")}
+SOURCES = {"native": L("PDF 原文"), "ocr": L("本机 OCR")}
 
 
 @lru_cache(maxsize=64)

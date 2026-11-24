@@ -51,7 +51,7 @@
   let toastTimer;
   function toast(msg, ms = 3500) {
     if (!toastEl) return;
-    toastEl.textContent = msg; toastEl.classList.add("show");
+    toastEl.textContent = t(String(msg)); toastEl.classList.add("show");
     clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
   }
   window.pmToast = toast;
@@ -59,20 +59,20 @@
   // ---------------------------------------------------------------- import
   async function upload(files) {
     const pdfs = [...files].filter(f => /\.pdf$/i.test(f.name));
-    if (!pdfs.length) { toast("只能导入 PDF 文件"); return; }
+    if (!pdfs.length) { toast(t("只能导入 PDF 文件")); return; }
     const fd = new FormData(); fd.append("csrf", csrf);
     const lst = document.getElementById("paper_list");
     if (lst && /^\d+$/.test(lst.dataset.c || "")) fd.append("collection", lst.dataset.c);
     pdfs.forEach(f => fd.append("files", f, f.name));
-    toast(`正在导入 ${pdfs.length} 个 PDF…`, 60000);
+    toast(`${t("正在导入")} ${pdfs.length} ${t("个 PDF…")}`, 60000);
     try {
       const r = await fetch("/api/import", { method: "POST", body: fd });
       const j = await r.json();
-      toast(`已导入 ${j.count} 篇，正在识别 DOI 和生成卡片…`);
+      toast(`${t("已导入")} ${j.count} ${t("篇，正在识别 DOI 和生成卡片…")}`);
       if (!location.pathname.startsWith("/") || location.pathname !== "/") location.href = "/";
       else refreshList();
       startPolling();
-    } catch (e) { toast("导入失败：" + e); }
+    } catch (e) { toast(t("导入失败：") + e); }
   }
   document.addEventListener("click", e => { if (e.target.closest("#import_btn")) document.getElementById("import_input")?.click(); });
   document.addEventListener("change", e => {
@@ -187,7 +187,7 @@
     const applyPdf = () => {
       const hidden = pref("pm_pdf_hidden") === "1";
       panel.classList.toggle("pdf-hidden", hidden);
-      if (pdfBtn) pdfBtn.textContent = hidden ? "对照显示 PDF" : "隐藏 PDF";
+      if (pdfBtn) pdfBtn.textContent = hidden ? t("对照显示 PDF") : t("隐藏 PDF");
       if (frame && !hidden && !frame.src) frame.src = frame.dataset.src;
     };
     applyPdf();
@@ -197,7 +197,7 @@
       const updateListButton = () => {
         const expanded = !document.body.classList.contains("list-collapsed");
         listBtn.setAttribute("aria-expanded", String(expanded));
-        listBtn.title = expanded ? "收起论文列表" : "展开论文列表";
+        listBtn.title = expanded ? t("收起论文列表") : t("展开论文列表");
         listBtn.setAttribute("aria-label", listBtn.title);
       };
       updateListButton();
@@ -236,10 +236,10 @@
         if (notes.value === saved) return;
         const text = notes.value;
         const r = await fetch(`/paper/${id}/notes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, text }) });
-        if (r.ok) { saved = text; status.textContent = "已保存 " + new Date().toLocaleTimeString(); }
-        else status.textContent = "保存失败";
+        if (r.ok) { saved = text; status.textContent = t("已保存 ") + new Date().toLocaleTimeString(); }
+        else status.textContent = t("保存失败");
       };
-      notes.addEventListener("input", () => { status.textContent = "编辑中…"; clearTimeout(timer); timer = setTimeout(save, 800); });
+      notes.addEventListener("input", () => { status.textContent = t("编辑中…"); clearTimeout(timer); timer = setTimeout(save, 800); });
       notes.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); } });
       notes.addEventListener("blur", () => setTimeout(save, 150));
       // [[ link suggestions
@@ -254,7 +254,7 @@
         close(); notes.dispatchEvent(new Event("input"));
       };
       const render = () => {
-        pop.innerHTML = items.map((it, i) => `<div class="lp-item ${i === sel ? "on" : ""}" data-i="${i}">${it.label.replace(/[<>&]/g, "")}</div>`).join("") || `<div class="lp-empty">没有匹配的论文或学科</div>`;
+        pop.innerHTML = items.map((it, i) => `<div class="lp-item ${i === sel ? "on" : ""}" data-i="${i}">${it.label.replace(/[<>&]/g, "")}</div>`).join("") || `<div class="lp-empty">${t("没有匹配的论文或学科")}</div>`;
       };
       notes.addEventListener("keyup", async e => {
         if (["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(e.key) && !pop.hidden) return;
@@ -279,7 +279,7 @@
       pv && pv.addEventListener("click", async () => {
         const showing = !pvBox.hidden;
         if (!showing) pvBox.innerHTML = (await api("/api/notes-preview", { text: notes.value })).html || "";
-        pvBox.hidden = showing; notes.hidden = !showing; pv.textContent = showing ? "预览" : "编辑";
+        pvBox.hidden = showing; notes.hidden = !showing; pv.textContent = showing ? t("预览") : t("编辑");
       });
     }
   }
@@ -319,7 +319,7 @@
   if (window.pywebview?.api) enableNativeWindow();
   else window.addEventListener("pywebviewready", enableNativeWindow, { once: true });
   document.querySelectorAll("[data-pick-folder]").forEach(btn => btn.addEventListener("click", async () => {
-    if (!window.pywebview) { toast("在 PaperMap 应用里可以直接选择文件夹；浏览器里请手动填写路径"); return; }
+    if (!window.pywebview) { toast(t("在 PaperMap 应用里可以直接选择文件夹；浏览器里请手动填写路径")); return; }
     const path = await window.pywebview.api.pick_folder();
     if (path) {
       const ta = document.getElementById(btn.dataset.pickFolder);
@@ -330,7 +330,7 @@
 
   // ------------------------------------------------------- groups (collections)
   const modal = document.getElementById("modal");
-  function dialog(msg, { input = false, value = "", okText = "确定", danger = false } = {}) {
+  function dialog(msg, { input = false, value = "", okText = t("确定"), danger = false } = {}) {
     if (!modal) return Promise.resolve(null);
     return new Promise(resolve => {
       const inp = document.getElementById("modal_input"), ok = document.getElementById("modal_ok");
@@ -347,7 +347,7 @@
   async function api(url, body = {}) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...body }) });
     const j = await r.json().catch(() => ({ ok: false, message: "HTTP " + r.status }));
-    if (!j.ok && !j.need_ack) toast(j.message || "操作失败");
+    if (!j.ok && !j.need_ack) toast(j.message || t("操作失败"));
     return j;
   }
   async function refreshSidebar() {
@@ -414,7 +414,7 @@
   const lbExplain = document.getElementById("lb_explain");
   if (lbExplain) lbExplain.onclick = async ev => {
     const b = ev.target; b.disabled = true;
-    document.getElementById("lb_expl").innerHTML = `<p class="job-line"><span class="spinner"></span>模型正在看图…</p>`;
+    document.getElementById("lb_expl").innerHTML = `<p class="job-line"><span class="spinner"></span>${t("模型正在看图…")}</p>`;
     const j = await api(`/api/figure/${lbFig.id}/explain`, {});
     b.disabled = false;
     document.getElementById("lb_expl").innerHTML = j.ok ? j.html : "";
@@ -422,14 +422,14 @@
   };
   const lbNotes = document.getElementById("lb_notes");
   if (lbNotes) lbNotes.onclick = async () => {
-    if ((await api(`/api/figure/${lbFig.id}/to-notes`, {})).ok) toast("已加到这篇论文的「我的笔记」");
+    if ((await api(`/api/figure/${lbFig.id}/to-notes`, {})).ok) toast(t("已加到这篇论文的「我的笔记」"));
   };
   async function loadFigures(box) {
     if (box.dataset.loaded) return; box.dataset.loaded = "1";
     const pid = box.dataset.figures;
     const figs = await (await fetch(`/api/figures/${pid}`)).json();
     box.innerHTML = figs.length ? figs.map((f, i) => `<a href="#" class="fig-card" data-i="${i}"><img loading="lazy" src="/api/figure/${f.id}.png?scale=1" alt=""><span>${f.label}${f.explanation_html ? " · 已讲解" : ""}</span></a>`).join("")
-      : `<p class="muted small">没有找到带图注的图（扫描版或排版特殊的 PDF 可能识别不到）。</p>`;
+      : `<p class="muted small">${t("没有找到带图注的图（扫描版或排版特殊的 PDF 可能识别不到）。")}</p>`;
     box.addEventListener("click", e => { const a = e.target.closest(".fig-card"); if (!a) return; e.preventDefault(); openFigure({ ...figs[+a.dataset.i], paper_id: +pid }); });
   }
   document.addEventListener("click", e => {
@@ -454,17 +454,17 @@
     const url = `/export.${fmt}?${query}`;
     if (window.pywebview && window.pywebview.api && window.pywebview.api.save_text) {
       const response = await fetch(url);
-      if (!response.ok) { toast("导出失败，请检查模板是否仍已启用"); return; }
+      if (!response.ok) { toast(t("导出失败，请检查模板是否仍已启用")); return; }
       const path = await window.pywebview.api.save_text(`papermap.${extension}`, await response.text());
-      if (path) toast("已保存到 " + path);
+      if (path) toast(t("已保存到 ") + path);
     } else { location.href = url; }
   }
   function exportMenu(x, y, ids) {
     const cur = list ? list.dataset.c || "" : "";
     const scopeQ = ids.length ? `ids=${ids.join(",")}` : (cur ? `c=${cur}` : "");
-    const what = ids.length ? `所选 ${ids.length} 篇` : (cur ? "当前分组" : "全部论文");
+    const what = ids.length ? `${t("所选")} ${ids.length} ${t("篇")}` : (cur ? t("当前分组") : t("全部论文"));
     const templates = JSON.parse(document.getElementById("plugin_exports")?.textContent || "[]");
-    showMenu(x, y, [{ label: `导出${what}` },
+    showMenu(x, y, [{ label: `${t("导出")}${what}` },
       { text: "BibTeX（.bib）", run: () => exportRefs("bib", scopeQ) },
       { text: "RIS（EndNote / Zotero）", run: () => exportRefs("ris", scopeQ) },
       ...templates.map(t => ({ text: t.name, run: () => exportRefs(t.id, scopeQ, t.extension) }))]);
@@ -477,10 +477,10 @@
   });
 
   async function newGroup(parentId = null, paperIds = []) {
-    const name = await dialog(parentId ? "新建子分组：" : "新建分组：", { input: true, okText: "创建" });
+    const name = await dialog(parentId ? t("新建子分组：") : t("新建分组："), { input: true, okText: t("创建") });
     if (!name) return;
     const j = await api("/api/collections", { name, parent_id: parentId, paper_ids: paperIds });
-    if (j.ok) { toast(`已创建「${name}」`); refreshSidebar(); }
+    if (j.ok) { toast(`${t("已创建「")}${name}」`); refreshSidebar(); }
   }
   const groupList = () => [...document.querySelectorAll(".coll[data-cid]")].filter(a => /^\d+$/.test(a.dataset.cid))
     .map(a => ({ id: a.dataset.cid, name: a.querySelector(".name").textContent, depth: +getComputedStyle(a).getPropertyValue("--d") || 0 }));
@@ -513,18 +513,18 @@
       if (tsel) {
         j = await api(`/paper/${pid}/translate`, { service: value });
         if (j.need_ack) {
-          if (!(await dialog("使用 bilibili 免费翻译时，论文正文会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。", { okText: "继续翻译" }))) return;
+          if (!(await dialog(t("使用 bilibili 免费翻译时，论文正文会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。"), { okText: t("继续翻译") }))) return;
           j = await api(`/paper/${pid}/translate`, { service: value, ack: true });
         }
       } else {
         j = await api(`/paper/${pid}/skill`, { skill: value });
       }
-      if (j.ok) { toast(tsel ? "已开始翻译，完成后会出现「译文对照」标签" : "已开始解读，完成后会出现新标签"); openPaper(pid, false); startPolling(); }
+      if (j.ok) { toast(tsel ? t("已开始翻译，完成后会出现「译文对照」标签") : t("已开始解读，完成后会出现新标签")); openPaper(pid, false); startPolling(); }
       return;
     }
     const sel = e.target.closest("[data-add-group]"); if (!sel || !sel.value) return;
     const pid = sel.closest(".panel").dataset.paper;
-    api(`/api/collections/${sel.value}/add`, { paper_ids: [pid] }).then(j => { if (j.ok) { toast("已加入分组"); refreshSidebar(); } });
+    api(`/api/collections/${sel.value}/add`, { paper_ids: [pid] }).then(j => { if (j.ok) { toast(t("已加入分组")); refreshSidebar(); } });
   });
 
   document.addEventListener("contextmenu", e => {
@@ -533,15 +533,15 @@
       e.preventDefault();
       const id = g.dataset.cid, name = g.querySelector(".name").textContent;
       showMenu(e.clientX, e.clientY, [
-        { text: "新建子分组…", run: () => newGroup(id) },
-        { text: "重命名…", run: async () => {
-          const n = await dialog("重命名分组：", { input: true, value: name, okText: "保存" });
+        { text: t("新建子分组…"), run: () => newGroup(id) },
+        { text: t("重命名…"), run: async () => {
+          const n = await dialog(t("重命名分组："), { input: true, value: name, okText: t("保存") });
           if (n && n !== name && (await api(`/api/collections/${id}/rename`, { name: n })).ok) refreshSidebar();
         } },
-        { text: "移到最上层", run: async () => { if ((await api(`/api/collections/${id}/move`, { parent_id: null })).ok) refreshSidebar(); } },
+        { text: t("移到最上层"), run: async () => { if ((await api(`/api/collections/${id}/move`, { parent_id: null })).ok) refreshSidebar(); } },
         "-",
-        { text: "删除分组…", danger: true, run: async () => {
-          if (await dialog(`删除分组「${name}」及其子分组？里面的论文不会被删除，仍在「全部论文」里。`, { okText: "删除", danger: true })) {
+        { text: t("删除分组…"), danger: true, run: async () => {
+          if (await dialog(`${t("删除分组「")}${name}${t("」及其子分组？里面的论文不会被删除，仍在「全部论文」里。")}`, { okText: t("删除"), danger: true })) {
             if ((await api(`/api/collections/${id}/delete`)).ok) {
               if (new URLSearchParams(location.search).get("c") === id) location.href = "/"; else refreshSidebar();
             }
@@ -556,16 +556,16 @@
       if (!row.classList.contains("multi")) list.querySelectorAll(".multi").forEach(r => r.classList.remove("multi"));
       const ids = selectedPaperIds(row), cur = list.dataset.c;
       const groups = groupList();
-      const items = [{ label: ids.length > 1 ? `已选 ${ids.length} 篇 · 加入分组` : "加入分组" }];
+      const items = [{ label: ids.length > 1 ? `${t("已选")} ${ids.length} ${t("篇 · 加入分组")}` : t("加入分组") }];
       groups.forEach(gr => items.push({ text: "　".repeat(gr.depth) + gr.name, run: async () => {
         const j = await api(`/api/collections/${gr.id}/add`, { paper_ids: ids });
-        if (j.ok) { toast(`已加入「${gr.name}」`); refreshSidebar(); }
+        if (j.ok) { toast(`${t("已加入「")}${gr.name}」`); refreshSidebar(); }
       } }));
-      items.push({ text: "＋ 新建分组并加入…", run: () => newGroup(null, ids) });
-      items.push("-", { text: "导出参考文献…", run: () => exportMenu(e.clientX, e.clientY, ids) });
-      if (ids.length > 1) items.push({ text: `对比所选 ${ids.length} 篇论文`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
+      items.push({ text: t("＋ 新建分组并加入…"), run: () => newGroup(null, ids) });
+      items.push("-", { text: t("导出参考文献…"), run: () => exportMenu(e.clientX, e.clientY, ids) });
+      if (ids.length > 1) items.push({ text: `${t("对比所选")} ${ids.length} ${t("篇论文")}`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
       if (/^\d+$/.test(cur || "")) {
-        items.push("-", { text: "从当前分组移除", run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });
+        items.push("-", { text: t("从当前分组移除"), run: async () => { if ((await api(`/api/collections/${cur}/remove`, { paper_ids: ids })).ok) refreshSidebar(); } });
       }
       showMenu(e.clientX, e.clientY, items);
     }
@@ -580,7 +580,7 @@
       e.dataTransfer.setData(PAPERS, JSON.stringify(ids));
       e.dataTransfer.effectAllowed = "copy";
       const ghost = document.createElement("div"); ghost.className = "drag-ghost";
-      ghost.textContent = ids.length > 1 ? `${ids.length} 篇论文` : row.querySelector(".t").textContent.slice(0, 40);
+      ghost.textContent = ids.length > 1 ? `${ids.length} ${t("篇论文")}` : row.querySelector(".t").textContent.slice(0, 40);
       document.body.appendChild(ghost); e.dataTransfer.setDragImage(ghost, 10, 10); setTimeout(() => ghost.remove(), 0);
       return;
     }
@@ -604,7 +604,7 @@
       e.preventDefault();
       const ids = JSON.parse(papers), name = t.querySelector(".name").textContent;
       const j = await api(`/api/collections/${t.dataset.cid}/add`, { paper_ids: ids });
-      if (j.ok) { toast(j.added ? `已加入「${name}」${ids.length > 1 ? `（${j.added} 篇）` : ""}` : `已经在「${name}」里了`); refreshSidebar(); }
+      if (j.ok) { toast(j.added ? `${t("已加入「")}${name}」${ids.length > 1 ? `（${j.added} 篇）` : ""}` : `${t("已经在「")}${name}${t("」里了")}`); refreshSidebar(); }
     } else if (group) {
       e.preventDefault();
       const parent = t.dataset.cid === "root" ? null : t.dataset.cid;

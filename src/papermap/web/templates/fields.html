@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}学科 - PaperMap{% endblock %}
+{% block title %}{{ _("学科 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>学科</h2>
-{% for axis, title in [('method', '方法学（知识地图主结构）'), ('topic', '主题（交叉标签）')] %}
+<h2>{{ _("学科") }}</h2>
+{% for axis, title in [('method', _('方法学（知识地图主结构）')), ('topic', _('主题（交叉标签）'))] %}
 <h3>{{ title }}</h3>
 <div class="field-grid">
 {% for f in rows if f.axis == axis %}
   <a class="field-tile {{ 'empty' if not f.n }} {{ f.axis }}" href="/field/{{ f.slug }}">
-    <strong>{{ f.name_zh }}</strong><span class="muted">{{ f.name_en }}</span>
-    <span class="n">{{ f.n }} 篇{% if f.status == 'retired' %} · 已移除{% endif %}</span>
+    <strong>{{ fname(f) }}</strong><span class="muted">{{ f.name_en }}</span>
+    <span class="n">{{ f.n }} {{ _("篇") }}{% if f.status == 'retired' %} {{ _("· 已移除") }}{% endif %}</span>
   </a>
 {% endfor %}
 </div>

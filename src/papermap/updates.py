@@ -24,20 +24,21 @@ from .extract import LANGUAGE_RULES
 from .extract import load_prompt as _load_prompt
 from .llm import LLMClient
 from .registry import Registry, now_iso
+from .i18n import L
 
 PROMPT_VERSION = "update_v1"
 OUTCOMES = {
-    "unchanged": "未改变当前判断",
-    "support": "又一篇支持证据",
-    "first_intervention": "本库在这个问题下收录的首条干预证据",
-    "contradicts": "结论相反",
-    "extends": "扩展到新人群 / 物种 / 组织",
-    "method": "方法改进",
-    "unrelated": "这篇没有涉及这个问题",
+    "unchanged": L("未改变当前判断"),
+    "support": L("又一篇支持证据"),
+    "first_intervention": L("本库在这个问题下收录的首条干预证据"),
+    "contradicts": L("结论相反"),
+    "extends": L("扩展到新人群 / 物种 / 组织"),
+    "method": L("方法改进"),
+    "unrelated": L("这篇没有涉及这个问题"),
 }
 NEEDS_OLD = {"support", "contradicts", "extends", "method"}  # comparisons need anchors on both sides
-STATUSES = {"pending": "待核对", "confirmed": "已确认", "rewritten": "已改写确认", "kept": "保留原判断",
-            "dismissed": "已忽略"}
+STATUSES = {"pending": L("待核对"), "confirmed": L("已确认"), "rewritten": L("已改写确认"), "kept": L("保留原判断"),
+            "dismissed": L("已忽略")}
 DECIDED_CHANGES = ("confirmed", "rewritten")
 # a confirmed card adds its new quotations to the question's evidence with this stance
 STANCE = {"support": "supports", "first_intervention": "supports", "extends": "supports",

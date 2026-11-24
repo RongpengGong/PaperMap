@@ -1,13 +1,13 @@
-{% set names = {'new':'等待处理','extracting':'处理中…','doi_unverified':'DOI 待确认','skipped_supplement':'补充材料','error':'出错','ignored':'已忽略'} %}
+{% set names = {'new':_('等待处理'),'extracting':_('处理中…'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料'),'error':_('出错'),'ignored':_('已忽略')} %}
 {% for p in papers %}
 <a class="paper-row {{ 'selected' if p.id == selected }}" href="/?id={{ p.id }}" data-id="{{ p.id }}" draggable="true">
-  <span class="t">{% if p.status == 'done' and p.read_status == 'unread' %}<i class="unread-dot" title="未读"></i>{% endif %}{% if p.starred %}<i class="star-mark">★</i>{% endif %}{{ p.title or "(无标题)" }}</span>
+  <span class="t">{% if p.status == 'done' and p.read_status == 'unread' %}<i class="unread-dot" title="{{ _("未读") }}"></i>{% endif %}{% if p.starred %}<i class="star-mark">★</i>{% endif %}{{ p.title or _("(无标题)") }}</span>
   <span class="m">{{ p.first_author or '' }}{% if p.year %} {{ p.year }}{% endif %}{% if p.journal %} · {{ p.journal }}{% endif %}</span>
   <span class="tags">
     {% if p.status != 'done' %}<i class="st {{ p.status }}">{{ names.get(p.status, p.status) }}</i>{% endif %}
-    {% for l in (labels.get(p.id) or [])[:3] %}<i class="lb {{ l.axis }}">{{ l.name_zh }}</i>{% endfor %}
+    {% for l in (labels.get(p.id) or [])[:3] %}<i class="lb {{ l.axis }}">{{ fname(l) }}</i>{% endfor %}
   </span>
 </a>
 {% else %}
-<p class="muted pad">没有找到论文。</p>
+<p class="muted pad">{{ _("没有找到论文。") }}</p>
 {% endfor %}

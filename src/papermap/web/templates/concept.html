@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}工具 - PaperMap{% endblock %}
+{% block title %}{{ _("工具 - PaperMap") }}{% endblock %}
 {% block content %}
-<p><a href="/concepts">← 全部工具</a></p>
+<p><a href="/concepts">{{ _("← 全部工具") }}</a></p>
 <div class="card md" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
-<p class="muted">文件：<code>knowledge/{{ rel }}</code></p>
+<p class="muted">{{ _("文件：") }}<code>knowledge/{{ rel }}</code></p>
 {% endblock %}

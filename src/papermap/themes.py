@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import colorsys
 from pathlib import Path
+from .i18n import L
 
 # id: (label, hue, saturation factor)
 PALETTES = {
-    "blue": ("晴空蓝", 213, 1.0),
-    "pink": ("樱花粉", 336, 1.0),
-    "purple": ("薰衣草紫", 266, 0.9),
-    "green": ("薄荷绿", 158, 0.85),
-    "orange": ("暖阳橙", 26, 1.0),
-    "graphite": ("石墨灰", 215, 0.12),
+    "blue": (L("晴空蓝"), 213, 1.0),
+    "pink": (L("樱花粉"), 336, 1.0),
+    "purple": (L("薰衣草紫"), 266, 0.9),
+    "green": (L("薄荷绿"), 158, 0.85),
+    "orange": (L("暖阳橙"), 26, 1.0),
+    "graphite": (L("石墨灰"), 215, 0.12),
 }
-APPEARANCES = {"system": "跟随系统", "light": "浅色", "dark": "深色", "black": "纯黑（夜间）"}
+APPEARANCES = {"system": L("跟随系统"), "light": L("浅色"), "dark": L("深色"), "black": L("纯黑（夜间）")}
 SWATCH = {pid: f"hsl({h} {round(72 * s)}% 52%)" for pid, (_, h, s) in PALETTES.items()}
 
 
@@ -27,7 +28,9 @@ def normalize(raw: dict | None) -> dict:
     raw = raw or {}
     palette = raw.get("palette") if raw.get("palette") in PALETTES else "blue"
     mode = raw.get("mode") if raw.get("mode") in APPEARANCES else "system"
-    return {"palette": palette, "mode": mode}
+    from .i18n import normalize as _lang
+
+    return {"palette": palette, "mode": mode, "language": _lang(raw.get("language"))}
 
 
 def _hsl(h, s, l, a=None):

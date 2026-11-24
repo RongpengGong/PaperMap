@@ -1,42 +1,42 @@
 {% extends "base.html" %}
-{% block title %}待审核 - PaperMap{% endblock %}
+{% block title %}{{ _("待审核 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>待审核</h2>
+<h2>{{ _("待审核") }}</h2>
 {% if error %}<div class="notice">{{ error }}</div>{% endif %}
-{% if busy %}<div class="notice ok">后台正在处理，稍后刷新页面查看结果。</div>{% endif %}
+{% if busy %}<div class="notice ok">{{ _("后台正在处理，稍后刷新页面查看结果。") }}</div>{% endif %}
 
 {% if update_cards %}
 {% from "_update_cards.html" import ucard %}
-<h3>待核对的更新卡（{{ update_cards|length }}）</h3>
-<p class="muted small">模型判断的「这篇论文改变了什么」。点原句可回到 PDF 核对；确认或改写后进入学科页的「最近确认的变化」。</p>
+<h3>{{ _("待核对的更新卡（") }}{{ update_cards|length }}）</h3>
+<p class="muted small">{{ _("模型判断的「这篇论文改变了什么」。点原句可回到 PDF 核对；确认或改写后进入学科页的「最近确认的变化」。") }}</p>
 {% for u in update_cards %}{{ ucard(u, 'paper', update_outcomes) }}{% endfor %}
 {% endif %}
-<h3>分类需要确认（{{ items|length }}）</h3>
-<p class="muted">模型把握不大（置信度低于 {{ "%.0f"|format(100 * accept) }}%）的标签放在这里，确认后才会进入知识地图。</p>
+<h3>{{ _("分类需要确认（") }}{{ items|length }}）</h3>
+<p class="muted">{{ _("模型把握不大（置信度低于") }} {{ "%.0f"|format(100 * accept) }}{{ _("%）的标签放在这里，确认后才会进入知识地图。") }}</p>
 {% for p, labels in items %}
 <div class="card review-item">
   <div><a href="/paper/{{ p.id }}"><strong>{{ p.title }}</strong></a> <span class="muted">{{ p.first_author or '' }} {{ p.year or '' }} · {{ p.journal or '' }}</span></div>
   <div class="labels">
   {% for l in labels %}
     <span class="label {{ l.status }} {{ l.axis }}" title="{{ l.reason or '' }}">
-      {{ l.name_zh }} <small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.is_primary and l.axis == 'method' %} · 主要{% endif %}</small>
+      {{ fname(l) }} <small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.is_primary and l.axis == 'method' %} {{ _("· 主要") }}{% endif %}</small>
       {% if l.status == 'suggested' %}
-      <form method="post" action="/review/label"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><input type="hidden" name="slug" value="{{ l.slug }}"><button name="action" value="accept" title="确认">✓</button><button name="action" value="reject" class="ghost" title="拒绝">✗</button></form>
+      <form method="post" action="/review/label"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><input type="hidden" name="slug" value="{{ l.slug }}"><button name="action" value="accept" title="{{ _("确认") }}">✓</button><button name="action" value="reject" class="ghost" title="{{ _("拒绝") }}">✗</button></form>
       {% endif %}
     </span>
   {% endfor %}
   </div>
   <form method="post" action="/review/label" class="row add-label">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}">
-    <select name="slug">{% for f in all_fields %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}</select>
-    <button name="action" value="add" class="secondary">添加标签</button>
+    <select name="slug">{% for f in all_fields %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}</select>
+    <button name="action" value="add" class="secondary">{{ _("添加标签") }}</button>
   </form>
-  <form method="post" action="/review/paper-ok"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><button class="secondary">其余待定标签全部拒绝，完成审核</button></form>
+  <form method="post" action="/review/paper-ok"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}"><button class="secondary">{{ _("其余待定标签全部拒绝，完成审核") }}</button></form>
 </div>
-{% else %}<p class="muted">没有需要确认的分类。</p>{% endfor %}
+{% else %}<p class="muted">{{ _("没有需要确认的分类。") }}</p>{% endfor %}
 
-<h3>DOI 未通过校验（{{ unverified|length }}）</h3>
-<p class="muted">候选 DOI 查到的标题和 PDF 首页标题对不上。填入正确的 DOI，或者按「无 DOI」处理。</p>
+<h3>{{ _("DOI 未通过校验（") }}{{ unverified|length }}）</h3>
+<p class="muted">{{ _("候选 DOI 查到的标题和 PDF 首页标题对不上。填入正确的 DOI，或者按「无 DOI」处理。") }}</p>
 {% for p in unverified %}
 <div class="card review-item">
   <div><a href="/paper/{{ p.id }}"><strong>{{ p.title }}</strong></a></div>
@@ -44,50 +44,50 @@
   <form method="post" action="/review/doi" class="row">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="paper_id" value="{{ p.id }}">
     <input type="text" name="doi" value="{{ p.doi_candidate or '' }}" placeholder="10.xxxx/...">
-    <button name="action" value="use">使用这个 DOI</button>
-    <button name="action" value="nodoi" class="secondary">按无 DOI 处理</button>
-    <button name="action" value="ignore" class="secondary">忽略此文件</button>
+    <button name="action" value="use">{{ _("使用这个 DOI") }}</button>
+    <button name="action" value="nodoi" class="secondary">{{ _("按无 DOI 处理") }}</button>
+    <button name="action" value="ignore" class="secondary">{{ _("忽略此文件") }}</button>
   </form>
 </div>
-{% else %}<p class="muted">没有。</p>{% endfor %}
+{% else %}<p class="muted">{{ _("没有。") }}</p>{% endfor %}
 
-<h3>待定新学科（{{ pending|length }}）</h3>
-<p class="muted">模型发现现有分类表覆盖不到的方向时会提议新类别；相似的提议会自动合并。攒够 {{ threshold }} 篇论文后会提示你决定（阈值可在「设置」里改），没攒够也可以提前处理。</p>
+<h3>{{ _("待定新学科（") }}{{ pending|length }}）</h3>
+<p class="muted">{{ _("模型发现现有分类表覆盖不到的方向时会提议新类别；相似的提议会自动合并。攒够") }} {{ threshold }} {{ _("篇论文后会提示你决定（阈值可在「设置」里改），没攒够也可以提前处理。") }}</p>
 {% for r, papers in pending %}
 <div class="card review-item pending {{ 'ready' if r.n_papers >= threshold }}">
   <div class="row" style="align-items:center">
-    <strong>{{ r.name_zh or r.name_en }}</strong><span class="muted">{{ r.name_en }}</span>
-    <span class="chip">{{ '方法' if r.axis == 'method' else '主题' }}</span>
-    <span class="chip {{ 'done' if r.n_papers >= threshold }}">{{ r.n_papers }} / {{ threshold }} 篇</span>
-    {% if r.n_papers >= threshold %}<span class="ok-text">已达阈值，请决定</span>{% endif %}
+    <strong>{{ fname(r) }}</strong><span class="muted">{{ r.name_en }}</span>
+    <span class="chip">{{ _('方法') if r.axis == 'method' else _('主题') }}</span>
+    <span class="chip {{ 'done' if r.n_papers >= threshold }}">{{ r.n_papers }} / {{ threshold }} {{ _("篇") }}</span>
+    {% if r.n_papers >= threshold %}<span class="ok-text">{{ _("已达阈值，请决定") }}</span>{% endif %}
   </div>
   <p>{{ r.description }}</p>
-  {% set syn = r.synonyms_json|fromjson %}{% if syn %}<p class="muted">合并进来的叫法：{{ syn|join('、') }}</p>{% endif %}
+  {% set syn = r.synonyms_json|fromjson %}{% if syn %}<p class="muted">{{ _("合并进来的叫法：") }}{{ syn|join('、') }}</p>{% endif %}
   <ul>{% for p in papers %}<li><a href="/paper/{{ p.id }}">{{ p.first_author or '?' }} {{ p.year or '' }} · {{ p.journal or '' }}</a> <span class="muted">— {{ p.reason or '' }}</span></li>{% endfor %}</ul>
   <details>
-    <summary><strong>建立为新学科</strong></summary>
+    <summary><strong>{{ _("建立为新学科") }}</strong></summary>
     <form method="post" action="/review/pending">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
       <div class="row">
-        <label class="grow">中文名<input type="text" name="name_zh" value="{{ r.name_zh or '' }}"></label>
-        <label class="grow">英文名<input type="text" name="name_en" value="{{ r.name_en or '' }}"></label>
+        <label class="grow">{{ _("中文名") }}<input type="text" name="name_zh" value="{{ (r.name_zh or '')|keep }}"></label>
+        <label class="grow">{{ _("英文名") }}<input type="text" name="name_en" value="{{ (r.name_en or '')|keep }}"></label>
         <label class="grow">slug<input type="text" name="slug" value="{{ r.slug }}"></label>
-        <label>轴<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>主题</option><option value="method" {{ 'selected' if r.axis == 'method' }}>方法</option></select></label>
+        <label>{{ _("轴") }}<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>{{ _("主题") }}</option><option value="method" {{ 'selected' if r.axis == 'method' }}>{{ _("方法") }}</option></select></label>
       </div>
-      <label>判别说明（给模型看）<input type="text" name="description" value="{{ r.description or '' }}"></label>
-      <p><label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> 同时生成学习手册（约 1 次 LLM 调用）</label></p>
-      <button name="action" value="establish">建立</button>
+      <label>{{ _("判别说明（给模型看）") }}<input type="text" name="description" value="{{ (r.description or '')|keep }}"></label>
+      <p><label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> {{ _("同时生成学习手册（约 1 次 LLM 调用）") }}</label></p>
+      <button name="action" value="establish">{{ _("建立") }}</button>
     </form>
   </details>
   <form method="post" action="/review/pending" class="row" style="margin-top:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
     <select name="target" style="flex:1">
-      {% for f in all_fields if f.axis == r.axis %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}
-      {% for f in all_fields if f.axis != r.axis %}<option value="{{ f.slug }}">{{ '方法' if f.axis == 'method' else '主题' }} · {{ f.name_zh }}</option>{% endfor %}
+      {% for f in all_fields if f.axis == r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
+      {% for f in all_fields if f.axis != r.axis %}<option value="{{ f.slug }}">{{ _('方法') if f.axis == 'method' else _('主题') }} · {{ fname(f) }}</option>{% endfor %}
     </select>
-    <button name="action" value="merge" class="secondary">合并到这个已有类别</button>
-    <button name="action" value="reject" class="ghost" onclick="return confirm('拒绝后，类似的提议以后会被自动忽略。确定？')">拒绝</button>
+    <button name="action" value="merge" class="secondary">{{ _("合并到这个已有类别") }}</button>
+    <button name="action" value="reject" class="ghost" onclick='return confirm({{ _("拒绝后，类似的提议以后会被自动忽略。确定？")|tojson }})'>{{ _("拒绝") }}</button>
   </form>
 </div>
-{% else %}<p class="muted">没有。</p>{% endfor %}
+{% else %}<p class="muted">{{ _("没有。") }}</p>{% endfor %}
 {% endblock %}

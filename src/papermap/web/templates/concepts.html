@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}工具 - PaperMap{% endblock %}
+{% block title %}{{ _("工具 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>工具 / 概念</h2>
-<p class="muted">被至少 2 篇论文用到的软件包和工具（阈值可在配置里改 <code>concept_min_papers</code>）。每页列出用到它的论文、所在学科和经常搭配的工具。</p>
+<h2>{{ _("工具 / 概念") }}</h2>
+<p class="muted">{{ _("被至少 2 篇论文用到的软件包和工具（阈值可在配置里改") }} <code>concept_min_papers</code>{{ _("）。每页列出用到它的论文、所在学科和经常搭配的工具。") }}</p>
 <div class="field-grid">
-{% for r in rows %}<a class="field-tile" href="/concept/{{ r.slug }}"><strong>{{ r.name }}</strong><span class="n">{{ r.papers }} 篇</span></a>
-{% else %}<p class="muted">还没有被 2 篇以上论文共同使用的工具。</p>{% endfor %}
+{% for r in rows %}<a class="field-tile" href="/concept/{{ r.slug }}"><strong>{{ r.name }}</strong><span class="n">{{ r.papers }} {{ _("篇") }}</span></a>
+{% else %}<p class="muted">{{ _("还没有被 2 篇以上论文共同使用的工具。") }}</p>{% endfor %}
 </div>
 {% endblock %}

@@ -1,53 +1,53 @@
 {% extends "base.html" %}
-{% block title %}设置 - PaperMap{% endblock %}
+{% block title %}{{ _("设置 - PaperMap") }}{% endblock %}
 {% block content_class %}settings-content{% endblock %}
 {% block content %}
 <div class="settings-shell">
   <header class="settings-header">
     <div>
-      <div class="settings-breadcrumb">设置 <span aria-hidden="true">/</span> <span data-settings-group-label>{{ settings_group_label }}</span></div>
+      <div class="settings-breadcrumb">{{ _("设置") }} <span aria-hidden="true">/</span> <span data-settings-group-label>{{ settings_group_label }}</span></div>
       <h1 data-settings-title>{{ settings_title }}</h1>
     </div>
-    <button type="submit" id="settings_save" form="settings">保存设置</button>
+    <button type="submit" id="settings_save" form="settings">{{ _("保存设置") }}</button>
   </header>
-  {% if welcome %}<div class="notice ok"><strong>欢迎使用 PaperMap</strong>。先连接模型，再到「导入与文件夹」选择 PDF 来源。论文文本会发送到所选服务商。</div>{% endif %}
-  {% if saved %}<div class="notice ok" role="status">设置已保存。</div>{% endif %}
+  {% if welcome %}<div class="notice ok"><strong>{{ _("欢迎使用 PaperMap") }}</strong>{{ _("。先连接模型，再到「导入与文件夹」选择 PDF 来源。论文文本会发送到所选服务商。") }}</div>{% endif %}
+  {% if saved %}<div class="notice ok" role="status">{{ _("设置已保存。") }}</div>{% endif %}
 <form method="post" action="/settings" id="settings">
 <input type="hidden" name="csrf" id="csrf" value="{{ csrf }}">
 <input type="hidden" name="settings_section" value="{{ settings_section }}">
-<section class="settings-panel" data-settings-panel="models" aria-label="模型与账号" {% if settings_section != 'models' %}hidden{% endif %}>
+<section class="settings-panel" data-settings-panel="models" aria-label="{{ _("模型与账号") }}" {% if settings_section != 'models' %}hidden{% endif %}>
   {% set missing_provider = provider.startswith('ext.') and provider not in presets %}
   <div class="settings-model-picker">
-    <label for="provider_picker">模型服务</label>
+    <label for="provider_picker">{{ _("模型服务") }}</label>
     <select id="provider_picker" name="provider">
-      {% if missing_provider %}<option value="{{ provider }}" selected>之前选择的模型插件不可用</option>{% endif %}
-      <optgroup label="包月订阅">
+      {% if missing_provider %}<option value="{{ provider }}" selected>{{ _("之前选择的模型插件不可用") }}</option>{% endif %}
+      <optgroup label="{{ _("包月订阅") }}">
         {% for pid, p in presets.items() if p.group == 'subscription' %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
       </optgroup>
-      <optgroup label="按量付费 API">
+      <optgroup label="{{ _("按量付费 API") }}">
         {% for pid, p in providers.items() %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
         {% for pid, p in presets.items() if p.group == 'api' %}<option value="{{ pid }}" {{ 'selected' if provider == pid }}>{{ p.label }}</option>{% endfor %}
       </optgroup>
-      <optgroup label="自定义服务"><option value="custom" {{ 'selected' if provider == 'custom' }}>自定义</option></optgroup>
+      <optgroup label="{{ _("自定义服务") }}"><option value="custom" {{ 'selected' if provider == 'custom' }}>{{ _("自定义") }}</option></optgroup>
     </select>
   </div>
-  <p class="muted small">论文文本会发送到所选服务商。API Key 仅保存在本机。</p>
-  {% if missing_provider %}<div class="pane" data-pane="{{ provider }}"><p class="notice">请重新启用原插件，或选择其他可用模型。接口地址变更后需重新选择服务并配置密钥。</p><input type="hidden" data-role="model" value=""></div>{% endif %}
+  <p class="muted small">{{ _("论文文本会发送到所选服务商。API Key 仅保存在本机。") }}</p>
+  {% if missing_provider %}<div class="pane" data-pane="{{ provider }}"><p class="notice">{{ _("请重新启用原插件，或选择其他可用模型。接口地址变更后需重新选择服务并配置密钥。") }}</p><input type="hidden" data-role="model" value=""></div>{% endif %}
   {% set ds = providers.deepseek %}
   <div class="pane" data-pane="deepseek" {% if provider != "deepseek" %}hidden{% endif %}>
     <label for="official_api_key">API Key</label>
     <input type="password" id="official_api_key" name="official_api_key" autocomplete="off"
-      placeholder="{% if official_key_state == 'env' %}已从环境变量 {{ ds.api_key_env }} 读取{% elif official_key_state == 'local' %}已保存，留空表示不修改{% else %}sk-...{% endif %}">
-    <p class="muted">还没有 Key？到 <a href="{{ ds.key_url }}" target="_blank" rel="noopener">DeepSeek 开放平台</a> 创建。
-    {% if official_key_state == 'local' %}<label class="inline"><input type="checkbox" name="clear_official_key" value="1"> 删除已保存的 Key</label>{% endif %}</p>
-    <label for="official_model">模型</label>
+      placeholder="{% if official_key_state == 'env' %}{{ _("已从环境变量") }} {{ ds.api_key_env }} {{ _("读取") }}{% elif official_key_state == 'local' %}{{ _("已保存，留空表示不修改") }}{% else %}sk-...{% endif %}">
+    <p class="muted">{{ _("还没有 Key？到") }} <a href="{{ ds.key_url }}" target="_blank" rel="noopener">{{ _("DeepSeek 开放平台") }}</a> {{ _("创建。") }}
+    {% if official_key_state == 'local' %}<label class="inline"><input type="checkbox" name="clear_official_key" value="1"> {{ _("删除已保存的 Key") }}</label>{% endif %}</p>
+    <label for="official_model">{{ _("模型") }}</label>
     <select id="official_model" name="official_model">
       {% for mid, m in ds.models.items() %}<option value="{{ mid }}" {{ 'selected' if cfg.llm.model == mid }}>{{ m.label }}</option>{% endfor %}
     </select>
-    <details class="settings-provider-details"><summary>接口和计费说明</summary><dl class="kv muted">
+    <details class="settings-provider-details"><summary>{{ _("接口和计费说明") }}</summary><dl class="kv muted">
       <dt>Base URL</dt><dd><code>{{ ds.base_url }}</code></dd>
-      <dt>协议</dt><dd>{{ protocols[ds.protocol] }}</dd>
-      <dt>价格</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>（本地按闲时价估算，北京时间工作日 9–12、14–18 点按 2 倍计）</dd>
+      <dt>{{ _("协议") }}</dt><dd>{{ protocols[ds.protocol] }}</dd>
+      <dt>{{ _("价格") }}</dt><dd><a href="{{ ds.docs_url }}" target="_blank" rel="noopener">{{ _("以官方价格页为准") }}</a>{{ _("（本地按闲时价估算，北京时间工作日 9–12、14–18 点按 2 倍计）") }}</dd>
     </dl></details>
   </div>
 
@@ -57,254 +57,259 @@
     {% if subscription %}
     <section class="settings-account" aria-labelledby="account_title_{{ pid }}">
       <div class="settings-account-heading">
-        <h2 id="account_title_{{ pid }}">订阅账号</h2>
+        <h2 id="account_title_{{ pid }}">{{ _("订阅账号") }}</h2>
         <details class="account-help">
-          <summary>登录与用量说明</summary>
+          <summary>{{ _("登录与用量说明") }}</summary>
           {% if pid == 'chatgpt_plan' %}
-          <p>在系统浏览器中完成 OpenAI 授权后，PaperMap 会使用该账号的套餐或余额。<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">管理 ChatGPT 用量</a></p>
+          <p>{{ _("在系统浏览器中完成 OpenAI 授权后，PaperMap 会使用该账号的套餐或余额。") }}<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">{{ _("管理 ChatGPT 用量") }}</a></p>
           {% else %}
-          <p>安装<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">官方 Claude Code</a>，用 Claude Pro 或 Max 账号登录，再回到这里刷新状态。API Key 登录不能作为订阅调用。</p>
+          <p>{{ _("安装") }}<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">{{ _("官方 Claude Code") }}</a>{{ _("，用 Claude Pro 或 Max 账号登录，再回到这里刷新状态。API Key 登录不能作为订阅调用。") }}</p>
           {% endif %}
         </details>
       </div>
-      <p class="muted small" data-account-result="{{ pid }}" role="status" aria-live="polite">正在检查连接状态…</p>
+      <p class="muted small" data-account-result="{{ pid }}" role="status" aria-live="polite">{{ _("正在检查连接状态…") }}</p>
       <div class="row">
-        <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else '用官方 Claude Code 登录' }}</button>
-        <button type="button" class="secondary" data-account-status="{{ pid }}">刷新连接状态</button>
-        {% if pid == 'chatgpt_plan' %}<button type="button" class="secondary" data-account-cancel="{{ pid }}" hidden>取消等待</button>{% endif %}
-        <button type="button" class="ghost-btn" data-account-logout="{{ pid }}" hidden>{{ '断开连接' if pid == 'chatgpt_plan' else '注销本机 Claude Code' }}</button>
-        <a data-account-url="{{ pid }}" target="_blank" rel="noopener" hidden>打开官方授权页面</a>
+        <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else _('用官方 Claude Code 登录') }}</button>
+        <button type="button" class="secondary" data-account-status="{{ pid }}">{{ _("刷新连接状态") }}</button>
+        {% if pid == 'chatgpt_plan' %}<button type="button" class="secondary" data-account-cancel="{{ pid }}" hidden>{{ _("取消等待") }}</button>{% endif %}
+        <button type="button" class="ghost-btn" data-account-logout="{{ pid }}" hidden>{{ _('断开连接') if pid == 'chatgpt_plan' else _('注销本机 Claude Code') }}</button>
+        <a data-account-url="{{ pid }}" target="_blank" rel="noopener" hidden>{{ _("打开官方授权页面") }}</a>
       </div>
     </section>
     {% else %}
     <p class="muted">{{ p.note }}</p>
     <label for="p_{{ pid }}_key">API Key</label>
     <input type="password" id="p_{{ pid }}_key" name="p_{{ pid }}_key" data-role="key" autocomplete="off"
-      placeholder="{{ '已保存，留空表示不修改' if st.api_key else '粘贴 API Key' }}">
-    <p class="muted">{% if p.key_url %}还没有 Key？到 <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} 控制台</a> 创建。{% else %}这份密钥仅用于上面显示的插件接口。{% endif %}
-    {% if st.api_key %}<label class="inline"><input type="checkbox" name="p_{{ pid }}_clear" value="1"> 删除已保存的 Key</label>{% endif %}</p>
+      placeholder="{{ _('已保存，留空表示不修改') if st.api_key else _('粘贴 API Key') }}">
+    <p class="muted">{% if p.key_url %}{{ _("还没有 Key？到") }} <a href="{{ p.key_url }}" target="_blank" rel="noopener">{{ p.label }} {{ _("控制台") }}</a> {{ _("创建。") }}{% else %}{{ _("这份密钥仅用于上面显示的插件接口。") }}{% endif %}
+    {% if st.api_key %}<label class="inline"><input type="checkbox" name="p_{{ pid }}_clear" value="1"> {{ _("删除已保存的 Key") }}</label>{% endif %}</p>
     {% endif %}
     <div class="{{ 'subscription-model-row' if subscription else 'row' }}">
       <div class="{{ 'model-field' if subscription else 'grow' }}">
-        <label for="p_{{ pid }}_model">模型</label>
+        <label for="p_{{ pid }}_model">{{ _("模型") }}</label>
         <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
-          value="{{ st.model or p.default_model }}" placeholder="选择或输入模型名称">
+          value="{{ st.model or p.default_model }}" placeholder="{{ _("选择或输入模型名称") }}">
       </div>
       {% if subscription %}
       <div class="effort-field">
-        <label for="p_{{ pid }}_reasoning_effort">推理强度</label>
+        <label for="p_{{ pid }}_reasoning_effort">{{ _("推理强度") }}</label>
         <select class="ghost-select" id="p_{{ pid }}_reasoning_effort" data-role="reasoning-effort" aria-describedby="{{ pid }}_reasoning_hint">
-          <option value="">默认（模型决定）</option>
-          {% if st.reasoning_effort %}<option value="{{ st.reasoning_effort }}" selected disabled>{{ st.reasoning_effort }}（已保存，待确认）</option>{% endif %}
+          <option value="">{{ _("默认（模型决定）") }}</option>
+          {% if st.reasoning_effort %}<option value="{{ st.reasoning_effort }}" selected disabled>{{ st.reasoning_effort }}{{ _("（已保存，待确认）") }}</option>{% endif %}
         </select>
         <input type="hidden" name="p_{{ pid }}_reasoning_effort" data-role="reasoning-value" value="{{ st.reasoning_effort or '' }}">
       </div>
       {% endif %}
-      <button type="button" class="secondary" data-fetch-models>获取模型列表</button>
+      <button type="button" class="secondary" data-fetch-models>{{ _("获取模型列表") }}</button>
     </div>
-    {% if pid in ('chatgpt_plan', 'claude_cli') %}<p class="muted small" id="{{ pid }}_reasoning_hint" data-reasoning-hint role="status" aria-live="polite">{% if pid == 'chatgpt_plan' %}连接后会自动获取所选模型支持的推理强度{% else %}按官方 Claude Code 的模型能力显示可选强度{% endif %}；默认由模型决定。</p>{% endif %}
+    {% if pid in ('chatgpt_plan', 'claude_cli') %}<p class="muted small" id="{{ pid }}_reasoning_hint" data-reasoning-hint role="status" aria-live="polite">{% if pid == 'chatgpt_plan' %}{{ _("连接后会自动获取所选模型支持的推理强度") }}{% else %}{{ _("按官方 Claude Code 的模型能力显示可选强度") }}{% endif %}{{ _("；默认由模型决定。") }}</p>{% endif %}
     {% if pid == 'claude_cli' %}<script type="application/json" data-claude-model-options>{{ claude_model_options|tojson }}</script>{% endif %}
     <datalist id="p_{{ pid }}_models">{% for mid, m in p.models.items() %}<option value="{{ mid }}">{{ m.label }}</option>{% endfor %}</datalist>
     {% if p.group == 'api' %}
     <details {{ 'open' if not p.models and not st.price_input_per_1m }}>
-      <summary class="muted">价格（美元 / 百万 token，用于本地估算和每月预算）</summary>
-      <p class="muted small">{% if p.models %}留空 = 按所选模型的预设价格（{% for mid, m in p.models.items() %}{{ mid }} ${{ m['in'] }} / ${{ m.out }}{{ '；' if not loop.last }}{% endfor %}）。{% elif p.docs_url %}请照 <a href="{{ p.docs_url }}" target="_blank" rel="noopener">官方价格页</a> 填写。{% else %}按服务商的单价填写。{% endif %}</p>
+      <summary class="muted">{{ _("价格（美元 / 百万 token，用于本地估算和每月预算）") }}</summary>
+      <p class="muted small">{% if p.models %}{{ _("留空") }} = {{ _("按所选模型的预设价格（") }}{% for mid, m in p.models.items() %}{{ mid }} ${{ m['in'] }} / ${{ m.out }}{{ '；' if not loop.last }}{% endfor %}）。{% elif p.docs_url %}{{ _("请照") }} <a href="{{ p.docs_url }}" target="_blank" rel="noopener">{{ _("官方价格页") }}</a> {{ _("填写。") }}{% else %}{{ _("按服务商的单价填写。") }}{% endif %}</p>
       <div class="row">
-        <label class="grow">输入<input type="number" step="any" min="0" name="p_{{ pid }}_in" value="{{ st.price_input_per_1m if st.price_input_per_1m is not none else '' }}"></label>
-        <label class="grow">缓存读取<input type="number" step="any" min="0" name="p_{{ pid }}_hit" value="{{ st.price_cache_hit_per_1m if st.price_cache_hit_per_1m is not none else '' }}" placeholder="留空 = 同输入价"></label>
-        <label class="grow">输出<input type="number" step="any" min="0" name="p_{{ pid }}_out" value="{{ st.price_output_per_1m if st.price_output_per_1m is not none else '' }}"></label>
+        <label class="grow">{{ _("输入") }}<input type="number" step="any" min="0" name="p_{{ pid }}_in" value="{{ st.price_input_per_1m if st.price_input_per_1m is not none else '' }}"></label>
+        <label class="grow">{{ _("缓存读取") }}<input type="number" step="any" min="0" name="p_{{ pid }}_hit" value="{{ st.price_cache_hit_per_1m if st.price_cache_hit_per_1m is not none else '' }}" placeholder="{{ _("留空") }} = {{ _("同输入价") }}"></label>
+        <label class="grow">{{ _("输出") }}<input type="number" step="any" min="0" name="p_{{ pid }}_out" value="{{ st.price_output_per_1m if st.price_output_per_1m is not none else '' }}"></label>
       </div>
     </details>
     {% endif %}
-    <details class="settings-provider-details"><summary>计费说明</summary><dl class="kv muted">
+    <details class="settings-provider-details"><summary>{{ _("计费说明") }}</summary><dl class="kv muted">
       {% if pid not in ('chatgpt_plan', 'claude_cli') %}
       <dt>Base URL</dt><dd><code>{{ p.base_url }}</code></dd>
-      <dt>协议</dt><dd>{{ protocols[p.protocol] }}</dd>
+      <dt>{{ _("协议") }}</dt><dd>{{ protocols[p.protocol] }}</dd>
       {% endif %}
-      <dt>计费</dt><dd>{% if p.group == 'subscription' %}本地单列套餐用量，实际额度与费用以服务商为准{% elif not p.docs_url %}按服务商的实际用量计费{% else %}按量，<a href="{{ p.docs_url }}" target="_blank" rel="noopener">以官方价格页为准</a>{% endif %}</dd>
+      <dt>{{ _("计费") }}</dt><dd>{% if p.group == 'subscription' %}{{ _("本地单列套餐用量，实际额度与费用以服务商为准") }}{% elif not p.docs_url %}{{ _("按服务商的实际用量计费") }}{% else %}{{ _("按量，") }}<a href="{{ p.docs_url }}" target="_blank" rel="noopener">{{ _("以官方价格页为准") }}</a>{% endif %}</dd>
     </dl></details>
   </div>
   {% endfor %}
 
   <div class="pane" data-pane="custom" {% if provider != "custom" %}hidden{% endif %}>
     <label for="custom_base_url">Base URL</label>
-    <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="例如 https://api.example.com/v1；Gemini 官方为 https://generativelanguage.googleapis.com/v1beta">
+    <input type="text" id="custom_base_url" name="custom_base_url" value="{{ custom.base_url or '' }}" placeholder="{{ _("例如 https://api.example.com/v1；Gemini 官方为 https://generativelanguage.googleapis.com/v1beta") }}">
     <label for="custom_api_key">API Key</label>
     <input type="password" id="custom_api_key" name="custom_api_key" autocomplete="off"
-      placeholder="{{ '已保存，留空表示不修改' if custom_key_state else 'sk-...' }}">
-    {% if custom_key_state %}<p class="muted"><label class="inline"><input type="checkbox" name="clear_custom_key" value="1"> 删除已保存的 Key</label></p>{% endif %}
-    <label for="custom_protocol">API 协议</label>
+      placeholder="{{ _('已保存，留空表示不修改') if custom_key_state else 'sk-...' }}">
+    {% if custom_key_state %}<p class="muted"><label class="inline"><input type="checkbox" name="clear_custom_key" value="1"> {{ _("删除已保存的 Key") }}</label></p>{% endif %}
+    <label for="custom_protocol">{{ _("API 协议") }}</label>
     <select id="custom_protocol" name="custom_protocol">
       {% for k, v in protocols.items() %}<option value="{{ k }}" {{ 'selected' if (custom.protocol or 'openai') == k }}>{{ v }}</option>{% endfor %}
     </select>
-    <label for="custom_model">模型名</label>
+    <label for="custom_model">{{ _("模型名") }}</label>
     <div class="row">
-      <input type="text" id="custom_model" name="custom_model" list="model_list" value="{{ custom.model or '' }}" placeholder="例如 gpt-4o-mini、qwen-plus">
-      <button type="button" class="secondary" id="fetch_models">获取模型列表</button>
+      <input type="text" id="custom_model" name="custom_model" list="model_list" value="{{ custom.model or '' }}" placeholder="{{ _("例如 gpt-4o-mini、qwen-plus") }}">
+      <button type="button" class="secondary" id="fetch_models">{{ _("获取模型列表") }}</button>
     </div>
     <datalist id="model_list"></datalist>
     <details {{ 'open' if custom.price_input_per_1m }}>
-      <summary class="muted">价格（可选，用于本地估算花费和每月预算）</summary>
-      <p class="muted">照服务商账单填写，单位是美元 / 百万 token。</p>
+      <summary class="muted">{{ _("价格（可选，用于本地估算花费和每月预算）") }}</summary>
+      <p class="muted">{{ _("照服务商账单填写，单位是美元 / 百万 token。") }}</p>
       <div class="row">
-        <label class="grow">输入<input type="number" step="any" min="0" name="custom_price_in" value="{{ custom.price_input_per_1m or 0 }}"></label>
-        <label class="grow">缓存读取<input type="number" step="any" min="0" name="custom_price_cache" value="{{ custom.price_cache_hit_per_1m if custom.price_cache_hit_per_1m is not none else '' }}" placeholder="留空 = 同输入价"></label>
-        <label class="grow">输出<input type="number" step="any" min="0" name="custom_price_out" value="{{ custom.price_output_per_1m or 0 }}"></label>
-        <label class="grow">倍率（如中转站分组倍率）<input type="number" step="any" min="0" name="custom_multiplier" value="{{ custom.price_multiplier or 1 }}"></label>
+        <label class="grow">{{ _("输入") }}<input type="number" step="any" min="0" name="custom_price_in" value="{{ custom.price_input_per_1m or 0 }}"></label>
+        <label class="grow">{{ _("缓存读取") }}<input type="number" step="any" min="0" name="custom_price_cache" value="{{ custom.price_cache_hit_per_1m if custom.price_cache_hit_per_1m is not none else '' }}" placeholder="{{ _("留空") }} = {{ _("同输入价") }}"></label>
+        <label class="grow">{{ _("输出") }}<input type="number" step="any" min="0" name="custom_price_out" value="{{ custom.price_output_per_1m or 0 }}"></label>
+        <label class="grow">{{ _("倍率（如中转站分组倍率）") }}<input type="number" step="any" min="0" name="custom_multiplier" value="{{ custom.price_multiplier or 1 }}"></label>
       </div>
       <p><label class="inline"><input type="checkbox" name="custom_peak" value="1" {{ 'checked' if custom.peak_schedule == 'deepseek' }}>
-        高峰时段价格翻倍（按 DeepSeek 规则：北京时间工作日 9:00–12:00、14:00–18:00；上面填闲时价）</label></p>
+        {{ _("高峰时段价格翻倍（按 DeepSeek 规则：北京时间工作日 9:00–12:00、14:00–18:00；上面填闲时价）") }}</label></p>
     </details>
     <p><label class="inline"><input type="checkbox" name="custom_billing" value="1" {{ 'checked' if custom.billing == 'subscription' }}>
-      这是包月套餐（调用不按 token 计费，只统计用量）</label></p>
+      {{ _("这是包月套餐（调用不按 token 计费，只统计用量）") }}</label></p>
   </div>
 
   <div class="row test-row">
-    <button type="button" class="secondary" id="test_conn">测试连接</button>
+    <button type="button" class="secondary" id="test_conn">{{ _("测试连接") }}</button>
     <span id="test_result" class="muted" role="status"></span>
   </div>
 </section>
 
-<section class="settings-panel" data-settings-panel="processing" aria-label="论文处理" {% if settings_section != 'processing' %}hidden{% endif %}>
-  <label for="output_language">卡片语言</label>
+<section class="settings-panel" data-settings-panel="processing" aria-label="{{ _("论文处理") }}" {% if settings_section != 'processing' %}hidden{% endif %}>
+  <label for="output_language">{{ _("卡片语言") }}</label>
   <select id="output_language" name="output_language">
-    {% for l, name in [('zh','中文'),('en','English'),('bilingual','中文 + 英文术语')] %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ name }}</option>{% endfor %}
+    {% for l, name in [('zh',_('中文')),('en','English'),('bilingual',_('中文 + 英文术语'))] %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ name }}</option>{% endfor %}
   </select>
-  <label for="budget">每月预算（美元，0 = 不限）</label>
+  <label for="budget">{{ _("每月预算（美元，0") }} = {{ _("不限）") }}</label>
   <input type="number" id="budget" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
-  <p class="muted small">美元预算用于按量付费的 API。订阅调用遵循服务商的套餐额度，不因这里的 API 预算用完而暂停。</p>
+  <p class="muted small">{{ _("美元预算用于按量付费的 API。订阅调用遵循服务商的套餐额度，不因这里的 API 预算用完而暂停。") }}</p>
 </section>
 
-<section class="settings-panel" data-settings-panel="translation" aria-label="翻译" {% if settings_section != 'translation' %}hidden{% endif %}>
+<section class="settings-panel" data-settings-panel="translation" aria-label="{{ _("翻译") }}" {% if settings_section != 'translation' %}hidden{% endif %}>
   <div class="settings-model-picker">
-    <label for="tr_default">默认翻译服务</label>
-    <select id="tr_default" name="tr_default">{% if tr.default.startswith('ext.') and tr.default not in tr.services|map(attribute='id')|list %}<option value="{{ tr.default }}" selected>之前选择的翻译插件不可用</option>{% endif %}{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
+    <label for="tr_default">{{ _("默认翻译服务") }}</label>
+    <select id="tr_default" name="tr_default">{% if tr.default.startswith('ext.') and tr.default not in tr.services|map(attribute='id')|list %}<option value="{{ tr.default }}" selected>{{ _("之前选择的翻译插件不可用") }}</option>{% endif %}{% for svc in tr.services %}<option value="{{ svc.id }}" {{ 'selected' if svc.id == tr.default }}>{{ svc.name }}</option>{% endfor %}</select>
   </div>
-  <p class="muted small">阅读器划词翻译使用默认服务。论文详情中的「翻译全文」可单独选择服务，所选文字或全文段落会发送给对应服务商。</p>
+  <p class="muted small">{{ _("阅读器划词翻译使用默认服务。论文详情中的「翻译全文」可单独选择服务，所选文字或全文段落会发送给对应服务商。") }}</p>
   <div class="settings-account" data-tr-pane="bilibili" {% if tr.default != 'bilibili' %}hidden{% endif %}>
-    <label for="tr_bm">bilibili 模型</label>
+    <label for="tr_bm">{{ _("bilibili 模型") }}</label>
     <select id="tr_bm" name="tr_bilibili_model">{% set cur = (tr.services|selectattr('kind', 'equalto', 'bilibili')|first or {}).get('model') %}{% for k, v in bilibili_models.items() %}<option value="{{ k }}" {{ 'selected' if k == cur }}>{{ v }}</option>{% endfor %}</select>
-    <p class="muted small">Index-Translate 使用 B 站服务，免填 API Key。</p>
+    <p class="muted small">{{ _("Index-Translate 使用 B 站服务，免填 API Key。") }}</p>
   </div>
   {% for svc in tr.services if svc.official %}
   <div class="settings-account" data-tr-pane="{{ svc.id }}" {% if tr.default != svc.id %}hidden{% endif %}>
     {% if svc.id == 'niutrans' %}
-    <p class="muted small">在小牛控制台的「API 应用」开通「文本 API」，填写同一应用的两项凭据。可用免费积分在控制台查看。<a href="https://niutrans.com/documents/contents/transapi_text_v2" target="_blank" rel="noopener noreferrer">小牛接入指南</a></p>
+    <p class="muted small">{{ _("在小牛控制台的「API 应用」开通「文本 API」，填写同一应用的两项凭据。可用免费积分在控制台查看。") }}<a href="https://niutrans.com/documents/contents/transapi_text_v2" target="_blank" rel="noopener noreferrer">{{ _("小牛接入指南") }}</a></p>
     <label for="tr_niutrans_app_id">App ID</label>
-    <input id="tr_niutrans_app_id" name="tr_niutrans_app_id" type="text" autocomplete="off" spellcheck="false" placeholder="{{ '已保存，留空保留' if svc.has_app_id else '填写小牛 App ID' }}">
+    <input id="tr_niutrans_app_id" name="tr_niutrans_app_id" type="text" autocomplete="off" spellcheck="false" placeholder="{{ _('已保存，留空保留') if svc.has_app_id else _('填写小牛 App ID') }}">
     {% elif svc.id == 'zhipu' %}
-    <p class="muted small">使用智谱的免费模型 GLM-4.7-Flash 翻译。请在智谱开放平台创建「模型标准 API」密钥。<a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noopener noreferrer">智谱密钥管理</a></p>
+    <p class="muted small">{{ _("使用智谱的免费模型 GLM-4.7-Flash 翻译。请在智谱开放平台创建「模型标准 API」密钥。") }}<a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" rel="noopener noreferrer">{{ _("智谱密钥管理") }}</a></p>
     {% elif svc.id == 'tencent' %}
-    <p class="muted small">使用腾讯云 TokenHub 的混元翻译模型。请在中国大陆站选择广州地域，创建有权调用该模型的密钥，体验额度与用量可在控制台查看。<a href="https://console.cloud.tencent.com/tokenhub/apikey?regionId=1" target="_blank" rel="noopener noreferrer">腾讯云密钥管理</a></p>
+    <p class="muted small">{{ _("使用腾讯云 TokenHub 的混元翻译模型。请在中国大陆站选择广州地域，创建有权调用该模型的密钥，体验额度与用量可在控制台查看。") }}<a href="https://console.cloud.tencent.com/tokenhub/apikey?regionId=1" target="_blank" rel="noopener noreferrer">{{ _("腾讯云密钥管理") }}</a></p>
     {% endif %}
     <label for="tr_{{ svc.id }}_api_key">API Key</label>
-    <input id="tr_{{ svc.id }}_api_key" name="tr_{{ svc.id }}_api_key" type="password" autocomplete="off" spellcheck="false" placeholder="{{ '已保存，留空保留' if svc.has_api_key else '粘贴 API Key' }}">
-    <p class="muted small">凭据保存在本机。填写新值并保存即可替换。</p>
-    {% if svc.has_api_key or svc.has_app_id %}<label class="inline"><input type="checkbox" name="tr_{{ svc.id }}_clear" value="1"> 保存时清除本机的{{ svc.name }}凭据</label>{% endif %}
+    <input id="tr_{{ svc.id }}_api_key" name="tr_{{ svc.id }}_api_key" type="password" autocomplete="off" spellcheck="false" placeholder="{{ _('已保存，留空保留') if svc.has_api_key else _('粘贴 API Key') }}">
+    <p class="muted small">{{ _("凭据保存在本机。填写新值并保存即可替换。") }}</p>
+    {% if svc.has_api_key or svc.has_app_id %}<label class="inline"><input type="checkbox" name="tr_{{ svc.id }}_clear" value="1"> {{ _("保存时清除本机的") }}{{ svc.name }}{{ _("凭据") }}</label>{% endif %}
   </div>
   {% endfor %}
-  <label for="tr_target">翻译成</label>
-  <select id="tr_target" name="tr_target"><option value="zh" {{ 'selected' if tr.target_language == 'zh' }}>中文</option><option value="en" {{ 'selected' if tr.target_language == 'en' }}>英文</option></select>
-  <p><label class="inline"><input type="checkbox" name="tr_fallback" value="1" {{ 'checked' if tr.fallback_to_main }}> 翻译服务出错时，自动改用主模型翻译</label><br>
-     <label class="inline"><input type="checkbox" name="tr_auto" value="1" {{ 'checked' if tr.auto_new_papers }}> 新论文生成卡片后自动翻译全文</label></p>
+  <label for="tr_target">{{ _("翻译成") }}</label>
+  <select id="tr_target" name="tr_target"><option value="zh" {{ 'selected' if tr.target_language == 'zh' }}>{{ _("中文") }}</option><option value="en" {{ 'selected' if tr.target_language == 'en' }}>{{ _("英文") }}</option></select>
+  <p><label class="inline"><input type="checkbox" name="tr_fallback" value="1" {{ 'checked' if tr.fallback_to_main }}> {{ _("翻译服务出错时，自动改用主模型翻译") }}</label><br>
+     <label class="inline"><input type="checkbox" name="tr_auto" value="1" {{ 'checked' if tr.auto_new_papers }}> {{ _("新论文生成卡片后自动翻译全文") }}</label></p>
   <details>
-    <summary>其他翻译接口（{{ tr.services|selectattr('kind', 'equalto', 'custom')|list|length }} 个自定义）</summary>
-    <table class="svc-table"><tr><th>名称</th><th>类型</th><th>模型</th><th></th></tr>
-    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ '官方接口' if svc.official else svc.plugin or {'bilibili':'内置','main':'主模型','custom':'自定义','plugin':'插件'}.get(svc.kind, svc.kind) }}</td><td><code>{{ svc.model or ('文本翻译' if svc.official else '（主模型）') }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">删除</button>{% endif %}</td></tr>{% endfor %}
+    <summary>{{ _("其他翻译接口（") }}{{ tr.services|selectattr('kind', 'equalto', 'custom')|list|length }} {{ _("个自定义）") }}</summary>
+    <table class="svc-table"><tr><th>{{ _("名称") }}</th><th>{{ _("类型") }}</th><th>{{ _("模型") }}</th><th></th></tr>
+    {% for svc in tr.services %}<tr><td>{{ svc.name }}</td><td>{{ _('官方接口') if svc.official else svc.plugin or {'bilibili':_('内置'),'main':_('主模型'),'custom':_('自定义'),'plugin':_('插件')}.get(svc.kind, svc.kind) }}</td><td><code>{{ svc.model or (_('文本翻译') if svc.official else _('（主模型）')) }}</code></td><td>{% if svc.kind == 'custom' %}<button type="button" class="ghost" data-del-service="{{ svc.id }}">{{ _("删除") }}</button>{% endif %}</td></tr>{% endfor %}
     </table>
     <div class="add-service" id="add_service">
-      <div class="row"><label class="grow">名称<input type="text" data-f="name" placeholder="例如：DeepL 中转"></label><label class="grow">Base URL<input type="text" data-f="base_url" placeholder="https://…/v1"></label></div>
-      <div class="row"><label class="grow">API Key<input type="password" data-f="api_key" autocomplete="off"></label><label class="grow">模型名<input type="text" data-f="model"></label>
-        <label>协议<select data-f="protocol">{% for k, v in protocols_all.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label></div>
-      <div class="row"><label>模式<select data-f="mode"><option value="translate">翻译</option><option value="polish">润色</option><option value="custom">自定义 prompt</option></select></label>
-        <label class="grow">自定义 prompt（可用 {text} 和 {target}）<input type="text" data-f="prompt" placeholder="留空用默认翻译指令"></label></div>
-      <div class="row"><label class="grow">输入 $/百万 token<input type="number" step="any" min="0" data-f="price_in" value="0"></label><label class="grow">输出 $/百万 token<input type="number" step="any" min="0" data-f="price_out" value="0"></label></div>
-      <button type="button" class="secondary" id="add_service_btn">添加这个翻译接口</button>
+      <div class="row"><label class="grow">{{ _("名称") }}<input type="text" data-f="name" placeholder="{{ _("例如：DeepL 中转") }}"></label><label class="grow">Base URL<input type="text" data-f="base_url" placeholder="https://…/v1"></label></div>
+      <div class="row"><label class="grow">API Key<input type="password" data-f="api_key" autocomplete="off"></label><label class="grow">{{ _("模型名") }}<input type="text" data-f="model"></label>
+        <label>{{ _("协议") }}<select data-f="protocol">{% for k, v in protocols_all.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label></div>
+      <div class="row"><label>{{ _("模式") }}<select data-f="mode"><option value="translate">{{ _("翻译") }}</option><option value="polish">{{ _("润色") }}</option><option value="custom">{{ _("自定义 prompt") }}</option></select></label>
+        <label class="grow">{{ _("自定义 prompt（可用 {text} 和 {target}）") }}<input type="text" data-f="prompt" placeholder="{{ _("留空用默认翻译指令") }}"></label></div>
+      <div class="row"><label class="grow">{{ _("输入 $/百万 token") }}<input type="number" step="any" min="0" data-f="price_in" value="0"></label><label class="grow">{{ _("输出 $/百万 token") }}<input type="number" step="any" min="0" data-f="price_out" value="0"></label></div>
+      <button type="button" class="secondary" id="add_service_btn">{{ _("添加这个翻译接口") }}</button>
     </div>
   </details>
 </section>
 
-<section class="settings-panel" data-settings-panel="library" aria-label="知识库位置" {% if settings_section != 'library' %}hidden{% endif %}>
-  <p class="muted small">论文文件夹（PDF 副本、卡片、笔记、译文）、学科页和手册都在这里，可以直接当 Obsidian 库打开。可以把它放到 iCloud 云盘、坚果云、移动硬盘或你已有的 Obsidian 库里。数据库和设置始终留在 <code>{{ data_dir }}</code>，不会放进云盘（同步工具容易弄坏数据库）。</p>
-  <p>当前位置：<code id="kb_dir">{{ kb_dir }}</code>{% if kb_default %} <span class="muted small">（默认）</span>{% endif %}</p>
+<section class="settings-panel" data-settings-panel="library" aria-label="{{ _("知识库位置") }}" {% if settings_section != 'library' %}hidden{% endif %}>
+  <p class="muted small">{{ _("论文文件夹（PDF 副本、卡片、笔记、译文）、学科页和手册都在这里，可以直接当 Obsidian 库打开。可以把它放到 iCloud 云盘、坚果云、移动硬盘或你已有的 Obsidian 库里。数据库和设置始终留在") }} <code>{{ data_dir }}</code>{{ _("，不会放进云盘（同步工具容易弄坏数据库）。") }}</p>
+  <p>{{ _("当前位置：") }}<code id="kb_dir">{{ kb_dir }}</code>{% if kb_default %} <span class="muted small">{{ _("（默认）") }}</span>{% endif %}</p>
   <div class="row">
-    <input type="text" id="kb_new" placeholder="新位置，例如 ~/Library/Mobile Documents/com~apple~CloudDocs/PaperMap">
-    <button type="button" class="secondary" data-pick-folder="kb_new" data-pick-replace>选择文件夹…</button>
-    <button type="button" id="kb_move">移动到这里</button>
+    <input type="text" id="kb_new" placeholder="{{ _("新位置，例如 ~/Library/Mobile Documents/com~apple~CloudDocs/PaperMap") }}">
+    <button type="button" class="secondary" data-pick-folder="kb_new" data-pick-replace>{{ _("选择文件夹…") }}</button>
+    <button type="button" id="kb_move">{{ _("移动到这里") }}</button>
   </div>
-  <p class="muted small">选空文件夹就直接用它；选的文件夹里已经有别的文件时，会在里面新建一个 <code>PaperMap</code> 子文件夹。整个知识库会搬过去，原位置不再保留副本。{% if not kb_default %} <button type="button" class="ghost-btn" id="kb_reset">搬回默认位置</button>{% endif %}</p>
-  <p class="muted small">用 iCloud 时，建议在访达里对这个文件夹选「始终保留在此设备上」，否则不常用的 PDF 可能被移到云端，打开时要先下载。</p>
+  <p class="muted small">{{ _("选空文件夹就直接用它；选的文件夹里已经有别的文件时，会在里面新建一个") }} <code>PaperMap</code> {{ _("子文件夹。整个知识库会搬过去，原位置不再保留副本。") }}{% if not kb_default %} <button type="button" class="ghost-btn" id="kb_reset">{{ _("搬回默认位置") }}</button>{% endif %}</p>
+  <p class="muted small">{{ _("用 iCloud 时，建议在访达里对这个文件夹选「始终保留在此设备上」，否则不常用的 PDF 可能被移到云端，打开时要先下载。") }}</p>
 </section>
 
-<section class="settings-panel" data-settings-panel="backup" aria-label="备份与恢复" {% if settings_section != 'backup' %}hidden{% endif %}>
+<section class="settings-panel" data-settings-panel="backup" aria-label="{{ _("备份与恢复") }}" {% if settings_section != 'backup' %}hidden{% endif %}>
   <input type="hidden" name="backup_form" value="1">
-  <p class="muted small">备份只包含<strong>数据库和设置</strong>：阅读状态、星标、分组、批注、证据摘录、研究问题、提问记录、分类结果，以及 config.yaml 和你改过的分类表。卡片、笔记和 PDF 副本在知识库文件夹（<code>{{ kb_dir }}</code>）里，<strong>不在备份里</strong>；要整库迁移或备份它们，请用「知识库位置」或直接拷贝整个文件夹。ChatGPT 等订阅的登录凭据不备份，恢复后需要重新登录。</p>
-  <p><label class="inline"><input type="checkbox" name="backup_enabled" value="1" {{ 'checked' if backup_cfg.enabled }}> 每天自动备份（PaperMap 开着时检查；关机几天后再打开会马上补一份）</label></p>
+  <p class="muted small">{{ _("备份只包含") }}<strong>{{ _("数据库和设置") }}</strong>{{ _("：阅读状态、星标、分组、批注、证据摘录、研究问题、提问记录、分类结果，以及 config.yaml 和你改过的分类表。卡片、笔记和 PDF 副本在知识库文件夹（") }}<code>{{ kb_dir }}</code>{{ _("）里，") }}<strong>{{ _("不在备份里") }}</strong>{{ _("；要整库迁移或备份它们，请用「知识库位置」或直接拷贝整个文件夹。ChatGPT 等订阅的登录凭据不备份，恢复后需要重新登录。") }}</p>
+  <p><label class="inline"><input type="checkbox" name="backup_enabled" value="1" {{ 'checked' if backup_cfg.enabled }}> {{ _("每天自动备份（PaperMap 开着时检查；关机几天后再打开会马上补一份）") }}</label></p>
   <div class="row">
-    <label class="grow">保留最近几份自动备份<input type="number" min="1" max="365" name="backup_keep" value="{{ backup_cfg.keep }}"></label>
-    <label class="grow">备份位置（留空 = 数据文件夹里的 backups）<input type="text" id="backup_dir" name="backup_dir" value="{{ backup_cfg.dir }}" placeholder="{{ data_dir }}/backups"></label>
-    <button type="button" class="secondary" data-pick-folder="backup_dir" data-pick-replace>选择文件夹…</button>
+    <label class="grow">{{ _("保留最近几份自动备份") }}<input type="number" min="1" max="365" name="backup_keep" value="{{ backup_cfg.keep }}"></label>
+    <label class="grow">{{ _("备份位置（留空") }} = {{ _("数据文件夹里的 backups）") }}<input type="text" id="backup_dir" name="backup_dir" value="{{ backup_cfg.dir }}" placeholder="{{ data_dir }}/backups"></label>
+    <button type="button" class="secondary" data-pick-folder="backup_dir" data-pick-replace>{{ _("选择文件夹…") }}</button>
   </div>
-  <p class="muted small">备份里有 config.yaml，其中可能包含 API Key；放到云盘或移动硬盘前请留意。当前位置：<code>{{ backup_dir }}</code></p>
-  <div class="row"><button type="button" id="backup_now">立即备份</button><button type="button" class="ghost-btn" id="backup_check">检查知识库能否对上</button><span id="backup_status" class="muted small" role="status"></span></div>
+  <p class="muted small">{{ _("备份里有 config.yaml，其中可能包含 API Key；放到云盘或移动硬盘前请留意。当前位置：") }}<code>{{ backup_dir }}</code></p>
+  <div class="row"><button type="button" id="backup_now">{{ _("立即备份") }}</button><button type="button" class="ghost-btn" id="backup_check">{{ _("检查知识库能否对上") }}</button><span id="backup_status" class="muted small" role="status"></span></div>
   <table class="backup-table">
-    <tr><th>时间</th><th>类型</th><th>内容</th><th>大小</th><th></th></tr>
+    <tr><th>{{ _("时间") }}</th><th>{{ _("类型") }}</th><th>{{ _("内容") }}</th><th>{{ _("大小") }}</th><th></th></tr>
     {% for b in backups %}<tr>
       <td>{{ b.when.astimezone().strftime('%Y-%m-%d %H:%M') }}</td>
-      <td>{{ {'auto':'自动','manual':'手动','before-restore':'恢复前'}.get(b.kind, b.kind) }}</td>
-      <td class="muted small">{% if b.meta.broken %}<span class="err-text">文件损坏</span>{% else %}{{ b.meta.counts.papers }} 篇论文 · {{ b.meta.counts.evidence_entries }} 条摘录 · {{ b.meta.counts.annotations }} 条批注{% endif %}</td>
+      <td>{{ {'auto':_('自动'),'manual':_('手动'),'before-restore':_('恢复前')}.get(b.kind, b.kind) }}</td>
+      <td class="muted small">{% if b.meta.broken %}<span class="err-text">{{ _("文件损坏") }}</span>{% else %}{{ b.meta.counts.papers }} {{ _("篇论文 ·") }} {{ b.meta.counts.evidence_entries }} {{ _("条摘录 ·") }} {{ b.meta.counts.annotations }} {{ _("条批注") }}{% endif %}</td>
       <td class="muted small">{{ '%.1f'|format(b.size / 1048576) }} MB</td>
-      <td>{% if not b.meta.broken %}<button type="button" class="ghost-btn" data-restore="{{ b.name }}">恢复</button>{% endif %}</td>
-    </tr>{% else %}<tr><td colspan="5" class="muted">还没有备份。</td></tr>{% endfor %}
+      <td>{% if not b.meta.broken %}<button type="button" class="ghost-btn" data-restore="{{ b.name }}">{{ _("恢复") }}</button>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="5" class="muted">{{ _("还没有备份。") }}</td></tr>{% endfor %}
   </table>
   <div id="backup_report" class="notice" hidden></div>
 </section>
 
-<section class="settings-panel" data-settings-panel="taxonomy" aria-label="学科与版本" {% if settings_section != 'taxonomy' %}hidden{% endif %}>
-  <label for="nft">新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）</label>
+<section class="settings-panel" data-settings-panel="taxonomy" aria-label="{{ _("学科与版本") }}" {% if settings_section != 'taxonomy' %}hidden{% endif %}>
+  <label for="nft">{{ _("新学科提示阈值（同一个待定类别攒够多少篇论文后提示你）") }}</label>
   <input type="number" id="nft" min="1" name="new_field_threshold" value="{{ cfg.raw.new_field_threshold }}">
-  <label for="emb">Embedding 模型（可选）</label>
-  <input type="text" id="emb" name="embedding_model" value="{{ cfg.raw.embedding.model }}" placeholder="留空 = 只按名称合并相似提议">
-  <p class="muted">填写后，会用当前模型服务的 <code>/embeddings</code> 接口判断两个提议是不是同一个方向（仅 OpenAI 协议的服务）。DeepSeek 官方目前没有 embedding 接口。</p>
+  <label for="emb">{{ _("Embedding 模型（可选）") }}</label>
+  <input type="text" id="emb" name="embedding_model" value="{{ cfg.raw.embedding.model }}" placeholder="{{ _("留空") }} = {{ _("只按名称合并相似提议") }}">
+  <p class="muted">{{ _("填写后，会用当前模型服务的") }} <code>/embeddings</code> {{ _("接口判断两个提议是不是同一个方向（仅 OpenAI 协议的服务）。DeepSeek 官方目前没有 embedding 接口。") }}</p>
   <p><label class="inline"><input type="checkbox" name="knowledge_git" value="1" {{ 'checked' if cfg.raw.knowledge_git }} {{ '' if git_available else 'disabled' }}>
-    用 git 自动记录知识库的每次改动（可随时回滚）</label>
-  {% if not git_available %}<span class="muted">— 这台电脑没有安装 git，暂不可用。</span>{% endif %}</p>
+    {{ _("用 git 自动记录知识库的每次改动（可随时回滚）") }}</label>
+  {% if not git_available %}<span class="muted">{{ _("— 这台电脑没有安装 git，暂不可用。") }}</span>{% endif %}</p>
 </section>
 
-<section class="settings-panel" data-settings-panel="import" aria-label="导入与文件夹" {% if settings_section != 'import' %}hidden{% endif %}>
-  <p><a class="ghost-btn" href="/zotero">从 Zotero 导入…</a> <span class="muted small">带入 PDF、分组、标签和笔记，不改动 Zotero 的数据。</span></p>
-  <label for="inbox_dirs">自动导入文件夹（可选，每行一个）</label>
-  <p class="muted small">放进这些文件夹的 PDF 会自动导入，例如 Zotero 的存储目录或下载文件夹。原文件不会被移动或修改。也可以直接把 PDF 拖进 PaperMap 窗口。更改自动导入目录后，重启 PaperMap 即可生效。</p>
-  <textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text }}</textarea>
-  <button type="button" class="secondary" data-pick-folder="inbox_dirs">选择文件夹…</button>
-  <label for="exclude_dirs">永不处理的子文件夹名（逗号分隔）</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
-  <label for="exclude_patterns">永不处理的文件名模式（逗号分隔）</label><input type="text" id="exclude_patterns" name="exclude_patterns" value="{{ exclude_patterns }}">
-  <label for="contact_email">联系邮箱（Crossref/OpenAlex 礼貌池，可留空）</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
+<section class="settings-panel" data-settings-panel="import" aria-label="{{ _("导入与文件夹") }}" {% if settings_section != 'import' %}hidden{% endif %}>
+  <p><a class="ghost-btn" href="/zotero">{{ _("从 Zotero 导入…") }}</a> <span class="muted small">{{ _("带入 PDF、分组、标签和笔记，不改动 Zotero 的数据。") }}</span></p>
+  <label for="inbox_dirs">{{ _("自动导入文件夹（可选，每行一个）") }}</label>
+  <p class="muted small">{{ _("放进这些文件夹的 PDF 会自动导入，例如 Zotero 的存储目录或下载文件夹。原文件不会被移动或修改。也可以直接把 PDF 拖进 PaperMap 窗口。更改自动导入目录后，重启 PaperMap 即可生效。") }}</p>
+  <textarea id="inbox_dirs" name="inbox_dirs" rows="3">{{ inbox_text|keep }}</textarea>
+  <button type="button" class="secondary" data-pick-folder="inbox_dirs">{{ _("选择文件夹…") }}</button>
+  <label for="exclude_dirs">{{ _("永不处理的子文件夹名（逗号分隔）") }}</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
+  <label for="exclude_patterns">{{ _("永不处理的文件名模式（逗号分隔）") }}</label><input type="text" id="exclude_patterns" name="exclude_patterns" value="{{ exclude_patterns }}">
+  <label for="contact_email">{{ _("联系邮箱（Crossref/OpenAlex 礼貌池，可留空）") }}</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
 </section>
 
 </form>
 {% include "_extensions.html" %}
-<section class="settings-panel" data-settings-panel="appearance" aria-label="外观" {% if settings_section != 'appearance' %}hidden{% endif %}>
-  <p class="muted small">点一下立即生效，并自动保存。</p>
-  <h3>配色</h3>
-  <div class="theme-grid" role="radiogroup" aria-label="配色">
+<section class="settings-panel" data-settings-panel="appearance" aria-label="{{ _("外观") }}" {% if settings_section != 'appearance' %}hidden{% endif %}>
+  <p class="muted small">{{ _("点一下立即生效，并自动保存。") }}</p>
+  <h3>{{ _("配色") }}</h3>
+  <div class="theme-grid" role="radiogroup" aria-label="{{ _("配色") }}">
     {% for pid, p in palettes.items() %}
     <button type="button" class="theme-swatch {{ 'on' if theme.palette == pid }}" data-palette-pick="{{ pid }}" role="radio" aria-checked="{{ 'true' if theme.palette == pid else 'false' }}">
-      <i style="background:{{ swatches[pid] }}"></i><span>{{ p[0] }}{% if pid == 'blue' %}<small class="muted">（默认）</small>{% endif %}</span>
+      <i style="background:{{ swatches[pid] }}"></i><span>{{ p[0] }}{% if pid == 'blue' %}<small class="muted">{{ _("（默认）") }}</small>{% endif %}</span>
     </button>
     {% endfor %}
   </div>
-  <h3>外观</h3>
-  <div class="seg theme-modes" role="radiogroup" aria-label="外观">
+  <h3>{{ _("外观") }}</h3>
+  <div class="seg theme-modes" role="radiogroup" aria-label="{{ _("外观") }}">
     {% for mid, label in appearances.items() %}<button type="button" class="{{ 'on' if theme.mode == mid }}" data-mode-pick="{{ mid }}" role="radio" aria-checked="{{ 'true' if theme.mode == mid else 'false' }}">{{ label }}</button>{% endfor %}
   </div>
-  <p class="muted small">「跟随系统」会随 macOS 的浅色 / 深色自动切换；「纯黑」是更暗的夜间模式，适合晚上看文献。</p>
+  <p class="muted small">{{ _("「跟随系统」会随 macOS 的浅色 / 深色自动切换；「纯黑」是更暗的夜间模式，适合晚上看文献。") }}</p>
+  <h3>{{ _("界面语言") }}</h3>
+  <div class="seg" role="radiogroup" aria-label="{{ _("界面语言") }}">
+    {% for code, label in ui_languages.items() %}<button type="button" class="{{ 'on' if ui_lang() == code }}" data-lang-pick="{{ code }}" role="radio" aria-checked="{{ 'true' if ui_lang() == code else 'false' }}" lang="{{ code }}">{{ label }}</button>{% endfor %}
+  </div>
+  <p class="muted small">{{ _("菜单、按钮和提示的语言。论文卡片、学科页等生成内容的语言在「模型」里的「输出语言」设置；你自己写的笔记不会被翻译。") }}</p>
 </section>
 
-<section class="settings-panel" data-settings-panel="application" aria-label="后台运行" {% if settings_section != 'application' %}hidden{% endif %}>
-  <h3>退出 PaperMap</h3>
-  <p class="muted">关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。</p>
-  <form method="post" action="/shutdown" onsubmit="return confirm('确定退出 PaperMap？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">退出 PaperMap</button></form>
+<section class="settings-panel" data-settings-panel="application" aria-label="{{ _("后台运行") }}" {% if settings_section != 'application' %}hidden{% endif %}>
+  <h3>{{ _("退出 PaperMap") }}</h3>
+  <p class="muted">{{ _("关闭后台监听和网页。正在处理的论文下次启动时会从断点继续。") }}</p>
+  <form method="post" action="/shutdown" onsubmit='return confirm({{ _("确定退出 PaperMap？")|tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">{{ _("退出 PaperMap") }}</button></form>
 </section>
 </div>
 {% endblock %}

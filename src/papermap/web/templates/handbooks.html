@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}学习手册 - PaperMap{% endblock %}
+{% block title %}{{ _("学习手册 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>学习手册</h2>
-<p class="muted">每本手册分两部分：A 只写你文献库里有出处（DOI）的内容；B 是模型补充的背景知识，需要核实。新学科建立时会自动生成，也可以在任意学科页点「生成学习手册」。</p>
+<h2>{{ _("学习手册") }}</h2>
+<p class="muted">{{ _("每本手册分两部分：A 只写你文献库里有出处（DOI）的内容；B 是模型补充的背景知识，需要核实。新学科建立时会自动生成，也可以在任意学科页点「生成学习手册」。") }}</p>
 <div class="field-grid">
-{% for r in rows %}<a class="field-tile" href="/handbook/{{ r.slug }}"><strong>📘 {{ r.name }}</strong><span class="muted">{{ r.name_en }}</span><span class="n">{{ r.papers or 0 }} 篇 · {{ r.generated or '' }}</span></a>
-{% else %}<p class="muted">还没有手册。</p>{% endfor %}
+{% for r in rows %}<a class="field-tile" href="/handbook/{{ r.slug }}"><strong>📘 {{ r.name }}</strong><span class="muted">{{ r.name_en }}</span><span class="n">{{ r.papers or 0 }} {{ _("篇 ·") }} {{ r.generated or '' }}</span></a>
+{% else %}<p class="muted">{{ _("还没有手册。") }}</p>{% endfor %}
 </div>
 {% endblock %}

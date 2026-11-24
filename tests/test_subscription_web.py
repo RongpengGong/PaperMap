@@ -362,7 +362,7 @@ async function fetch(url, opts) {
   throw new Error("Unexpected request " + url);
 }
 const documentEvents = new Element();
-const context = {document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[],addEventListener:documentEvents.addEventListener.bind(documentEvents)},
+const context = {t:s=>s,document:{getElementById:id=>ids[id]||null,createElement:()=>new Element(),querySelectorAll:()=>[],addEventListener:documentEvents.addEventListener.bind(documentEvents)},
   fetch,window:{pmDialog:async()=>true,pmToast(){}},setTimeout:()=>1,clearTimeout(){},console};
 vm.runInNewContext(fs.readFileSync(process.argv[1],"utf8"),context);
 const flush = async()=>{for(let i=0;i<12;i++) await new Promise(resolve=>setImmediate(resolve));};

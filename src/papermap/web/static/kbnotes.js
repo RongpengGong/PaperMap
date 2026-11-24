@@ -8,14 +8,14 @@
   if (!head) return;
   const wrap = document.createElement("div");
   wrap.className = "kb-user";
-  wrap.title = "点击直接编辑";
+  wrap.title = t("点击直接编辑");
   while (head.nextSibling && !(head.nextSibling.nodeType === 1 && head.nextSibling.tagName === "H2")) wrap.appendChild(head.nextSibling);
   head.after(wrap);
   const status = document.createElement("span");
   status.className = "muted small kb-user-status";
   head.appendChild(status);
   const done = document.createElement("button");
-  done.type = "button"; done.className = "ghost-btn kb-user-edit"; done.textContent = "完成"; done.hidden = true;
+  done.type = "button"; done.className = "ghost-btn kb-user-edit"; done.textContent = t("完成"); done.hidden = true;
   head.appendChild(done);
   const say = m => (window.pmToast ? window.pmToast(m) : alert(m));
 
@@ -34,13 +34,13 @@
     clearTimeout(timer); timer = null;
     if (!editor) return;
     const text = tidy(editor.getMarkdown());
-    if (text === saved) { status.textContent = "已保存"; return; }
-    status.textContent = "保存中…";
+    if (text === saved) { status.textContent = t("已保存"); return; }
+    status.textContent = t("保存中…");
     saving = fetch("/api/kb/notes", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ csrf, rel, text }) }).then(r => r.json()).catch(() => ({ ok: false }));
     const s = await saving; saving = null;
-    if (!s.ok) { status.textContent = "未保存"; say(s.message || "保存失败"); return; }
-    saved = text; status.textContent = "已保存";
+    if (!s.ok) { status.textContent = t("未保存"); say(s.message || t("保存失败")); return; }
+    saved = text; status.textContent = t("已保存");
   }
   async function open() {
     if (editor || wrap.dataset.opening) return;
@@ -52,13 +52,13 @@
       saved = j.text;
       wrap.innerHTML = "";
       wrap.classList.add("editing"); wrap.title = "";
-      editor = window.PMEditor.create(wrap, j.text, j.hint || "写下你的笔记… 输入 # 标题、- 列表、**粗体**、> 引用、[ ] 待办",
-        () => { status.textContent = "未保存…"; clearTimeout(timer); timer = setTimeout(save, 1000); },
+      editor = window.PMEditor.create(wrap, j.text, j.hint || t("写下你的笔记… 输入 # 标题、- 列表、**粗体**、> 引用、[ ] 待办"),
+        () => { status.textContent = t("未保存…"); clearTimeout(timer); timer = setTimeout(save, 1000); },
         () => save());
       done.hidden = false;
       editor.commands.focus("end");
     } catch (e) {
-      say("打开编辑器失败");
+      say(t("打开编辑器失败"));
     } finally {
       delete wrap.dataset.opening;
     }
@@ -68,7 +68,7 @@
     if (saving) await saving;
     const j = await fetch("/api/kb/notes?rel=" + encodeURIComponent(rel)).then(r => r.json()).catch(() => ({}));
     editor.destroy(); editor = null;
-    wrap.classList.remove("editing"); wrap.title = "点击直接编辑";
+    wrap.classList.remove("editing"); wrap.title = t("点击直接编辑");
     wrap.innerHTML = j.html || `<p class="muted">${(j.hint || "（还没有笔记，点击这里写）").replace(/</g, "&lt;")}</p>`;
     done.hidden = true; status.textContent = "";
   }

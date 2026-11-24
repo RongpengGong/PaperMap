@@ -3,16 +3,16 @@
 {% block content %}
 <div class="row" style="align-items:center;margin-bottom:6px">
   <h2 style="margin:0">{{ title }}</h2><span class="grow"></span>
-  {% if items|length >= 2 %}<button type="button" class="secondary" id="cmp_sum" style="margin:0">生成对比总结</button>{% endif %}
-  <a class="ghost-btn" data-download="comparison.md" href="/compare.md?{{ query }}">导出 Markdown</a>
-  <a class="ghost-btn" data-download="comparison.csv" href="/compare.csv?{{ query }}">导出 CSV</a>
+  {% if items|length >= 2 %}<button type="button" class="secondary" id="cmp_sum" style="margin:0">{{ _("生成对比总结") }}</button>{% endif %}
+  <a class="ghost-btn" data-download="comparison.md" href="/compare.md?{{ query }}">{{ _("导出 Markdown") }}</a>
+  <a class="ghost-btn" data-download="comparison.csv" href="/compare.csv?{{ query }}">{{ _("导出 CSV") }}</a>
 </div>
-<p class="muted small">表格来自每篇论文的卡片（不花费用）。「生成对比总结」会让模型根据这些卡片写共同点、差异和结论是否一致，每句都标出处，并保存到知识库 comparisons/ 里。在论文列表里按住 ⌘ 多选，右键「对比所选论文」也可以打开这里。</p>
+<p class="muted small">{{ _("表格来自每篇论文的卡片（不花费用）。「生成对比总结」会让模型根据这些卡片写共同点、差异和结论是否一致，每句都标出处，并保存到知识库 comparisons/ 里。在论文列表里按住 ⌘ 多选，右键「对比所选论文」也可以打开这里。") }}</p>
 <div id="cmp_summary" class="qa-answer"></div>
 {% if items %}
 <div class="cmp-wrap">
 <table class="cmp-table">
-  <tr><th class="sticky">论文</th>{% for _, lbl in columns %}<th>{{ lbl }}</th>{% endfor %}</tr>
+  <tr><th class="sticky">{{ _("论文") }}</th>{% for _, lbl in columns %}<th>{{ lbl }}</th>{% endfor %}</tr>
   {% for it in items %}
   <tr>
     <td class="sticky"><a href="/?id={{ it.paper.id }}"><strong>{{ it.who }}</strong></a><br><span class="muted small">{{ it.paper.journal or '' }}</span><div class="small">{{ it.paper.title }}</div></td>
@@ -21,7 +21,7 @@
   {% endfor %}
 </table>
 </div>
-{% else %}<p class="muted">没有可对比的论文（需要已生成卡片的论文）。</p>{% endif %}
+{% else %}<p class="muted">{{ _("没有可对比的论文（需要已生成卡片的论文）。") }}</p>{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -29,16 +29,16 @@
   const q = new URLSearchParams({{ query|tojson }});
   const btn = document.getElementById("cmp_sum"), out = document.getElementById("cmp_summary");
   btn && btn.addEventListener("click", async () => {
-    btn.disabled = true; out.innerHTML = `<p class="job-line"><span class="spinner"></span>正在生成对比总结…</p>`;
+    btn.disabled = true; out.innerHTML = `<p class="job-line"><span class="spinner"></span>${t("正在生成对比总结…")}</p>`;
     const j = await pmApi("/api/compare/summary", { ids: q.get("ids") || "", field: q.get("field") || "", c: q.get("c") || "" });
     btn.disabled = false;
-    out.innerHTML = j.ok ? `<div class="md">${j.html}</div><p class="muted small">已保存到知识库 ${j.saved}${j.cost ? " · $" + j.cost.toFixed(4) : ""}</p>` : "";
+    out.innerHTML = j.ok ? `<div class="md">${j.html}</div><p class="muted small">${t("已保存到知识库")} ${j.saved}${j.cost ? " · $" + j.cost.toFixed(4) : ""}</p>` : "";
   });
   document.querySelectorAll("[data-download]").forEach(a => a.addEventListener("click", async e => {
     if (!(window.pywebview && window.pywebview.api && window.pywebview.api.save_text)) return;
     e.preventDefault();
     const path = await window.pywebview.api.save_text(a.dataset.download, await (await fetch(a.href)).text());
-    if (path) pmToast("已保存到 " + path);
+    if (path) pmToast(t("已保存到 ") + path);
   }));
 })();
 </script>

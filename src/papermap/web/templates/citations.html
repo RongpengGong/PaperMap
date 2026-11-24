@@ -1,43 +1,43 @@
 {% extends "base.html" %}
-{% block title %}引用 - PaperMap{% endblock %}
+{% block title %}{{ _("引用 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>引用网络</h2>
-<p class="muted">数据来自 OpenAlex（免费），已获取 {{ fetched }} 篇论文的参考文献，每 30 天在后台自动更新。<button type="button" class="ghost-btn" id="cit_refresh">立即更新</button></p>
+<h2>{{ _("引用网络") }}</h2>
+<p class="muted">{{ _("数据来自 OpenAlex（免费），已获取") }} {{ fetched }} {{ _("篇论文的参考文献，每 30 天在后台自动更新。") }}<button type="button" class="ghost-btn" id="cit_refresh">{{ _("立即更新") }}</button></p>
 
 <section class="card">
   <div class="row" style="align-items:center">
-    <h3 style="margin:0">漏读提醒</h3>
-    <span class="muted small">被你库里至少</span>
+    <h3 style="margin:0">{{ _("漏读提醒") }}</h3>
+    <span class="muted small">{{ _("被你库里至少") }}</span>
     <form method="get" action="/citations" class="inline-form"><select name="min_citing" onchange="this.form.submit()" style="width:auto">{% for n in [2, 3, 4, 5] %}<option value="{{ n }}" {{ 'selected' if n == min_citing }}>{{ n }}</option>{% endfor %}</select></form>
-    <span class="muted small">篇论文引用、但还不在库里的文献。通常是这个方向的经典或关键论文。</span>
+    <span class="muted small">{{ _("篇论文引用、但还不在库里的文献。通常是这个方向的经典或关键论文。") }}</span>
   </div>
   {% if missing %}
   <table class="cit-table">
-    <tr><th>被引次数（你的库）</th><th>文献</th><th>引用它的论文</th><th></th></tr>
+    <tr><th>{{ _("被引次数（你的库）") }}</th><th>{{ _("文献") }}</th><th>{{ _("引用它的论文") }}</th><th></th></tr>
     {% for m in missing %}
     <tr data-oid="{{ m.ref_id }}">
-      <td><strong>{{ m.n }}</strong> 篇<br><span class="muted small">全球被引 {{ m.cited_by_count or 0 }}</span></td>
+      <td><strong>{{ m.n }}</strong> {{ _("篇") }}<br><span class="muted small">{{ _("全球被引") }} {{ m.cited_by_count or 0 }}</span></td>
       <td>{{ m.title or m.ref_id }}<br><span class="muted small">{{ m.first_author or '' }} {{ m.year or '' }} · {{ m.journal or '' }}</span>
         {% if m.doi %}<br><a target="_blank" rel="noopener" href="https://doi.org/{{ m.doi }}">{{ m.doi }}</a>{% endif %}</td>
       <td class="small">{% for pid in m.citing %}<a href="/?id={{ pid }}">{{ titles.get(pid, '#' ~ pid) }}</a>{{ '、' if not loop.last }}{% endfor %}</td>
-      <td><button type="button" class="ghost-btn" data-dismiss="{{ m.ref_id }}" title="以后不再提醒这篇">忽略</button></td>
+      <td><button type="button" class="ghost-btn" data-dismiss="{{ m.ref_id }}" title="{{ _("以后不再提醒这篇") }}">{{ _("忽略") }}</button></td>
     </tr>
     {% endfor %}
   </table>
-  <p class="muted small">下载这些论文的 PDF 后拖进 PaperMap 即可加入文献库。</p>
-  {% else %}<p class="muted">暂时没有。库里论文越多、方向越集中，这里越有用。</p>{% endif %}
+  <p class="muted small">{{ _("下载这些论文的 PDF 后拖进 PaperMap 即可加入文献库。") }}</p>
+  {% else %}<p class="muted">{{ _("暂时没有。库里论文越多、方向越集中，这里越有用。") }}</p>{% endif %}
 </section>
 
 <section class="card">
-  <h3>库内互相引用</h3>
-  {% if edges %}<ul>{% for a, b in edges %}<li><a href="/?id={{ a }}">{{ titles.get(a) }}</a> 引用了 <a href="/?id={{ b }}">{{ titles.get(b) }}</a></li>{% endfor %}</ul>
-  <p class="muted small">这些关系也以虚线箭头画在<a href="/map">知识地图</a>上。</p>
-  {% else %}<p class="muted">你库里的论文之间还没有相互引用。</p>{% endif %}
+  <h3>{{ _("库内互相引用") }}</h3>
+  {% if edges %}<ul>{% for a, b in edges %}<li><a href="/?id={{ a }}">{{ titles.get(a) }}</a> {{ _("引用了") }} <a href="/?id={{ b }}">{{ titles.get(b) }}</a></li>{% endfor %}</ul>
+  <p class="muted small">{{ _("这些关系也以虚线箭头画在") }}<a href="/map">{{ _("知识地图") }}</a>{{ _("上。") }}</p>
+  {% else %}<p class="muted">{{ _("你库里的论文之间还没有相互引用。") }}</p>{% endif %}
 </section>
 
 <section class="card">
-  <h3>最新引用</h3>
-  <div class="row"><select id="cit_paper" style="flex:1">{% for p in papers %}<option value="{{ p.id }}" {{ 'selected' if p.id == selected }}>{{ p.first_author or '?' }} {{ p.year or '' }} · {{ (p.title or '')[:90] }}</option>{% endfor %}</select><button type="button" id="cit_go" style="margin:0">查看谁引用了它</button></div>
+  <h3>{{ _("最新引用") }}</h3>
+  <div class="row"><select id="cit_paper" style="flex:1">{% for p in papers %}<option value="{{ p.id }}" {{ 'selected' if p.id == selected }}>{{ p.first_author or '?' }} {{ p.year or '' }} · {{ (p.title or '')[:90] }}</option>{% endfor %}</select><button type="button" id="cit_go" style="margin:0">{{ _("查看谁引用了它") }}</button></div>
   <div id="cit_out"></div>
 </section>
 {% endblock %}
@@ -49,15 +49,15 @@
     if ((await pmApi("/api/citations/dismiss", { openalex_id: b.dataset.dismiss })).ok) b.closest("tr").remove();
   }));
   document.getElementById("cit_refresh").addEventListener("click", async () => {
-    if ((await pmApi("/api/citations/refresh", {})).ok) pmToast("已在后台更新，稍后刷新本页");
+    if ((await pmApi("/api/citations/refresh", {})).ok) pmToast(t("已在后台更新，稍后刷新本页"));
   });
   const go = document.getElementById("cit_go"), out = document.getElementById("cit_out");
   go && go.addEventListener("click", async () => {
-    out.innerHTML = `<p class="job-line"><span class="spinner"></span>正在查询 OpenAlex…</p>`;
+    out.innerHTML = `<p class="job-line"><span class="spinner"></span>${t("正在查询 OpenAlex…")}</p>`;
     const j = await (await fetch(`/api/citations/${document.getElementById("cit_paper").value}/citing`)).json();
     if (!j.ok) { out.innerHTML = `<p class="err-text">${esc(j.message)}</p>`; return; }
     out.innerHTML = j.works.length ? `<ul class="cit-list">` + j.works.map(w => `<li>${w.in_library ? `<a href="/?id=${w.in_library}">✓ 已在库中</a> · ` : ""}${esc(w.title)}<br><span class="muted small">${esc(w.first_author)} ${w.year || ""} · ${esc(w.journal)}${w.doi ? ` · <a target="_blank" rel="noopener" href="https://doi.org/${esc(w.doi)}">${esc(w.doi)}</a>` : ""}</span></li>`).join("") + `</ul>`
-      : `<p class="muted">OpenAlex 里还没有引用这篇的文章（新发表的论文通常需要几个月）。</p>`;
+      : `<p class="muted">${t("OpenAlex 里还没有引用这篇的文章（新发表的论文通常需要几个月）。")}</p>`;
   });
 })();
 </script>

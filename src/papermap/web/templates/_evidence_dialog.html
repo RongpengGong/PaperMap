@@ -1,17 +1,17 @@
 <dialog id="evidence-dialog" class="evidence-dialog" aria-labelledby="evidence-dialog-title">
   <form id="capture-evidence">
-    <h2 id="evidence-dialog-title">摘到证据笔记</h2>
+    <h2 id="evidence-dialog-title">{{ _("摘到证据笔记") }}</h2>
     <p class="small muted" id="capture-page"></p>
     <blockquote id="capture-quote"></blockquote>
-    <label for="capture-question">研究问题</label>
+    <label for="capture-question">{{ _("研究问题") }}</label>
     <select id="capture-question"></select>
-    <label for="capture-title" class="ev-new-label">新问题</label>
-    <input id="capture-title" type="text" maxlength="300" placeholder="你想用这些论文回答什么问题？">
-    <label for="capture-stance">与问题的关系</label>
-    <select id="capture-stance"><option value="pending">待核对</option><option value="supports">支持</option><option value="opposes">相反</option></select>
-    <label for="capture-note">我的笔记（可选）</label>
+    <label for="capture-title" class="ev-new-label">{{ _("新问题") }}</label>
+    <input id="capture-title" type="text" maxlength="300" placeholder="{{ _("你想用这些论文回答什么问题？") }}">
+    <label for="capture-stance">{{ _("与问题的关系") }}</label>
+    <select id="capture-stance"><option value="pending">{{ _("待核对") }}</option><option value="supports">{{ _("支持") }}</option><option value="opposes">{{ _("相反") }}</option></select>
+    <label for="capture-note">{{ _("我的笔记（可选）") }}</label>
     <textarea id="capture-note" rows="2" maxlength="12000"></textarea>
     <p class="err-text small" role="alert" id="capture-error" hidden></p>
-    <div class="ev-actions"><button type="button" class="secondary" id="capture-cancel">取消</button><button type="submit" id="capture-save">保存摘录</button></div>
+    <div class="ev-actions"><button type="button" class="secondary" id="capture-cancel">{{ _("取消") }}</button><button type="submit" id="capture-save">{{ _("保存摘录") }}</button></div>
   </form>
 </dialog>

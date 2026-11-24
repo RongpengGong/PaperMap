@@ -62,9 +62,9 @@
     el._loading = (async () => {
       try {
         const response = await fetch(`/api/reader/${pid}/page/${i}/words?details=1`);
-        if (!response.ok) throw Error("无法读取本页文字。");
+        if (!response.ok) throw Error(t("无法读取本页文字。"));
         const result = await response.json();
-        if (!Array.isArray(result.words)) throw Error("本页文字暂不可用。");
+        if (!Array.isArray(result.words)) throw Error(t("本页文字暂不可用。"));
         setPageWords(i, result);
         if (result.message && !result.words.length && +pageNo.value === i + 1) toast(result.message);
       } catch (error) {
@@ -79,7 +79,7 @@
     const page = pageEls[(+pageNo.value || 1) - 1];
     const recognized = page?.dataset.source === "ocr";
     ocrButton.disabled = !page || !!page._recognizing || recognized;
-    ocrButton.textContent = page?._recognizing ? "识别中…" : recognized ? "本页已识别" : "识别本页";
+    ocrButton.textContent = page?._recognizing ? t("识别中…") : recognized ? t("本页已识别") : t("识别本页");
   }
   ocrButton.addEventListener("click", async () => {
     const i = Math.min(pageEls.length - 1, Math.max(0, (+pageNo.value || 1) - 1));
@@ -90,9 +90,9 @@
     try {
       await loadPage(i);
       const result = await post(`/api/reader/${pid}/page/${i}/ocr`, {});
-      if (!result.ok || !Array.isArray(result.words)) throw Error(result.message || "识别失败，请重试。");
+      if (!result.ok || !Array.isArray(result.words)) throw Error(result.message || t("识别失败，请重试。"));
       setPageWords(i, result);
-      toast(result.message || (result.words.length ? "本页文字已就绪，可以选中原文摘录。" : "本页未识别到文字。"));
+      toast(result.message || (result.words.length ? t("本页文字已就绪，可以选中原文摘录。") : t("本页未识别到文字。")));
     } catch (error) {
       toast(error.message);
     } finally {
@@ -160,7 +160,7 @@
     info.pages.forEach((p, i) => {
       const el = document.createElement("div");
       el.className = "page"; el.dataset.page = i;
-      el.innerHTML = `<img alt="第 ${i + 1} 页" draggable="false"><div class="hl-layer"></div><div class="text-layer"></div><div class="flash-layer"></div><span class="page-num">${i + 1}</span>`;
+      el.innerHTML = `<img alt="第 ${i + 1} ${t("页\" draggable=\"false\">")}<div class="hl-layer"></div><div class="text-layer"></div><div class="flash-layer"></div><span class="page-num">${i + 1}</span>`;
       pagesEl.appendChild(el); pageEls.push(el);
     });
     computeFit(); layout();
@@ -205,12 +205,12 @@
     try {
       const response = await fetch(url || `/api/reader/${pid}/evidence/${encodeURIComponent(id)}`);
       const entry = await response.json();
-      if (!response.ok || !entry.ok) throw Error(typeof entry.detail === "string" ? entry.detail : "原文位置已不可用。");
+      if (!response.ok || !entry.ok) throw Error(typeof entry.detail === "string" ? entry.detail : t("原文位置已不可用。"));
       activeEvidence = entry;
       const rect = entry.rects[0];
-      if (entry.back) document.getElementById("evidence_location_back").textContent = "返回论文";
+      if (entry.back) document.getElementById("evidence_location_back").textContent = t("返回论文");
       document.getElementById("evidence_location_back").href = entry.back || `/evidence?question=${entry.question_id}#evidence-${encodeURIComponent(id)}`;
-      status.textContent = `${url ? "已定位更新卡原句" : "已定位证据"} · 第 ${entry.page + 1} 页`;
+      status.textContent = `${url ? "已定位更新卡原句" : "已定位证据"} ${t("· 第")} ${entry.page + 1} ${t("页")}`;
       drawHighlights(entry.page);
       goto(entry.page, rect);
       const left = pageEls[entry.page].getBoundingClientRect().left - pagesEl.getBoundingClientRect().left;
@@ -312,7 +312,7 @@
   function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
   function renderToc() {
     const toc = document.getElementById("toc");
-    if (!info.toc.length) { toc.innerHTML = `<p class="muted small pad">这个 PDF 没有目录。</p>`; return; }
+    if (!info.toc.length) { toc.innerHTML = `<p class="muted small pad">${t("这个 PDF 没有目录。")}</p>`; return; }
     toc.innerHTML = info.toc.map(t => `<a href="#" class="toc-item" style="--lvl:${t.level - 1}" data-page="${t.page - 1}">${esc(t.title)}<i>${t.page}</i></a>`).join("");
   }
   document.getElementById("toc").addEventListener("click", e => {
@@ -322,10 +322,10 @@
     if (e.key !== "Enter") return;
     const q = e.target.value.trim(), box = document.getElementById("search_results");
     if (q.length < 2) return;
-    box.innerHTML = `<p class="muted small pad">搜索中…</p>`;
+    box.innerHTML = `<p class="muted small pad">${t("搜索中…")}</p>`;
     const hits = await (await fetch(`/api/reader/${pid}/search?q=${encodeURIComponent(q)}`)).json();
-    box.innerHTML = hits.length ? `<p class="muted small pad">${hits.length} 处</p>` + hits.map((h, k) =>
-      `<a href="#" class="hit" data-k="${k}"><b>p.${h.page + 1}</b> ${esc(h.context)}</a>`).join("") : `<p class="muted small pad">没有找到。</p>`;
+    box.innerHTML = hits.length ? `<p class="muted small pad">${hits.length} ${t("处")}</p>` + hits.map((h, k) =>
+      `<a href="#" class="hit" data-k="${k}"><b>p.${h.page + 1}</b> ${esc(h.context)}</a>`).join("") : `<p class="muted small pad">${t("没有找到。")}</p>`;
     box._hits = hits;
     if (hits.length) goto(hits[0].page, hits[0].rect);
   });
@@ -338,7 +338,7 @@
     const box = document.getElementById("ann_list");
     box.innerHTML = anns.length ? anns.map(a =>
       `<a href="#" class="ann-item" data-id="${a.id}"><span class="ann-dot" style="background:${COLORS[a.color]}"></span><b>p.${a.page + 1}</b> ${esc((a.text || "").slice(0, 140))}${a.note ? `<span class="ann-note">${esc(a.note)}</span>` : ""}</a>`).join("")
-      : `<p class="muted small pad">还没有标注。选中文字后点颜色即可高亮。</p>`;
+      : `<p class="muted small pad">${t("还没有标注。选中文字后点颜色即可高亮。")}</p>`;
   }
   document.getElementById("ann_list").addEventListener("click", e => {
     const a = e.target.closest(".ann-item"); if (!a) return; e.preventDefault();
@@ -390,7 +390,7 @@
   async function addAnnotation(color, note = "") {
     if (!selInfo) return;
     const j = await post(`/api/reader/${pid}/annotations`, { page: selInfo.page, rects: selInfo.rects, text: selInfo.text, color, note });
-    if (!j.ok) { toast(j.message || "保存失败"); return; }
+    if (!j.ok) { toast(j.message || t("保存失败")); return; }
     anns.push({ id: j.id, page: selInfo.page, rects: selInfo.rects.map(r => r.map(v => Math.round(v * 100) / 100)), text: selInfo.text, color, note });
     drawHighlights(selInfo.page); renderAnnList();
     window.getSelection().removeAllRanges(); hideToolbar();
@@ -399,7 +399,7 @@
   bar.addEventListener("click", async e => {
     const b = e.target.closest("button"); if (!b || !selInfo) return;
     if (b.dataset.act === "evidence") {
-      if (selInfo.crossPage) { toast("请按页摘录，以便准确定位每段原文。"); return; }
+      if (selInfo.crossPage) { toast(t("请按页摘录，以便准确定位每段原文。")); return; }
       const selection = selInfo;
       hideToolbar();
       window.pmEvidence.capture({
@@ -409,10 +409,10 @@
       return;
     }
     if (b.dataset.color) return addAnnotation(b.dataset.color);
-    if (b.dataset.act === "copy") { navigator.clipboard && navigator.clipboard.writeText(selInfo.text); toast("已复制"); hideToolbar(); }
+    if (b.dataset.act === "copy") { navigator.clipboard && navigator.clipboard.writeText(selInfo.text); toast(t("已复制")); hideToolbar(); }
     if (b.dataset.act === "note") {
       const keep = selInfo;
-      const note = await window.pmDialog("批注：", { input: true, okText: "保存" });
+      const note = await window.pmDialog(t("批注："), { input: true, okText: t("保存") });
       selInfo = keep; if (note) addAnnotation("yellow", note);
     }
     if (b.dataset.act === "translate") translateSelection();
@@ -427,18 +427,18 @@
     pop.hidden = false;
     pop.style.left = Math.max(8, Math.min(innerWidth - 440, r.left)) + "px";
     pop.style.top = Math.min(innerHeight - 220, r.bottom + 10) + "px";
-    document.getElementById("tr_text").textContent = "翻译中…"; document.getElementById("tr_model").textContent = "";
+    document.getElementById("tr_text").textContent = t("翻译中…"); document.getElementById("tr_model").textContent = "";
     let j = await post("/api/translate-text", { text: keep.text, paper_id: +pid });
     if (j.need_ack) {
-      if (!(await window.pmDialog("使用 bilibili 免费翻译时，选中的文字会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。", { okText: "继续" }))) { pop.hidden = true; return; }
+      if (!(await window.pmDialog(t("使用 bilibili 免费翻译时，选中的文字会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。"), { okText: t("继续") }))) { pop.hidden = true; return; }
       j = await post("/api/translate-text", { text: keep.text, paper_id: +pid, ack: true });
     }
-    document.getElementById("tr_text").textContent = j.ok ? j.translation : (j.message || "翻译失败");
+    document.getElementById("tr_text").textContent = j.ok ? j.translation : (j.message || t("翻译失败"));
     document.getElementById("tr_model").textContent = j.ok ? j.model : "";
     lastTr = j.ok ? { sel: keep, text: j.translation } : null;
   }
   document.getElementById("tr_close").onclick = () => pop.hidden = true;
-  document.getElementById("tr_copy").onclick = () => { if (lastTr) { navigator.clipboard && navigator.clipboard.writeText(lastTr.text); toast("已复制译文"); } };
+  document.getElementById("tr_copy").onclick = () => { if (lastTr) { navigator.clipboard && navigator.clipboard.writeText(lastTr.text); toast(t("已复制译文")); } };
   document.getElementById("tr_save").onclick = () => { if (lastTr) { selInfo = lastTr.sel; addAnnotation("blue", lastTr.text); pop.hidden = true; } };
 
   // ------------------------------------------------- click a highlight to edit
@@ -451,15 +451,15 @@
     if (!a) return;
     const recolor = c => async () => { if ((await post(`/api/annotations/${a.id}/update`, { color: c })).ok) { a.color = c; drawHighlights(i); renderAnnList(); } };
     window.pmMenu(e.clientX, e.clientY, [
-      { label: (a.note ? "批注：" + a.note : a.text || "").slice(0, 60) },
-      { text: a.note ? "编辑批注…" : "添加批注…", run: async () => {
-        const n = await window.pmDialog("批注：", { input: true, value: a.note || "", okText: "保存" });
+      { label: (a.note ? t("批注：") + a.note : a.text || "").slice(0, 60) },
+      { text: a.note ? t("编辑批注…") : t("添加批注…"), run: async () => {
+        const n = await window.pmDialog(t("批注："), { input: true, value: a.note || "", okText: t("保存") });
         if (n !== null && (await post(`/api/annotations/${a.id}/update`, { note: n })).ok) { a.note = n; drawHighlights(i); renderAnnList(); }
       } },
-      { text: "改成黄色", run: recolor("yellow") }, { text: "改成绿色", run: recolor("green") },
-      { text: "改成蓝色", run: recolor("blue") }, { text: "改成粉色", run: recolor("pink") },
+      { text: t("改成黄色"), run: recolor("yellow") }, { text: t("改成绿色"), run: recolor("green") },
+      { text: t("改成蓝色"), run: recolor("blue") }, { text: t("改成粉色"), run: recolor("pink") },
       "-",
-      { text: "删除标注", danger: true, run: async () => {
+      { text: t("删除标注"), danger: true, run: async () => {
         if ((await post(`/api/annotations/${a.id}/delete`, {})).ok) { anns = anns.filter(x => x !== a); drawHighlights(i); renderAnnList(); }
       } },
     ]);

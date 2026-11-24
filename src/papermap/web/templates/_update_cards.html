@@ -4,41 +4,41 @@
   <div class="ucard-head">
     <span class="ucard-outcome" data-outcome="{{ u.final_outcome }}">{{ u.final_label }}</span>
     <span class="ucard-status" data-status="{{ u.status }}">{{ u.status_label }}</span>
-    {% if u.comparability == 'check' %}<span class="ucard-warn" title="{{ u.comparability_note }}">可比性待核对</span>{% endif %}
+    {% if u.comparability == 'check' %}<span class="ucard-warn" title="{{ u.comparability_note }}">{{ _("可比性待核对") }}</span>{% endif %}
     <span class="grow"></span>
-    <span class="muted small">模型 {{ u.model or '' }} · {{ u.created_at[:10] }}</span>
+    <span class="muted small">{{ _("模型") }} {{ u.model or '' }} · {{ u.created_at[:10] }}</span>
   </div>
-  {% if show == 'question' %}<p class="small">研究问题：<a href="/evidence?question={{ u.question_id }}">{{ u.question }}</a></p>
-  {% else %}<p class="small"><a href="/?id={{ u.paper_id }}" title="{{ u.paper_title }}">{{ u.paper_label }}</a> · <span class="muted">{{ (u.paper_title or '')[:90] }}</span>{% if show == 'paper' %} · 问题：<a href="/evidence?question={{ u.question_id }}">{{ u.question }}</a>{% endif %}</p>{% endif %}
-  {% if u.user_text %}<p class="ucard-headline">{{ u.user_text }}</p><p class="muted small">模型原判断（{{ u.outcome_label }}）：{{ u.headline }}</p>
+  {% if show == 'question' %}<p class="small">{{ _("研究问题：") }}<a href="/evidence?question={{ u.question_id }}">{{ u.question }}</a></p>
+  {% else %}<p class="small"><a href="/?id={{ u.paper_id }}" title="{{ u.paper_title }}">{{ u.paper_label }}</a> · <span class="muted">{{ (u.paper_title or '')[:90] }}</span>{% if show == 'paper' %} {{ _("· 问题：") }}<a href="/evidence?question={{ u.question_id }}">{{ u.question }}</a>{% endif %}</p>{% endif %}
+  {% if u.user_text %}<p class="ucard-headline">{{ u.user_text }}</p><p class="muted small">{{ _("模型原判断（") }}{{ u.outcome_label }}）：{{ u.headline }}</p>
   {% else %}<p class="ucard-headline">{{ u.headline }}</p>{% endif %}
-  {% if u.comparability == 'check' and u.comparability_note %}<p class="ucard-warn-note small">可比性待核对：{{ u.comparability_note }}</p>{% endif %}
+  {% if u.comparability == 'check' and u.comparability_note %}<p class="ucard-warn-note small">{{ _("可比性待核对：") }}{{ u.comparability_note }}</p>{% endif %}
   {% for c in u.claims %}
   <div class="ucard-claim">
     <p>{{ c.text }}</p>
-    {% for a in c.new %}<a class="ucard-quote new" href="/reader/{{ u.paper_id }}?update={{ u.id }}&amp;anchor={{ a.k }}&amp;page={{ a.page + 1 }}" title="在 PDF 中定位这句原文"><b>本文 p.{{ a.page + 1 }}</b>「{{ a.quote[:240] }}{{ '…' if a.quote|length > 240 }}」</a>{% endfor %}
+    {% for a in c.new %}<a class="ucard-quote new" href="/reader/{{ u.paper_id }}?update={{ u.id }}&amp;anchor={{ a.k }}&amp;page={{ a.page + 1 }}" title="{{ _("在 PDF 中定位这句原文") }}"><b>{{ _("本文 p.") }}{{ a.page + 1 }}</b>「{{ a.quote[:240] }}{{ '…' if a.quote|length > 240 }}」</a>{% endfor %}
     {% for o in c.old %}<a class="ucard-quote old" href="/reader/{{ o.paper_id }}?evidence={{ o.id }}&amp;page={{ o.page + 1 }}" title="{{ o.title }}"><b>{{ o.label }} p.{{ o.page + 1 }}</b>「{{ o.quote[:240] }}{{ '…' if o.quote|length > 240 }}」</a>{% endfor %}
   </div>
   {% endfor %}
   <div class="ucard-actions">
     {% if u.status == 'pending' %}
-      {% if u.outcome == 'unrelated' %}<button type="button" class="secondary" data-uact="dismiss">知道了</button>
+      {% if u.outcome == 'unrelated' %}<button type="button" class="secondary" data-uact="dismiss">{{ _("知道了") }}</button>
       {% else %}
-      <button type="button" data-uact="confirm" title="同意这个判断；本文摘录会存进这个问题的证据笔记">确认</button>
-      <button type="button" class="secondary" data-uact="edit">改写…</button>
-      <button type="button" class="secondary" data-uact="keep" title="这篇论文不改变你对这个问题的判断">保留原判断</button>
-      <button type="button" class="ghost" data-uact="dismiss">忽略</button>
+      <button type="button" data-uact="confirm" title="{{ _("同意这个判断；本文摘录会存进这个问题的证据笔记") }}">{{ _("确认") }}</button>
+      <button type="button" class="secondary" data-uact="edit">{{ _("改写…") }}</button>
+      <button type="button" class="secondary" data-uact="keep" title="{{ _("这篇论文不改变你对这个问题的判断") }}">{{ _("保留原判断") }}</button>
+      <button type="button" class="ghost" data-uact="dismiss">{{ _("忽略") }}</button>
       {% endif %}
     {% elif u.status != 'dismissed' %}
       <span class="muted small">{{ u.status_label }} · {{ (u.decided_at or '')[:10] }}</span>
-      <button type="button" class="ghost" data-uact="reopen" title="改回「待核对」，已存进证据笔记的摘录不会删除">撤回决定</button>
+      <button type="button" class="ghost" data-uact="reopen" title="{{ _("改回「待核对」，已存进证据笔记的摘录不会删除") }}">{{ _("撤回决定") }}</button>
     {% endif %}
   </div>
   <form class="ucard-rewrite" data-urewrite hidden>
-    <label>影响类型
+    <label>{{ _("影响类型") }}
       <select name="outcome">{% for k, v in outcomes.items() if k != 'unrelated' %}<option value="{{ k }}" {{ 'selected' if k == u.final_outcome }}>{{ v }}</option>{% endfor %}</select></label>
-    <label>你的判断<textarea name="text" rows="3" maxlength="2000">{{ u.user_text or u.headline }}</textarea></label>
-    <div class="row"><button type="submit">保存并确认</button><button type="button" class="ghost" data-uact="cancel">取消</button></div>
+    <label>{{ _("你的判断") }}<textarea name="text" rows="3" maxlength="2000">{{ (u.user_text or u.headline)|keep }}</textarea></label>
+    <div class="row"><button type="submit">{{ _("保存并确认") }}</button><button type="button" class="ghost" data-uact="cancel">{{ _("取消") }}</button></div>
   </form>
 </article>
 {% endmacro %}

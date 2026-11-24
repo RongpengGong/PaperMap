@@ -1,33 +1,33 @@
 {% extends "base.html" %}
-{% block title %}问答 - PaperMap{% endblock %}
+{% block title %}{{ _("问答 - PaperMap") }}{% endblock %}
 {% block content_class %}qa-content{% endblock %}
 {% block content %}
 <div class="qa-layout">
   <section class="qa-main">
-    <h2>向文献库提问</h2>
-    <p class="muted small">只根据你库里的论文、笔记和批注回答，每句话都标出处；库里没有的内容不会编。点数字角标可以跳到那篇论文或那一页。</p>
+    <h2>{{ _("向文献库提问") }}</h2>
+    <p class="muted small">{{ _("只根据你库里的论文、笔记和批注回答，每句话都标出处；库里没有的内容不会编。点数字角标可以跳到那篇论文或那一页。") }}</p>
     <div class="qa-ask">
-      <textarea id="qa_q" rows="3" placeholder="例如：我库里哪些研究用空间转录组研究成纤维细胞？它们关于成纤维细胞空间位置的结论一致吗？">{{ current.row.question if current else '' }}</textarea>
+      <textarea id="qa_q" rows="3" placeholder="{{ _("例如：我库里哪些研究用空间转录组研究成纤维细胞？它们关于成纤维细胞空间位置的结论一致吗？") }}">{{ (current.row.question if current else '')|keep }}</textarea>
       <div class="row">
         <select id="qa_scope" style="width:auto">
-          <option value="">整个文献库</option>
-          {% if groups %}<optgroup label="分组">{% for g in groups %}<option value="c:{{ g.id }}">{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}</optgroup>{% endif %}
-          {% if fields %}<optgroup label="学科">{% for f in fields %}<option value="f:{{ f.slug }}">{{ f.name_zh }}</option>{% endfor %}</optgroup>{% endif %}
+          <option value="">{{ _("整个文献库") }}</option>
+          {% if groups %}<optgroup label="{{ _("分组") }}">{% for g in groups %}<option value="c:{{ g.id }}">{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}</optgroup>{% endif %}
+          {% if fields %}<optgroup label="{{ _("学科") }}">{% for f in fields %}<option value="f:{{ f.slug }}">{{ fname(f) }}</option>{% endfor %}</optgroup>{% endif %}
         </select>
         <span class="grow"></span>
-        <button type="button" id="qa_go">提问（⌘↩）</button>
+        <button type="button" id="qa_go">{{ _("提问（⌘↩）") }}</button>
       </div>
     </div>
     <div id="qa_answer" class="qa-answer">
       {% if current %}
       <div class="md">{{ current.html|safe }}</div>
-      <h3>来源</h3><ol class="qa-sources">{% for s in current.sources %}<li><a href="{{ '/reader/' ~ s.paper_id ~ '?page=' ~ (s.page + 1) if s.page is not none and s.kind in ('page','annotation') else '/?id=' ~ s.paper_id }}">{{ s.who }}{% if s.page is not none %} · p.{{ s.page + 1 }}{% endif %}</a> <span class="muted small">{{ {'card':'卡片','page':'正文','notes':'我的笔记','annotation':'批注'}[s.kind] }} · {{ s.title }}</span></li>{% endfor %}</ol>
+      <h3>{{ _("来源") }}</h3><ol class="qa-sources">{% for s in current.sources %}<li><a href="{{ '/reader/' ~ s.paper_id ~ '?page=' ~ (s.page + 1) if s.page is not none and s.kind in ('page','annotation') else '/?id=' ~ s.paper_id }}">{{ s.who }}{% if s.page is not none %} · p.{{ s.page + 1 }}{% endif %}</a> <span class="muted small">{{ {'card':_('卡片'),'page':_('正文'),'notes':_('我的笔记'),'annotation':_('批注')}[s.kind] }} · {{ s.title }}</span></li>{% endfor %}</ol>
       {% endif %}
     </div>
   </section>
   <aside class="qa-history">
-    <h3>历史</h3>
-    {% for h in history %}<a href="/qa?id={{ h.id }}" class="{{ 'active' if current and current.row.id == h.id }}">{{ h.question[:60] }}<i>{{ h.created_at[:10] }}</i></a>{% else %}<p class="muted small">还没有提问。</p>{% endfor %}
+    <h3>{{ _("历史") }}</h3>
+    {% for h in history %}<a href="/qa?id={{ h.id }}" class="{{ 'active' if current and current.row.id == h.id }}">{{ h.question[:60] }}<i>{{ h.created_at[:10] }}</i></a>{% else %}<p class="muted small">{{ _("还没有提问。") }}</p>{% endfor %}
   </aside>
 </div>
 {% endblock %}
@@ -35,11 +35,11 @@
 <script>
 (function () {
   const q = document.getElementById("qa_q"), go = document.getElementById("qa_go"), out = document.getElementById("qa_answer");
-  const kinds = { card: "卡片", page: "正文", notes: "我的笔记", annotation: "批注" };
+  const kinds = { card: t("卡片"), page: t("正文"), notes: t("我的笔记"), annotation: t("批注") };
   const esc = s => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
   async function ask() {
     const question = q.value.trim(); if (!question) return;
-    go.disabled = true; out.innerHTML = `<p class="job-line"><span class="spinner"></span>正在检索文献库并组织回答…（通常 10–30 秒）</p>`;
+    go.disabled = true; out.innerHTML = `<p class="job-line"><span class="spinner"></span>${t("正在检索文献库并组织回答…（通常 10–30 秒）")}</p>`;
     const r = await fetch("/api/qa", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ csrf: document.body.dataset.csrf, question, scope: document.getElementById("qa_scope").value }) });
     const j = await r.json(); go.disabled = false;
@@ -49,7 +49,7 @@
       return `<li><a href="${href}">${esc(s.who)}${s.page !== null ? " · p." + (s.page + 1) : ""}</a> <span class="muted small">${kinds[s.kind]} · ${esc(s.title)}</span></li>`;
     }).join("");
     out.innerHTML = `<div class="md">${j.html}</div>${src ? `<h3>来源</h3><ol class="qa-sources">${src}</ol>` : ""}
-      <p class="muted small">检索词：${esc(j.keywords.join("、"))} · ${esc(j.model || "")}${j.cost ? " · $" + j.cost.toFixed(4) : ""}</p>`;
+      <p class="muted small">${t("检索词：")}${esc(j.keywords.join("、"))} · ${esc(j.model || "")}${j.cost ? " · $" + j.cost.toFixed(4) : ""}</p>`;
     history.replaceState(null, "", "/qa?id=" + j.id);
   }
   go.addEventListener("click", ask);

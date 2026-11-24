@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}图片库 - PaperMap{% endblock %}
+{% block title %}{{ _("图片库 - PaperMap") }}{% endblock %}
 {% block content %}
-<h2>图片库</h2>
-<p class="muted">按图注自动找出的论文图（含 Extended Data）。点开看大图和完整图注，可以让模型逐个面板讲解，讲解还能一键加到那篇论文的笔记里。</p>
+<h2>{{ _("图片库") }}</h2>
+<p class="muted">{{ _("按图注自动找出的论文图（含 Extended Data）。点开看大图和完整图注，可以让模型逐个面板讲解，讲解还能一键加到那篇论文的笔记里。") }}</p>
 {% set ns = namespace(cur=None) %}
 {% for r in rows %}
 {% if r.paper_id != ns.cur %}{% if ns.cur is not none %}</div>{% endif %}{% set ns.cur = r.paper_id %}
@@ -11,7 +11,7 @@
 {% endif %}
 <a href="#" class="fig-card" data-fig='{{ {"id": r.id, "label": r.label, "page": r.page, "legend": r.legend, "paper_id": r.paper_id, "paper": (r.first_author or "?") ~ " " ~ (r.year or "")}|tojson|forceescape }}'><img loading="lazy" src="/api/figure/{{ r.id }}.png?scale=1" alt=""><span>{{ r.label }}</span></a>
 {% if loop.last %}</div>{% endif %}
-{% else %}<p class="muted">还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。</p>{% endfor %}
+{% else %}<p class="muted">{{ _("还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。") }}</p>{% endfor %}
 {% endblock %}
 {% block scripts %}
 <script>
