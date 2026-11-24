@@ -899,3 +899,8 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .cc-partial, .cc-unclear { border-left-color:#dc6803; } .cc-partial .cc-badge, .cc-unclear .cc-badge { color:#dc6803; }
 .cc-contradicts, .cc-not_found { border-left-color:var(--warn); } .cc-contradicts .cc-badge, .cc-not_found .cc-badge { color:var(--warn); }
 .cc-not_in_library, .cc-no_text, .cc-pending { border-left-color:var(--line-strong, var(--line)); }
+.chat-archive { display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--line); border-radius:10px; background:var(--toolbar); max-height:50vh; overflow:auto; }
+.chat-old summary { cursor:pointer; font-size:12.5px; }
+.chat-old .chat-msg { margin:6px 0; max-width:100%; }
+.chat-old-sum { margin:6px 0; padding:6px 10px; border-left:3px solid var(--accent); font-size:12.5px; }
+.chat-summary { margin-bottom:8px; }

@@ -188,11 +188,26 @@ def save(store: Path, data: dict) -> None:
     atomic_write(store, json.dumps(data, ensure_ascii=False, indent=1))
 
 
-def clear(store: Path) -> None:
+MAX_ARCHIVE = 30
+
+
+def archive(store: Path, summary: str | None = None) -> bool:
+    """End the current discussion: its messages move to the list of earlier discussions
+    (newest first) and the conversation starts empty. Nothing is deleted."""
     with _LOCK:
         data = load(store)
+        if not data["messages"]:
+            return False
+        data["archive"] = ([{"ended_at": _now(), "messages": data["messages"], "summary": summary or ""}]
+                           + list(data.get("archive") or []))[:MAX_ARCHIVE]
         data["messages"] = []
         save(store, data)
+        return True
+
+
+def clear(store: Path) -> None:
+    """New chat: same as ending without a summary; the old conversation stays in the archive."""
+    archive(store)
 
 
 # ------------------------------------------------------------------ context
@@ -340,7 +355,9 @@ def page_system(config: Config, registry: Registry, title: str, path: str, page_
 
 
 def summarize(config: Config, llm: LLMClient, store: Path, subject: str, key: str = "main",
-              paper_id: int | None = None, effort: str = "") -> str:
+              paper_id: int | None = None, effort: str = "", end: bool = True) -> str:
+    """Summary of the current discussion; with ``end`` the discussion is then archived (a fresh one starts).
+    If the model fails, nothing is archived and the user can go on."""
     msgs = load(store)["messages"]
     if not msgs:
         raise ValueError("还没有讨论内容")
@@ -355,7 +372,10 @@ def summarize(config: Config, llm: LLMClient, store: Path, subject: str, key: st
     ])
     res = llm.chat_text(system, f"Subject: {subject}\n\n===== DISCUSSION =====\n{transcript[-60000:]}",
                         purpose="chat_summary", paper_id=paper_id, max_tokens=2048, eff=resolve(config, key, effort))
-    return res.raw.strip()
+    text = res.raw.strip()
+    if end:
+        archive(store, text)
+    return text
 
 
 def _heading(config: Config) -> str:

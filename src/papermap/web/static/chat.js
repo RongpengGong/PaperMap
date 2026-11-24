@@ -84,6 +84,7 @@
       models = j.models; fillEfforts(j.effort || localStorage.getItem(MODEL_PREF + "_effort") || "");
       log.innerHTML = ""; count = 0;
       if (!j.messages.length) empty(); else j.messages.forEach(bubble);
+      showArchive(j.archive || []);
       scroll();
     }
     sel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF, sel.value); } catch (e) { /* private mode */ } fillEfforts(effSel.value); });
@@ -134,30 +135,46 @@
     box.querySelector("[data-chat-quote-x]").addEventListener("click", () => setQuote(null));
 
     box.querySelector("[data-chat-new]").addEventListener("click", async () => {
-      if (count && !confirm(t("清空这次对话？还没写进笔记的内容会丢失。"))) return;
+      if (!count) return;
       const j = await post(`${base}/clear`, extra());
-      if (j.ok) { log.innerHTML = ""; count = 0; empty(); sumBox.hidden = true; }
+      if (j.ok) { log.innerHTML = ""; count = 0; empty(); sumBox.hidden = true; reloadArchive(); say(t("已开始新对话，原对话在「以前的讨论」里")); }
     });
+
+    // earlier (ended) discussions, kept as they were
+    const histBtn = box.querySelector("[data-chat-history]"), arch = box.querySelector("[data-chat-archive]");
+    function showArchive(list) {
+      histBtn.hidden = !list.length;
+      box.querySelector("[data-chat-history-n]").textContent = list.length || "";
+      arch.innerHTML = list.map(a => `<details class="chat-old"><summary><b>${esc(a.ended_at.slice(0, 16).replace("T", " "))}</b> · ${esc(a.first)} <span class="muted">（${a.n} ${esc(t("个问题"))}）</span></summary>`
+        + (a.summary_html ? `<div class="chat-old-sum md">${a.summary_html}</div>` : "")
+        + a.messages.map(m => m.role === "user" ? `<div class="chat-msg user"><div>${esc(m.content).replace(/\n/g, "<br>")}</div></div>`
+                                                : `<div class="chat-msg assistant"><div class="md">${m.html}</div></div>`).join("") + "</details>").join("");
+    }
+    async function reloadArchive() {
+      const j = await fetch(isPage ? `${base}?key=${encodeURIComponent(key)}` : base).then(r => r.json()).catch(() => null);
+      if (j && j.ok) showArchive(j.archive || []);
+    }
+    histBtn.addEventListener("click", () => { arch.hidden = !arch.hidden; });
 
     box.querySelector("[data-chat-end]").addEventListener("click", async () => {
       if (!count) { say(t("还没有讨论内容")); return; }
-      const btn = box.querySelector("[data-chat-end]"); btn.disabled = true; btn.textContent = t("正在总结…");
+      const btn = box.querySelector("[data-chat-end]"); btn.disabled = true; btn.textContent = t("正在总结并结束…");
       const j = await post(`${base}/summary`, { model: sel.value, effort: effort(), ...extra() });
-      btn.disabled = false; btn.textContent = t("结束讨论，总结到笔记");
+      btn.disabled = false; btn.textContent = t("结束讨论");
       if (!j.ok) { say(j.message || t("总结失败")); return; }
-      sumText.value = j.text; sumBox.hidden = false; sumText.focus(); sumBox.scrollIntoView({ block: "nearest" });
+      // the discussion has ended: start empty, show the summary to confirm
+      log.innerHTML = ""; count = 0; empty(); reloadArchive();
+      sumText.value = j.text; sumBox.hidden = false; sumText.focus(); sumBox.scrollIntoView({ block: "start" });
     });
     box.querySelector("[data-chat-summary-cancel]").addEventListener("click", () => { sumBox.hidden = true; });
     box.querySelector("[data-chat-write]").addEventListener("click", async () => {
-      const clear = box.querySelector("[data-chat-clear]").checked;
-      const j = await post(`${base}/notes`, { ...extra(), text: sumText.value, clear });
+      const j = await post(`${base}/notes`, { ...extra(), text: sumText.value });
       if (!j.ok) { say(j.message || t("写入失败")); return; }
       sumBox.hidden = true;
       // keep the notes tab in step with the file we just appended to
       const ta = panel.querySelector("textarea.notes"), live = panel.querySelector("[data-notes-live]");
       if (ta) ta.value = j.notes;
       if (live && live._pmEditor) live._pmEditor.commands.setContent(j.notes, { contentType: "markdown", emitUpdate: false });
-      if (clear) { log.innerHTML = ""; count = 0; empty(); }
       if (isPage && j.where && !rel) { say(t("已保存到") + " knowledge/" + j.where); return; }
       say(t("已写入「我的笔记」"));
       if (isPage && rel) { try { sessionStorage.setItem("pm_ai_open", "1"); } catch (e) { /* */ } location.reload(); }

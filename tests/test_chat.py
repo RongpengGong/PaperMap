@@ -42,12 +42,21 @@ def test_chat_send_summary_and_notes(config, registry, pdfs):
     s = c.post(f"/api/paper/{pid}/chat/summary", json={"csrf": tok}).json()
     assert s["ok"] and "[p.1]" in s["text"]
     assert notes.read_text("utf-8") == "我自己的笔记\n"  # nothing is written before the user confirms
+    # ending the discussion starts a fresh one; the old one is kept under "earlier discussions"
+    after = c.get(f"/api/paper/{pid}/chat").json()
+    assert after["messages"] == [] and len(after["archive"]) == 1
+    old = after["archive"][0]
+    assert old["n"] == 2 and old["first"] == "这句话什么意思？" and "p.1" in old["summary_html"] and len(old["messages"]) == 4
 
     w = c.post(f"/api/paper/{pid}/chat/notes", json={"csrf": tok, "text": s["text"] + "\n- 我加的一条", "clear": True}).json()
     text = notes.read_text("utf-8")
     assert w["ok"] and text.startswith("我自己的笔记\n\n## 与 AI 讨论 · ") and "- 我加的一条" in text
     assert c.get(f"/api/paper/{pid}/chat").json()["messages"] == []
     assert not c.post(f"/api/paper/{pid}/chat/summary", json={"csrf": tok}).json()["ok"]
+    c.post(f"/api/paper/{pid}/chat", json={"csrf": tok, "text": "再问一个"})
+    assert c.post(f"/api/paper/{pid}/chat/clear", json={"csrf": tok}).json()["ok"]  # 「新对话」
+    got = c.get(f"/api/paper/{pid}/chat").json()
+    assert got["messages"] == [] and len(got["archive"]) == 2 and got["archive"][0]["first"] == "再问一个"
 
 
 def test_model_choices_only_configured(config):

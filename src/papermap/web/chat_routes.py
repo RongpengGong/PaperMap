@@ -9,6 +9,9 @@ from ..kb_writer import editable_part
 from ..llm import BudgetExceeded, LLMNotConfigured
 
 
+MAX_SHOWN = 15
+
+
 def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, kb_notes_path, tr=lambda s: s):
     def models():
         """The picker's labels ("主模型 · ChatGPT 订阅 · gpt-x") in the interface language."""
@@ -26,6 +29,15 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         out["html"] = chat.page_links(md_html(m["content"])) if m["role"] == "assistant" else ""
         return out
 
+    def archived(data: dict) -> list[dict]:
+        out = []
+        for a in (data.get("archive") or [])[:MAX_SHOWN]:
+            first = next((m["content"] for m in a["messages"] if m["role"] == "user"), "")
+            out.append({"ended_at": a["ended_at"], "first": first[:80], "n": sum(m["role"] == "user" for m in a["messages"]),
+                        "summary_html": md_html(a["summary"]) if a.get("summary") else "",
+                        "messages": [render(m) for m in a["messages"]]})
+        return out
+
     def error(exc: Exception) -> dict:
         if isinstance(exc, (ValueError, LLMNotConfigured, BudgetExceeded)):
             return {"ok": False, "message": tr(str(exc))}
@@ -37,7 +49,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         data = chat.load(chat.chat_path(card))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
                 "models": models(), "model": data.get("model") or "main",
-                "effort": data.get("effort") or ""}
+                "effort": data.get("effort") or "", "archive": archived(data)}
 
     @app.post("/api/paper/{paper_id}/chat")
     async def chat_send(paper_id: int, request: Request):
@@ -101,7 +113,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         data = chat.load(chat.page_store(config.data_dir, page_key(key)))
         return {"ok": True, "messages": [render(m) for m in data["messages"]],
                 "models": models(), "model": data.get("model") or "main",
-                "effort": data.get("effort") or ""}
+                "effort": data.get("effort") or "", "archive": archived(data)}
 
     @app.post("/api/page-chat")
     async def page_chat_send(request: Request):
