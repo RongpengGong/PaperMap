@@ -9,6 +9,8 @@
     <input id="capture-title" type="text" maxlength="300" placeholder="{{ _("你想用这些论文回答什么问题？") }}">
     <label for="capture-stance">{{ _("与问题的关系") }}</label>
     <select id="capture-stance"><option value="pending">{{ _("待核对") }}</option><option value="supports">{{ _("支持") }}</option><option value="opposes">{{ _("相反") }}</option></select>
+    <label for="capture-dimension">{{ _("对照项目") }}</label>
+    <select id="capture-dimension"></select>
     <label for="capture-note">{{ _("我的笔记（可选）") }}</label>
     <textarea id="capture-note" rows="2" maxlength="12000"></textarea>
     <p class="err-text small" role="alert" id="capture-error" hidden></p>

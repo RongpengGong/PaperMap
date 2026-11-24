@@ -78,3 +78,35 @@ def test_backup_while_writing_is_consistent(config, registry):
         stop.set()
         t.join()
     assert backup.list_backups(config)[0]["name"] == path.name and not backup.list_backups(config)[0]["meta"].get("broken")
+
+
+def test_restore_migrates_checkpoints_and_preserves_current_mcp_access(config, registry, tmp_path):
+    import hashlib
+    import sqlite3
+
+    from papermap.web import mcp_api
+
+    def digest(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    token_at_backup = mcp_api.rotate_token(registry)
+    archive = backup.create(config, registry, kind="manual")
+    mcp_api.revoke_token(registry)
+    backup.restore(config, registry, archive.name)
+    assert not mcp_api.token_enabled(registry)
+
+    # Simulate a database from before the MCP and durable translation tables existed.
+    old_db = tmp_path / "old.db"
+    with zipfile.ZipFile(archive) as z:
+        old_db.write_bytes(z.read("papermap.db"))
+    with sqlite3.connect(old_db) as db:
+        for table in ("mcp_read_credentials", "translation_parts", "translation_inputs"):
+            db.execute(f"DROP TABLE {table}")
+    with zipfile.ZipFile(archive, "w") as z:
+        z.write(old_db, "papermap.db")
+    current_token = mcp_api.rotate_token(registry)
+    backup.restore(config, registry, archive.name)
+    restored = registry.one("SELECT digest FROM mcp_read_credentials")["digest"]
+    assert restored == digest(current_token) and restored != digest(token_at_backup)
+    assert registry.query("SELECT * FROM translation_parts") == []
+    assert registry.query("SELECT * FROM translation_inputs") == []

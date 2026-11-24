@@ -32,9 +32,12 @@
       document.getElementById("capture-quote").textContent = item.quote;
       dialog.showModal();
       try {
-        const {questions} = await api("/api/evidence/questions");
+        const {questions, dimensions} = await api("/api/evidence/questions");
         if (!dialog.open || selected !== item) return;
         for (const q of questions) picker.add(new Option(q.title, q.id));
+        const dimension = document.getElementById("capture-dimension");
+        dimension.replaceChildren(...Object.entries(dimensions).map(([key, label]) => new Option(label, key)));
+        dimension.value = "general";
         picker.add(new Option(t("新建研究问题…"), ""));
         let last;
         try { last = localStorage.getItem("papermap.evidenceQuestion"); } catch (_) {}
@@ -54,7 +57,7 @@
         const result = await api("/api/reader/" + paper + "/evidence", {
           page, quote, rects, revision, source, question_id: Number(picker.value),
           question_title: title.value, stance: document.getElementById("capture-stance").value,
-          note: document.getElementById("capture-note").value
+          note: document.getElementById("capture-note").value, dimension: document.getElementById("capture-dimension").value
         });
         try { localStorage.setItem("papermap.evidenceQuestion", String(result.question_id)); } catch (_) {}
         dialog.close(); window.getSelection()?.removeAllRanges();
@@ -81,7 +84,27 @@
     } catch (err) { problem(error, err.message); } finally { button.disabled = false; }
   });
   document.getElementById("question-filter")?.addEventListener("change", e => {
-    location.href = "/evidence?question=" + e.target.value;
+    const dest = new URL(location.href);
+    dest.searchParams.set("question", e.target.value);
+    dest.hash = "";
+    location.href = dest.href;
+  });
+  const judgment = document.getElementById("ev-judgment");
+  if (judgment) judgment.addEventListener("submit", async event => {
+    event.preventDefault();
+    const field = judgment.elements.judgment, button = judgment.querySelector("[type=submit]");
+    const feedback = judgment.querySelector("[data-judgment-error]");
+    if (button.disabled) return;
+    const value = field.value;
+    button.disabled = true;
+    problem(feedback, "");
+    try {
+      const result = await api("/api/evidence/questions/" + judgment.dataset.question + "/judgment",
+                               {judgment: value, previous: field.defaultValue});
+      field.defaultValue = result.judgment;
+      if (field.value === value) field.value = result.judgment;
+      window.pmToast(t("已保存当前判断"));
+    } catch (err) { problem(feedback, err.message); } finally { button.disabled = false; }
   });
   document.getElementById("evidence-export")?.addEventListener("click", async e => {
     if (!window.pywebview?.api?.save_text) return;
@@ -108,7 +131,8 @@
       event.preventDefault();
       const save = form.querySelector("button[type=submit]"); if (save.disabled) return; save.disabled = true;
       try {
-        await api(path + "update", {stance: form.elements.stance.value, note: form.elements.note.value});
+        await api(path + "update", {stance: form.elements.stance.value, note: form.elements.note.value,
+                                    dimension: form.elements.dimension.value});
         history.replaceState(null, "", location.pathname + location.search + "#" + row.id);
         location.reload();
       } catch (err) { problem(error, err.message); } finally { save.disabled = false; }

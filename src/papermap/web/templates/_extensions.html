@@ -12,10 +12,25 @@
       <button type="button" class="secondary" data-ext-action="example" data-example="event-inspector">{{ _("Python 事件查看器") }}</button>
     </div></details>
   </div>
-  <div class="ext-api">
+  <div class="ext-api" data-token-scope="mcp">
+    <h2>{{ _("通过 MCP 查询文献") }}</h2>
+    <p class="muted small">{{ _("授权本机 AI 助手搜索文献、读取论文卡片和研究问题下的证据。摘录带有可定位原文的链接。") }}</p>
+    <p><span class="muted small">{{ _("只读服务地址") }}</span> <code id="mcp-api-url">/mcp</code></p>
+    <div class="row"><button type="button" id="mcp-token-create" class="secondary" data-ext-action="token" disabled>{{ _("创建只读令牌") }}</button>
+      <button type="button" id="mcp-token-revoke" class="ghost" data-ext-action="revoke" hidden>{{ _("撤销只读令牌") }}</button></div>
+    <div id="mcp-secret" hidden><label for="mcp-token">{{ _("只读令牌（仅显示这一次）") }}</label>
+      <div class="row"><input id="mcp-token" readonly type="text" autocomplete="off" spellcheck="false"><button type="button" class="secondary" data-ext-action="copy">{{ _("复制") }}</button></div></div>
+    <details><summary>{{ _("连接 Claude Code 或其他 MCP 客户端") }}</summary>
+      <p class="muted small">{{ _("在客户端选择 Streamable HTTP，填写上方地址，并用 Bearer 令牌认证。使用期间请保持 PaperMap 运行。") }}</p>
+      <p class="muted small">{{ _("Claude Code 可将下面的配置合并到项目的 .mcp.json。将只读令牌放入启动 Claude Code 的环境变量 PAPERMAP_MCP_TOKEN。") }}</p>
+      <pre id="mcp-client-config" tabindex="0"></pre>
+      <button type="button" class="secondary" data-ext-action="copy-config">{{ _("复制客户端配置") }}</button>
+    </details>
+  </div>
+  <div class="ext-api" data-token-scope="extension">
     <h2>{{ _("本地 API 与事件") }}</h2>
     <p class="muted small">{{ _("授权本机工具查询论文、搜索正文、导入 PDF 或订阅处理事件。当前地址为") }} <code id="extension-api-url">/api/v1</code>。</p>
-    <div class="row"><button type="button" id="extension-token-create" class="secondary" data-ext-action="token">{{ _("创建访问令牌") }}</button>
+    <div class="row"><button type="button" id="extension-token-create" class="secondary" data-ext-action="token" disabled>{{ _("创建访问令牌") }}</button>
       <button type="button" id="extension-token-revoke" class="ghost" data-ext-action="revoke" hidden>{{ _("撤销令牌") }}</button></div>
     <div id="extension-secret" hidden><label for="extension-token">{{ _("新令牌（仅显示这一次）") }}</label>
       <div class="row"><input id="extension-token" readonly type="text" autocomplete="off" spellcheck="false"><button type="button" class="secondary" data-ext-action="copy">{{ _("复制") }}</button></div></div>

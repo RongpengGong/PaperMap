@@ -30,7 +30,7 @@ from . import taxonomy as taxmod
 from .kb_fields import write_fields
 from .registry import Registry
 from .taxonomy import Taxonomy, TaxonomyError
-from .translate import TranslationError, require_credentials, service_by_id
+from .translate import TranslationError, require_credentials, service_by_id, translation_options
 
 log = logging.getLogger(__name__)
 
@@ -736,7 +736,8 @@ class Pipeline:
         except TaxonomyError:
             tax = None
         out = translate.translate_paper(self.config, self.registry, self.llm, job["paper_id"], pdf, card, tax,
-                                        job["arg"] or None, progress)
+                                        job["arg"] or None, progress, job=job,
+                                        current_pdf=lambda: self._paper_files(job["paper_id"])[0])
         self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
         self.reindex(job["paper_id"])
         self.kb_commit(f"Translate paper #{job['paper_id']}")
@@ -769,8 +770,8 @@ class Pipeline:
     def submit_translation(self, paper_id: int, service_id: str = "") -> int:
         service = service_by_id(self.config, service_id)
         require_credentials(service)
-        self._paper_files(paper_id)
-        return self.jobs.submit("translate", paper_id, service["id"])
+        pdf, _ = self._paper_files(paper_id)
+        return self.jobs.submit("translate", paper_id, service["id"], options=translation_options(self.config, service, pdf))
 
     def _job_update(self, job: dict, progress) -> str:
         from . import updates
@@ -878,6 +879,7 @@ class Pipeline:
         """Startup: search index, then citation data older than 30 days."""
         from . import citations
 
+        self.jobs.recover()
         self.reindex_all()
         try:
             citations.fetch_missing(self.registry, self.metadata)

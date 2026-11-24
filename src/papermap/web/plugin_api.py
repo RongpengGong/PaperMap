@@ -24,41 +24,54 @@ MAX_ID = (1 << 63) - 1
 PAPER_FIELDS = ("id", "doi", "title", "journal", "year", "first_author", "status", "updated_at")
 
 
-def rotate_token(registry: Registry) -> str:
-    """Issue a token once. The registry only stores its SHA-256 digest."""
-    token = "pm_" + secrets.token_urlsafe(32)
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    registry.execute("INSERT OR REPLACE INTO extension_api_credentials(id,digest) VALUES (1,?)", (digest,))
-    return token
+class LocalToken:
+    """One revocable bearer per integration. Table and prefix are fixed by the server."""
+
+    def __init__(self, table: str, prefix: str):
+        self.table, self.prefix = table, prefix
+
+    def rotate(self, registry: Registry) -> str:
+        token = self.prefix + secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        registry.execute(f"INSERT OR REPLACE INTO {self.table}(id,digest) VALUES (1,?)", (digest,))
+        return token
+
+    def revoke(self, registry: Registry) -> None:
+        registry.execute(f"DELETE FROM {self.table} WHERE id=1")
+
+    def enabled(self, registry: Registry) -> bool:
+        return registry.one(f"SELECT id FROM {self.table} WHERE id=1") is not None
+
+    def matches(self, registry: Registry, token: str) -> bool:
+        row = registry.one(f"SELECT digest FROM {self.table} WHERE id=1")
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        return bool(row and secrets.compare_digest(digest, row["digest"]))
 
 
-def revoke_token(registry: Registry) -> None:
-    registry.execute("DELETE FROM extension_api_credentials WHERE id=1")
+_tokens = LocalToken("extension_api_credentials", "pm_")
+rotate_token = _tokens.rotate
+revoke_token = _tokens.revoke
+token_enabled = _tokens.enabled
 
 
-def token_enabled(registry: Registry) -> bool:
-    return registry.one("SELECT id FROM extension_api_credentials WHERE id=1") is not None
-
-
-def _matches(registry: Registry, token: str) -> bool:
-    row = registry.one("SELECT digest FROM extension_api_credentials WHERE id=1")
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    return bool(row and secrets.compare_digest(digest, row["digest"]))
+def check_local_request(request: Request) -> None:
+    try:
+        peer = ipaddress.ip_address(request.client.host) if request.client else None
+        host = request.url.hostname
+    except ValueError:
+        raise HTTPException(403, "loopback_required") from None
+    if peer is None or not peer.is_loopback or host not in {"localhost", "127.0.0.1", "::1"} or request.url.username is not None:
+        raise HTTPException(403, "loopback_required")
+    origin = request.headers.get("origin")
+    if origin is not None and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
+        raise HTTPException(403, "cross_origin")
 
 
 def mount_api(app: FastAPI, config: Config, registry: Registry, pipeline: Pipeline, background) -> None:
     def authorize(request: Request) -> str:
-        try:
-            peer = ipaddress.ip_address(request.client.host) if request.client else None
-        except ValueError:
-            peer = None
-        if peer is None or not peer.is_loopback or request.url.hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise HTTPException(403, "loopback_required")
-        origin = request.headers.get("origin")
-        if origin is not None and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
-            raise HTTPException(403, "cross_origin")
+        check_local_request(request)
         scheme, _, token = request.headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not token or not _matches(registry, token):
+        if scheme.lower() != "bearer" or not token or not _tokens.matches(registry, token):
             raise HTTPException(401, "invalid_token", headers={"WWW-Authenticate": "Bearer"})
         return token
 
@@ -114,7 +127,7 @@ def mount_api(app: FastAPI, config: Config, registry: Registry, pipeline: Pipeli
             nonlocal cursor
             deadline = time.monotonic() + timeout
             yield ": PaperMap v1\nretry: 1000\n\n"
-            while time.monotonic() < deadline and not await request.is_disconnected() and _matches(registry, token):
+            while time.monotonic() < deadline and not await request.is_disconnected() and _tokens.matches(registry, token):
                 items = event_page(registry, cursor, 100)
                 for item in items:
                     cursor = item["id"]

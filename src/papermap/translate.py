@@ -9,12 +9,13 @@ Output: <stem>.translation.md (Obsidian) + <stem>.translation.json (app view).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
@@ -25,6 +26,7 @@ import yaml
 
 from . import __version__, ocr
 from .config import Config, OFFICIAL_TRANSLATION_SERVICES, effective_llm
+from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
 from .pdf_extract import MAX_PAGES_FOR_LLM, _REFERENCE_LINE_RE
@@ -320,10 +322,69 @@ def service_by_id(config: Config, sid: str | None) -> dict:
     raise TranslationError(f"unknown translation service '{sid}'")
 
 
+def _digest(value) -> str:
+    data = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    return hashlib.sha256(data).hexdigest()
+
+
+def _route(settings: dict) -> str:
+    # URLs and provider-specific request options may contain credentials.
+    return _digest([settings.get("base_url", ""), settings.get("protocol", "openai"),
+                    settings.get("extra_body") or {}])
+
+
+def _model_settings(config: Config, provider: str | None = None, model: str | None = None) -> dict:
+    llm = dict(config.llm)
+    if provider:
+        llm["provider"] = provider
+    if model:
+        llm["model"] = model
+        presets = llm.get("presets") or {}
+        llm["presets"] = {**presets, provider: {**presets.get(provider, {}), "model": model}}
+    return config.resolve_llm(llm)
+
+
+def _pin_model(eff: dict) -> dict:
+    return {"provider": eff["provider"], "model": eff["model"], "route": _route(eff),
+            "reasoning_effort": eff.get("reasoning_effort", "")}
+
+
+def _restore_model(config: Config, pin: dict) -> dict:
+    eff = _model_settings(config, pin["provider"], pin["model"])
+    if _route(eff) != pin["route"]:
+        raise TranslationError("原模型的服务地址或请求配置已经改变，请重新提交翻译。")
+    return {**eff, "model": pin["model"], "reasoning_effort": pin["reasoning_effort"]}
+
+
+def translation_options(config: Config, service: dict, pdf: Path) -> dict:
+    kind = service["kind"]
+    options = {"service": {k: service[k] for k in ("id", "name", "kind", "model", "mode", "prompt", "provider")
+                           if k in service},
+               "revision": document_revision(pdf), "route": _route(service), "prompt_version": PROMPT_VERSION,
+               "target": config.raw["translation"].get("target_language") or "zh",
+               "output_language": config.output_language}
+    if kind in OFFICIAL_TRANSLATION_SERVICES:
+        options["service"]["model"] = OFFICIAL_TRANSLATION_SERVICES[kind]["model"]
+    elif kind == "bilibili":
+        options["service"]["model"] = service.get("model") or "Index-Translate-35B-A3B"
+    if kind == "main" or config.raw["translation"].get("fallback_to_main", True):
+        options["main"] = _pin_model(config.effective_llm())
+    if kind == "plugin":
+        options["plugin"] = _pin_model(_model_settings(config, service["provider"]))
+    return options
+
+
 class Translator:
     def __init__(self, config: Config, registry: Registry, llm: LLMClient, service: dict,
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None, *, options: dict | None = None):
         self.config, self.registry, self.llm, self.service = config, registry, llm, service
+        self.options = options
+        self.main_eff = None
+        self.plugin_eff = None
+        if service["kind"] == "main" and options:
+            self.main_eff = _restore_model(config, options["main"])
+        if service["kind"] == "plugin" and options:
+            self.plugin_eff = _restore_model(config, options["plugin"])
         self.http = httpx.Client(timeout=180, transport=transport,
                                  headers={"User-Agent": f"PaperMap/{__version__}"})
         self.notes: list[str] = []
@@ -337,13 +398,13 @@ class Translator:
         if kind == "bilibili":
             return self.service.get("model") or "Index-Translate-35B-A3B"
         if kind == "main":
-            return self.config.effective_llm()["model"]
+            return (self.main_eff or self.config.effective_llm())["model"]
         if kind == "plugin":
             return self._provider_settings()["model"]
         return self.service.get("model", "")
 
     def _provider_settings(self) -> dict:
-        return self.config.resolve_llm({**self.config.llm, "provider": self.service["provider"]})
+        return self.plugin_eff or _model_settings(self.config, self.service["provider"])
 
     def _bilibili(self, prompt: str, paper_id: int | None) -> str:
         """Streaming request: the free gateway cuts non-streamed answers at ~30 s."""
@@ -378,7 +439,8 @@ class Translator:
 
     def _llm(self, prompt: str, paper_id: int | None, kind: str) -> str:
         if kind == "main":
-            return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192).raw
+            return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192,
+                                      eff=self.main_eff).raw
         if kind == "plugin":
             eff = self._provider_settings()
             return self.llm.chat_text("", prompt, purpose="translate", paper_id=paper_id, max_tokens=8192, eff=eff).raw
@@ -424,13 +486,23 @@ class Translator:
             return text, self.model
         except Exception as exc:  # noqa: BLE001
             self.failures += 1
-            fb = self.config.raw["translation"].get("fallback_to_main", True)
-            if kind != "main" and fb and self.config.model_ready():
+            if kind == "main":
+                raise
+            if self.options is None:
+                enabled = self.config.raw["translation"].get("fallback_to_main", True)
+                fallback_ready = enabled and self.config.model_ready()
+            elif "main" in self.options:
+                self.main_eff = _restore_model(self.config, self.options["main"])
+                fallback_ready = self.main_eff["api_key"] or self.main_eff["provider"] in ("chatgpt_plan", "claude_cli")
+            else:
+                fallback_ready = False
+            if fallback_ready:
                 log.warning("translation service failed (%s); falling back to main model", exc)
                 note = f"部分段落 {self.service.get('name')} 没有响应，改用主模型翻译"
                 if note not in self.notes:
                     self.notes.append(note)
-                return self._llm(prompt, paper_id, "main"), self.config.effective_llm()["model"] + " (fallback)"
+                model = (self.main_eff or self.config.effective_llm())["model"]
+                return self._llm(prompt, paper_id, "main"), model + " (fallback)"
             raise
 
     def translate_text(self, text: str, target: str, terms: list[str], paper_id: int | None,
@@ -441,17 +513,22 @@ class Translator:
         return self.call(prompt, paper_id, source=text, target=target, terms=local_terms)
 
     def translate_chunk(self, paras: list[dict], ids: list[int], target: str, terms: list[str],
-                        paper_id: int | None) -> dict[int, tuple[str, str]]:
+                        paper_id: int | None, save: Callable[[dict], None] | None = None) -> dict[int, tuple[str, str]]:
         if len(ids) > 1 and self.service["kind"] not in ("niutrans", "tencent"):
             text = "\n\n".join(f"[{n + 1}] {paras[i]['src']}" for n, i in enumerate(ids))
             answer, via = self.translate_text(text, target, terms, paper_id, numbered=True)
             parsed = parse_numbered(answer, list(range(1, len(ids) + 1)))
             if parsed is not None:
-                return {i: (parsed[n + 1], via) for n, i in enumerate(ids)}
+                part = {i: (parsed[n + 1], via) for n, i in enumerate(ids)}
+                if save:
+                    save(part)
+                return part
         out = {}
         for i in ids:  # alignment failed (or single paragraph): one by one
             answer, via = self.translate_text(paras[i]["src"], target, terms, paper_id)
             out[i] = (answer.strip(), via)
+            if save:
+                save({i: out[i]})
         return out
 
 
@@ -477,37 +554,116 @@ def render_md(meta: dict, result: dict, language: str) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+def _translation_settings(config, registry, pdf, service_id, job):
+    # Old queued jobs only have a service id. Pin the rest before their first request.
+    options = json.loads(job["options_json"]) if job and job["options_json"] else None
+    service = service_by_id(config, options["service"]["id"] if options else service_id)
+    if options is None:
+        options = translation_options(config, service, pdf)
+        if job:
+            registry.execute("UPDATE jobs SET arg=?, options_json=? WHERE id=?",
+                             (service["id"], json.dumps(options, ensure_ascii=False, sort_keys=True), job["id"]))
+    saved = options["service"]
+    if options["revision"] != document_revision(pdf) or options["prompt_version"] != PROMPT_VERSION:
+        raise TranslationError("PDF 版本或翻译提示词版本已经改变，请重新提交翻译。")
+    if (service["kind"] != saved["kind"] or _route(service) != options["route"] or
+            (saved["kind"] in OFFICIAL_TRANSLATION_SERVICES and
+             saved["model"] != OFFICIAL_TRANSLATION_SERVICES[saved["kind"]]["model"])):
+        raise TranslationError("原翻译服务已经变更，请重新提交翻译。")
+    # Only credentials and connection details come from current settings.
+    service = {**{k: service[k] for k in ("api_key", "app_id", "base_url", "protocol", "price_input_per_1m",
+                                          "price_output_per_1m") if k in service}, **saved}
+    require_credentials(service)
+    return service, options
+
+
+def _load_parts(registry, job_id, paras, terms):
+    if job_id is None:
+        return terms, {}
+    results = {}
+    digest = _digest([(p["kind"], p["src"]) for p in paras])
+    with registry.transaction() as conn:
+        previous = conn.execute("SELECT * FROM translation_inputs WHERE job_id=?", (job_id,)).fetchone()
+        if previous and previous["paragraphs_digest"] == digest:
+            terms = json.loads(previous["glossary_json"])
+            for part in conn.execute("SELECT * FROM translation_parts WHERE job_id=?", (job_id,)):
+                results[part["paragraph"]] = (part["text"], part["model"])
+        else:
+            # OCR or extraction can change paragraph numbers even for the same PDF.
+            conn.execute("DELETE FROM translation_parts WHERE job_id=?", (job_id,))
+            conn.execute("INSERT OR REPLACE INTO translation_inputs VALUES (?,?,?)",
+                         (job_id, digest, json.dumps(terms, ensure_ascii=False)))
+    return terms, results
+
+
 def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id: int, pdf: Path,
                     card_path: Path, taxonomy=None, service_id: str | None = None,
                     progress: Callable[[int, int], None] | None = None,
-                    transport: httpx.BaseTransport | None = None) -> Path:
+                    transport: httpx.BaseTransport | None = None, *, job: dict | None = None,
+                    current_pdf: Callable[[], Path] | None = None) -> Path:
     row = registry.get_paper(paper_id)
-    service = service_by_id(config, service_id)
-    require_credentials(service)
-    target = config.raw["translation"].get("target_language") or "zh"
+    service, options = _translation_settings(config, registry, pdf, service_id, job)
+    target = options["target"]
     paras = paragraphs(pdf, cache=ocr.cache_for(pdf, config.data_dir))
     if not paras:
         raise TranslationError("no text found in the PDF (scanned image?)")
     card = json.loads(row["card_json"] or "{}")
     terms = glossary(card, taxonomy, " ".join(p["src"] for p in paras))
-    tr = Translator(config, registry, llm, service, transport)
+    job_id = job["id"] if job else None
+    terms, results = _load_parts(registry, job_id, paras, terms)
     groups = chunks(paras)
-    done = 0
-    results: dict[int, tuple[str, str]] = {}
+    todo = [[i for i in group if i not in results] for group in groups]
+    total = sum(len(group) for group in groups)
+    if progress:
+        progress(len(results), total)
+    mutex = threading.Lock()
+    remaining = iter(group for group in todo if group)
+    errors = []
+    tr = Translator(config, registry, llm, service, transport, options=options)
 
-    def work(ids: list[int]) -> dict[int, tuple[str, str]]:
-        return tr.translate_chunk(paras, ids, target, terms, paper_id)
-
-    with tr.http, ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        for part in pool.map(work, groups):
+    def save(part):
+        if job_id is not None:
+            with registry.transaction() as conn:
+                conn.executemany("INSERT INTO translation_parts(job_id,paragraph,text,model) VALUES (?,?,?,?)",
+                                 [(job_id, i, text, model) for i, (text, model) in part.items()])
+        with mutex:
             results.update(part)
-            done += 1
             if progress:
-                progress(done, len(groups))
-    vias = Counter(v for _, v in results.values())
+                progress(len(results), total)
+
+    def work() -> None:
+        while True:
+            with mutex:
+                ids = next(remaining, None) if not errors else None
+            if ids is None:
+                return
+            try:
+                tr.translate_chunk(paras, ids, target, terms, paper_id, save)
+            except Exception as exc:
+                with mutex:
+                    errors.append(exc)
+                return
+
+    # A ThreadPoolExecutor joins all scheduled groups during interpreter shutdown.
+    # Daemon workers let the desktop actually quit while a provider request is in flight.
+    with tr.http:
+        workers = [threading.Thread(target=work, daemon=True, name="translation")
+                   for _ in range(min(WORKERS, sum(bool(ids) for ids in todo)) - 1)]
+        for thread in workers:
+            thread.start()
+        work()
+        for thread in workers:
+            thread.join()
+    if errors:
+        raise errors[0]
+    if document_revision(current_pdf() if current_pdf else pdf) != options["revision"]:
+        raise TranslationError("翻译期间 PDF 已经改变，请重新提交翻译。")
+    vias = Counter(results[i][1] for i in sorted(results))
+    if not tr.notes and any(v.endswith(" (fallback)") for v in vias):
+        tr.notes.append(f"部分段落 {service.get('name')} 没有响应，改用主模型翻译")
     result = {
         "paper_id": paper_id, "service": service.get("name"), "model": vias.most_common(1)[0][0] if vias else tr.model,
-        "target": target, "generated": date.today().isoformat(), "glossary": terms, "notes": tr.notes,
+        "target": target, "revision": options["revision"], "generated": date.today().isoformat(), "glossary": terms, "notes": tr.notes,
         "paragraphs": [dict(p, tr=results[i][0], via=results[i][1]) if i in results else dict(p, tr=p["src"], via="")
                        for i, p in enumerate(paras)],
     }
@@ -515,7 +671,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     json_path = card_path.with_name(f"{stem}.translation.json")
     atomic_write(json_path, json.dumps(result, ensure_ascii=False, indent=1))
     meta = {"title": row["title"], "doi": row["doi"]}
-    atomic_write(card_path.with_name(f"{stem}.translation.md"), render_md(meta, result, config.output_language))
+    atomic_write(card_path.with_name(f"{stem}.translation.md"), render_md(meta, result, options["output_language"]))
     return json_path
 
 

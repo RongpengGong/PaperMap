@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import plugins
-from .plugin_api import revoke_token, rotate_token, token_enabled
+from . import mcp_api, plugin_api
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "extension_examples"
 EXAMPLE_IDS = {"reading-tools", "event-inspector"}
@@ -36,7 +36,8 @@ def mount_admin(app: FastAPI, config, registry, hooks, csrf_token, templates):
         states = hooks.states()
         return templates.TemplateResponse(request, "_plugins_list.html", {
             "plugins": plugins.discover(config), "states": states,
-            "labels": LABELS, "token_enabled": token_enabled(registry),
+            "labels": LABELS, "token_enabled": plugin_api.token_enabled(registry),
+            "mcp_enabled": mcp_api.token_enabled(registry),
         }, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/extensions/install")
@@ -85,14 +86,21 @@ def mount_admin(app: FastAPI, config, registry, hooks, csrf_token, templates):
         hooks.retry(plugin_id)
         return {"ok": True}
 
-    @app.post("/api/extensions/token/{action}")
-    def token(action: str, request: Request, body: dict):
+    def change_token(service, action, request, body):
         guard(request, body)
         if action == "rotate":
-            result = {"ok": True, "token": rotate_token(registry)}
+            result = {"ok": True, "token": service.rotate_token(registry)}
         elif action == "revoke":
-            revoke_token(registry)
+            service.revoke_token(registry)
             result = {"ok": True}
         else:
             raise HTTPException(404)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/extensions/token/{action}")
+    def token(action: str, request: Request, body: dict):
+        return change_token(plugin_api, action, request, body)
+
+    @app.post("/api/extensions/mcp-token/{action}")
+    def mcp_token(action: str, request: Request, body: dict):
+        return change_token(mcp_api, action, request, body)

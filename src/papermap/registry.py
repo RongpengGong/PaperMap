@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -145,6 +146,18 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS translation_inputs (
+    job_id INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+    paragraphs_digest TEXT NOT NULL,
+    glossary_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS translation_parts (
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    paragraph INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    model TEXT NOT NULL,
+    PRIMARY KEY (job_id, paragraph)
+);
 CREATE TABLE IF NOT EXISTS collections (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -205,6 +218,7 @@ CREATE TABLE IF NOT EXISTS http_cache (
 
 # Columns added after the first release; created on open if missing.
 MIGRATIONS = {
+    "jobs": {"options_json": "TEXT NOT NULL DEFAULT ''"},
     "fields": {"description": "TEXT", "sort_order": "INTEGER"},
     "paper_fields": {
         "status": "TEXT NOT NULL DEFAULT 'accepted'",  # accepted / suggested / rejected
@@ -223,7 +237,9 @@ MIGRATIONS = {
     # research questions: user-made are active at once; model-proposed ones wait as 'suggested'
     "evidence_questions": {"status": "TEXT NOT NULL DEFAULT 'active'",  # active / suggested / dismissed
                            "origin": "TEXT NOT NULL DEFAULT 'user'",  # user / suggested
-                           "rationale": "TEXT", "source_json": "TEXT"},
+                           "rationale": "TEXT", "source_json": "TEXT",
+                           "judgment": "TEXT NOT NULL DEFAULT ''"},
+    "evidence_entries": {"dimension": "TEXT NOT NULL DEFAULT 'general'"},
 }
 
 PAPER_STATUSES = (
@@ -251,6 +267,10 @@ class Registry:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self.initialize_schema()
+
+    def initialize_schema(self) -> None:
+        """Set up tables and migrate columns after opening or restoring a database."""
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.executescript(EXTENSION_SCHEMA)
@@ -268,6 +288,13 @@ class Registry:
             self.conn.close()
 
     # -- low level ---------------------------------------------------------
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Serialize short read-modify-write operations across connections."""
+        with self._lock, self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
+            yield self.conn
+
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
         with self._lock:
             cur = self.conn.execute(sql, params)

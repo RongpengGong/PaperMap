@@ -195,9 +195,15 @@ def restore(config, registry: Registry, name: str, pipeline_lock=None) -> dict[s
             source = sqlite3.connect(db)
             try:
                 with registry._lock:  # noqa: SLF001
+                    # Restoring an older library must not re-authorize a revoked MCP client.
+                    credential = registry.conn.execute("SELECT * FROM mcp_read_credentials").fetchone()
                     source.backup(registry.conn)
-                    registry._migrate()  # noqa: SLF001 - an older backup may lack new columns
-                    registry.conn.commit()
+                    registry.initialize_schema()
+                    with registry.conn:
+                        registry.conn.execute("DELETE FROM mcp_read_credentials")
+                        if credential:
+                            registry.conn.execute("INSERT INTO mcp_read_credentials(id,digest) VALUES (?,?)",
+                                                  (credential["id"], credential["digest"]))
             finally:
                 source.close()
             cfg_file = Path(tmp) / "config.yaml"

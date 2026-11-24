@@ -66,6 +66,29 @@ for event in get("/events?after=0&limit=3")["items"]:
 
 `paper.ready` 表示论文卡片已可读取，`data.paper_id` 是论文编号。`field.proposed` 表示候选学科达到待确认阈值，载荷含 `field_id` 和 `slug`。事件含 `id`、`type`、`created_at`、`data`。在同一个库里，用事件 `id` 去重。SSE 的 `data:` 行是同一格式的 JSON。回放限于启用此版本事件记录后已经产生的事件。建立集成时可先用 `/papers` 获取已有论文。
 
+## 从 Claude Code 查询 PaperMap 证据
+
+打开「设置 → 应用 → 插件与接口 → 通过 MCP 查询文献」，创建并复制只读令牌。PaperMap 运行期间，支持 Streamable HTTP 的本机客户端可以连接设置中显示的地址。鉴权使用 HTTP 请求头 `Authorization: Bearer <只读令牌>`。客户端会获得所请求的卡片、原文摘录和笔记，请选择你信任的助手。
+
+Claude Code 用户可以将设置页的配置合并到项目的 `.mcp.json`。其中 `${PAPERMAP_MCP_TOKEN}` 引用环境变量，配置文件里只保留这个占位符。例如，在 macOS 默认的 zsh 终端中运行以下命令，粘贴令牌、回车，再启动 Claude Code。
+
+```zsh
+read -rs 'PAPERMAP_MCP_TOKEN?PaperMap MCP token: '
+export PAPERMAP_MCP_TOKEN
+claude
+```
+
+在 Claude Code 的 `/mcp` 中查看 `papermap` 的状态。可以试问「列出我的研究问题。对其中一个问题，找出标记为相反的原文，附上论文、页码和回到 PDF 的链接。」首次使用可以先在 PaperMap 的「证据笔记」中为问题添加一条摘录。
+
+| 工具 | 返回内容 |
+| --- | --- |
+| `search_library` | 本机文献库中的检索命中 |
+| `get_paper_card` | 指定论文的卡片信息 |
+| `list_research_questions` | 可查询的研究问题及其编号 |
+| `get_question_evidence` | 问题下的证据，包括原句、立场和 PDF 定位链接，可筛选反证 |
+
+MCP 授权与上面的本地 API 授权分别创建、分别撤销。在设置页更换只读令牌后，用新值更新环境变量并重新启动客户端。[Claude Code 的 MCP 配置说明](https://code.claude.com/docs/en/mcp)
+
 ## 受信任的 Python 插件
 
 在清单中添加 `python: handler.py`，并在该文件中定义 `handle(event)`，返回可序列化为 JSON 的值。`permissions` 是展示给使用者的权限声明，操作系统授予运行账户的文件和网络权限仍然适用。仅启用经过你审阅、来源可信的代码。每次调用在独立的临时包副本中运行，限时 10 秒，输入和输出各限 1 MiB。有持久状态的插件应选择自己的存储位置。发布时使用普通文件，插件包最多 8 MiB、256 个文件和目录。

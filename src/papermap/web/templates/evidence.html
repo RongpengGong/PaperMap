@@ -4,7 +4,7 @@
 {% block content %}
 {% from "_update_cards.html" import ucard %}
 {% from "_gap_hits.html" import ghit %}
-<div id="evidence-notebook" class="evidence-notebook">
+<div id="evidence-notebook" class="evidence-notebook{% if comparison %} ev-comparing{% endif %}">
   <div class="ev-heading"><h1>{{ _("证据笔记") }}</h1><button type="button" class="secondary" id="new-question">{{ _("新建研究问题") }}</button></div>
   <form id="new-question-form" class="ev-create" hidden>
     <label for="new-question-title">{{ _("研究问题") }}</label>
@@ -16,7 +16,11 @@
     <select id="question-filter">{% for question in questions %}<option value="{{ question.id }}"{% if selected.id == question.id %} selected{% endif %}>{{ question.title }}（{{ question.total }}）</option>{% endfor %}</select>
     <a class="ghost-btn" id="evidence-export" href="/evidence/{{ selected.id }}.md" download="{{ _("PaperMap-证据-") }}{{ selected.id }}.md">{{ _("导出 Markdown") }}</a>
   </div>
-  {% if entries %}<h2 class="ev-question-title">{{ selected.title }}</h2>{% endif %}
+  <h2 class="ev-question-title">{{ selected.title }}</h2>
+  <nav class="ev-views" aria-label="{{ _('问题视图') }}">
+    <a href="/evidence?question={{ selected.id }}" {% if not comparison %}aria-current="page"{% endif %}>{{ _("摘录与笔记") }}</a>
+    <a href="/evidence?question={{ selected.id }}&amp;view=compare" {% if comparison %}aria-current="page"{% endif %}>{{ _("证据对照") }}</a>
+  </nav>
   <div class="ev-fields" data-question="{{ selected.id }}">
     <span class="muted small">{{ _("挂在学科") }}</span>
     {% for f in linked_fields %}<span class="group-chip"><a href="/field/{{ f.slug }}">{{ fname(f) }}</a><button type="button" data-unlink-field="{{ f.id }}" title="{{ _("从这个学科移除") }}">×</button></span>{% endfor %}
@@ -24,6 +28,7 @@
     <select data-link-field title="{{ _("挂到学科，会显示在知识地图上") }}"><option value="">{{ _("＋ 挂到学科…") }}</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ fname(f) }}</option>{% endfor %}</select>
     {% if not linked_fields %}<span class="muted small">{{ _("挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。") }}</span>{% endif %}
   </div>
+  {% if comparison %}{% include "_evidence_comparison.html" %}{% endif %}
   <section class="gaps" id="gaps" data-question="{{ selected.id }}">
     <div class="gaps-head"><h2 class="ev-question-title">{{ _("还缺什么证据") }}</h2>
       <button type="button" class="secondary" data-gap-new>{{ _("＋ 记一个缺口") }}</button></div>
@@ -57,7 +62,7 @@
     </article>
     {% endfor %}
   </section>
-  {% for e in entries %}
+  {% if not comparison %}{% for e in entries %}
   <article class="ev-entry" id="evidence-{{ e.id }}" data-entry="{{ e.id }}">
     <div class="ev-entry-head"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span>
       <div class="muted small">{{ sources[e.source] }} {{ _("· 第") }} {{ e.page+1 }} {{ _("页") }}</div></div>
@@ -72,11 +77,13 @@
     <form data-entry-form hidden>
       <label for="stance-{{ e.id }}">{{ _("与问题的关系") }}</label>
       <select id="stance-{{ e.id }}" name="stance">{% for v, text in stances.items() %}<option value="{{ v }}" {% if v==e.stance %}selected{% endif %}>{{ text }}</option>{% endfor %}</select>
+      <label for="dimension-{{ e.id }}">{{ _("对照项目") }}</label>
+      <select id="dimension-{{ e.id }}" name="dimension">{% for v, text in dimensions.items() %}<option value="{{ v }}" {% if v==e.dimension %}selected{% endif %}>{{ text }}</option>{% endfor %}</select>
       <label for="note-{{ e.id }}">{{ _("我的笔记") }}</label><textarea id="note-{{ e.id }}" name="note" maxlength="12000" rows="3">{{ e.note|keep }}</textarea>
       <div class="ev-actions"><button type="button" class="secondary" data-cancel>{{ _("取消") }}</button><button type="submit">{{ _("保存修改") }}</button></div>
     </form>
   </article>
-  {% else %}<p class="ev-empty">{{ _("这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。") }}</p>{% endfor %}
+  {% else %}<p class="ev-empty">{{ _("这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。") }}</p>{% endfor %}{% endif %}
   {% if update_cards %}<h2 class="ev-question-title">{{ _("新论文带来的变化") }}</h2>
   {% for u in update_cards %}{{ ucard(u, 'paper_only', update_outcomes) }}{% endfor %}{% endif %}
   {% else %}<p class="ev-empty">{{ _("新建一个研究问题，或在阅读 PDF 时选中原文，点击「摘到证据笔记」。不同论文的摘录可以放在同一问题下。") }}</p>{% endif %}

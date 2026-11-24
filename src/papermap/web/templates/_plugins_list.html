@@ -1,4 +1,4 @@
-<div data-api-enabled="{{ 'yes' if token_enabled else 'no' }}">
+<div data-api-enabled="{{ 'yes' if token_enabled else 'no' }}" data-mcp-enabled="{{ 'yes' if mcp_enabled else 'no' }}">
 {% for p in plugins %}
   <article class="ext-item">
     <div class="ext-heading"><div><strong>{{ p.name }}</strong>{% if p.version %} <small class="muted">{{ p.version }}</small>{% endif %}</div>

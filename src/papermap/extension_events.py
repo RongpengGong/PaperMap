@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS extension_events (
     slug TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE TABLE IF NOT EXISTS mcp_read_credentials (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    digest TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS extension_api_credentials (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     digest TEXT NOT NULL

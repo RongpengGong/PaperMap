@@ -8,7 +8,7 @@ import pymupdf
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .. import evidence, versions
+from .. import evidence, i18n, versions
 from .. import gaps as gapmod
 from .. import questions as qmod
 from .. import updates as upd
@@ -21,7 +21,8 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             raise HTTPException(403, "请刷新页面后重试。")
 
     def problem(message, status=400):
-        return JSONResponse({"ok": False, "message": str(message)}, status_code=status)
+        message = i18n.translate(i18n.config_language(config), str(message))
+        return JSONResponse({"ok": False, "message": message}, status_code=status)
 
     def get_question(qid):
         row = registry.one("SELECT * FROM evidence_questions WHERE id=?", (qid,)) if 0 < qid < 2**63 else None
@@ -30,16 +31,21 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         return row
 
     @app.get("/evidence", response_class=HTMLResponse)
-    def notebook(request: Request, question: int = 0):
+    def notebook(request: Request, question: int = 0, view: str = ""):
         topics = evidence.questions(registry)
         selected = get_question(question) if question else (topics[0] if topics else None)
-        items = evidence.get_entries(registry, selected["id"]) if selected else []
+        comparing = view == "compare" and selected is not None
+        comparison = evidence.question_comparison(registry, selected["id"]) if comparing else None
+        if comparing and comparison is None:
+            raise HTTPException(404, "未找到这个研究问题。")
+        items = evidence.get_entries(registry, selected["id"]) if selected and not comparing else []
         linked = qmod.question_fields(registry, selected["id"]) if selected else []
         all_fields = registry.query("SELECT id, slug, name_zh, axis FROM fields WHERE status='active' "
                                     "ORDER BY axis, sort_order, name_zh")
         return render(request, "evidence.html", questions=topics, selected=selected, entries=items,
+                      comparison=comparison, dimensions=evidence.DIMENSIONS,
                       linked_fields=linked, all_fields=all_fields,
-                      update_cards=upd.for_question(registry, selected["id"]) if selected else [],
+                      update_cards=upd.for_question(registry, selected["id"]) if selected and not comparing else [],
                       update_outcomes=upd.OUTCOMES,
                       gaps=gapmod.for_question(registry, selected["id"]) if selected else [],
                       stances=evidence.STANCES, sources=evidence.SOURCES, anchor_path=evidence.anchor_path)
@@ -53,7 +59,23 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
 
     @app.get("/api/evidence/questions")
     def question_list():
-        return {"ok": True, "questions": [dict(q) for q in evidence.questions(registry)]}
+        labels = {key: i18n.translate(i18n.config_language(config), label) for key, label in evidence.DIMENSIONS.items()}
+        return {"ok": True, "questions": [dict(q) for q in evidence.questions(registry)], "dimensions": labels}
+
+    @app.post("/api/evidence/questions/{qid}/judgment")
+    def save_judgment(qid: int, body: dict):
+        check(body)
+        get_question(qid)
+        value, previous = body.get("judgment"), body.get("previous")
+        if not isinstance(value, str) or len(value) > 12000 or not isinstance(previous, str):
+            return problem("当前判断最多可输入 12000 个字符。")
+        value = value.strip()
+        saved = registry.execute(
+            "UPDATE evidence_questions SET judgment=? WHERE id=? AND status='active' AND judgment IN (?,?)",
+            (value, qid, previous, value))
+        if not saved.rowcount:
+            return problem("这个问题已在别处更新，请保留你的草稿，刷新后再保存。", 409)
+        return {"ok": True, "judgment": value}
 
     @app.post("/api/evidence/questions")
     def new_question(body: dict):
@@ -106,7 +128,7 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             rects = evidence.validate_rects(body.get("rects"), bounds.width, bounds.height)
             result = evidence.add_entry(registry, qid, body.get("question_title"), pid, page, revision, rects,
                                         body.get("quote"), body.get("source"), body.get("stance", "pending"),
-                                        body.get("note", ""))
+                                        body.get("note", ""), body.get("dimension", "general"))
             return {"ok": True, **result}
         except ValueError as exc:
             return problem(exc)
@@ -152,9 +174,11 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         elif action == "update":
             try:
                 stance, note = evidence.valid_note(body.get("stance"), body.get("note"))
+                dimension = evidence.valid_dimension(body["dimension"]) if "dimension" in body else None
             except ValueError as exc:
                 return problem(exc)
-            if not registry.execute("UPDATE evidence_entries SET stance=?,note=? WHERE id=?", (stance, note, eid)).rowcount:
+            if not registry.execute("UPDATE evidence_entries SET stance=?,note=?,dimension=COALESCE(?,dimension) WHERE id=?",
+                                    (stance, note, dimension, eid)).rowcount:
                 raise HTTPException(404, "未找到这条证据。")
         else:
             raise HTTPException(404)

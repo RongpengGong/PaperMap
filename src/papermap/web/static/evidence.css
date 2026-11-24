@@ -28,3 +28,27 @@
 .evidence-dialog label { margin-top:9px; }
 .ev-entry-actions[hidden],.ev-new-label[hidden],.evidence-dialog input[hidden] { display:none; }
 .sel-toolbar { max-width:calc(100vw - 16px); flex-wrap:wrap; }
+.evidence-notebook.ev-comparing { width:min(100%, 1440px); min-width:0; }
+.ev-views { display:flex; gap:3px; width:max-content; margin:13px 0 17px; padding:3px; border-radius:8px; background:var(--side); border:1px solid var(--line); }
+.ev-views a { padding:4px 12px; border-radius:5px; color:var(--muted); font-size:13px; text-decoration:none; }
+.ev-views a[aria-current] { color:var(--accent); background:var(--card); font-weight:600; }
+.ev-table-scroll { overflow:auto; margin:16px 0; border:1px solid var(--line); border-radius:10px; }
+.ev-comparison { width:100%; min-width:960px; table-layout:fixed; margin:0; font-size:13px; }
+.ev-comparison th,.ev-comparison td { vertical-align:top; text-align:start; overflow-wrap:anywhere; padding:10px 12px; }
+.ev-comparison th:first-child { width:18%; }
+.ev-comparison tbody th { font-weight:400; background:var(--card); }
+.ev-paper-link { font-weight:600; }
+.ev-unfiled,.ev-card-context { padding:0; }
+.ev-unfiled { margin:8px 0 0; }
+.ev-card-context summary,.ev-unfiled summary { color:var(--muted); font-size:12px; cursor:pointer; }
+.ev-card-context ul { margin:5px 0; padding-inline-start:16px; }
+.ev-citation { margin:7px 0; border-inline-start:2px solid var(--accent); padding-inline-start:8px; }
+.ev-citation a { display:block; color:var(--fg); text-decoration:none; }
+.ev-citation a:hover q,.ev-citation a:focus-visible q { text-decoration:underline; }
+.ev-cite-meta,.ev-cite-note span,.ev-no-data { color:var(--muted); font-size:11px; }
+.ev-citation q { display:block; margin:3px 0; white-space:pre-wrap; }
+.ev-cite-note { margin:5px 0; white-space:pre-wrap; }
+#ev-judgment { margin:22px 0 0; }
+#ev-judgment label { font-size:16px; font-weight:600; }
+#ev-judgment textarea { width:100%; box-sizing:border-box; }
+#ev-judgment .ev-actions { margin-top:5px; }

@@ -1,0 +1,47 @@
+{% macro excerpt(e) %}
+<div class="ev-citation">
+  <a href="{{ e.url }}" title="{{ _('在 PDF 中定位这句原文') }}">
+    <span class="ev-cite-meta"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span> · {{ sources[e.source] }} · p.{{ e.page }}</span>
+    <q>{{ e.quote }}</q>
+  </a>
+  {% if e.note %}<p class="ev-cite-note"><span>{{ _('我的笔记') }}</span> {{ e.note }}</p>{% endif %}
+</div>
+{% endmacro %}
+{% if comparison.papers %}
+<div class="ev-table-scroll" role="region" tabindex="0" aria-label="{{ _('按研究对照证据') }}">
+  <table class="ev-comparison">
+    <thead><tr><th scope="col">{{ _("论文") }}</th>
+      {% for key, label in dimensions.items() if key != 'general' %}<th scope="col">{{ label }}</th>{% endfor %}
+    </tr></thead>
+    <tbody>{% for paper in comparison.papers %}
+    <tr>
+      <th scope="row">
+        <a class="ev-paper-link" href="/?id={{ paper.paper_id }}">{{ paper.title or _('未命名论文') }}</a>
+        <div class="muted small">{{ paper.first_author or '' }} {{ paper.year or '' }}</div>
+        {% set general = paper.evidence|selectattr('dimension', 'equalto', 'general')|list %}
+        {% if general %}<details class="ev-unfiled" open><summary>{{ dimensions.general }} ({{ general|length }})</summary>
+          {% for e in general %}{{ excerpt(e) }}{% endfor %}</details>{% endif %}
+      </th>
+      {% for key in dimensions if key != 'general' %}
+      <td>
+        {% set mapped = paper.evidence|selectattr('dimension','equalto',key)|list %}
+        {% for e in mapped %}{{ excerpt(e) }}{% endfor %}
+        {% if paper.card_context[key] %}
+          <details class="ev-card-context"{% if not mapped %} open{% endif %}>
+            <summary>{{ _("卡片摘要 · 待核对") }}</summary>
+            <ul>{% for value in paper.card_context[key] %}<li>{{ value }}</li>{% endfor %}</ul>
+          </details>
+        {% elif not mapped %}<span class="ev-no-data">{{ _("暂无资料") }}</span>{% endif %}
+      </td>{% endfor %}
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% else %}
+<p class="ev-empty">{{ _("这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。") }}</p>
+{% endif %}
+<form id="ev-judgment" data-question="{{ comparison.id }}">
+  <label for="question-judgment">{{ _("我的当前判断") }}</label>
+  <textarea id="question-judgment" name="judgment" rows="3" maxlength="12000">{{ comparison.judgment|keep }}</textarea>
+  <div class="ev-actions"><span class="err-text small" role="alert" data-judgment-error hidden></span>
+    <button type="submit" class="secondary">{{ _("保存判断") }}</button></div>
+</form>

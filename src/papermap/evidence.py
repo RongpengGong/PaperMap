@@ -13,6 +13,10 @@ from .i18n import L
 
 STANCES = {"pending": L("待核对"), "supports": L("支持"), "opposes": L("相反")}
 SOURCES = {"native": L("PDF 原文"), "ocr": L("本机 OCR")}
+DIMENSIONS = {
+    "sample_source": L("样本来源"), "analysis_unit": L("比较 / 分析单位"), "methods": L("方法"),
+    "findings": L("结果"), "limitations": L("局限"), "general": L("未分项摘录"),
+}
 
 
 @lru_cache(maxsize=64)
@@ -71,11 +75,19 @@ def valid_note(stance, note):
     return stance, valid_text(note, "笔记", 12000, required=False)
 
 
-def add_entry(registry, question_id, title, paper_id, page, revision, rects, quote, source, stance, note):
+def valid_dimension(value):
+    if not isinstance(value, str) or value not in DIMENSIONS:
+        raise ValueError("请选择有效的证据对照项目。")
+    return value
+
+
+def add_entry(registry, question_id, title, paper_id, page, revision, rects, quote, source, stance, note,
+              dimension="general"):
     quote = valid_text(quote, "摘录", 30000)
     if source not in ("native", "ocr"):
         raise ValueError("摘录来源无效。")
     stance, note = valid_note(stance, note)
+    dimension = valid_dimension(dimension)
     if type(question_id) is not int or question_id < 0:
         raise ValueError("请选择研究问题。")
     if not question_id:
@@ -95,9 +107,9 @@ def add_entry(registry, question_id, title, paper_id, page, revision, rects, quo
             db.execute("UPDATE evidence_questions SET status='active' WHERE id=?", (question_id,))
         inserted = db.execute("""
             INSERT INTO evidence_entries
-            (question_id,paper_id,page,revision,rects_json,quote,source,stance,note,anchor_key,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(question_id,paper_id,anchor_key) DO NOTHING
-        """, (question_id, paper_id, page, revision, coords, quote, source, stance, note, anchor, now_iso())).rowcount
+            (question_id,paper_id,page,revision,rects_json,quote,source,stance,note,anchor_key,created_at,dimension)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(question_id,paper_id,anchor_key) DO NOTHING
+        """, (question_id, paper_id, page, revision, coords, quote, source, stance, note, anchor, now_iso(), dimension)).rowcount
         eid = db.execute("SELECT id FROM evidence_entries WHERE question_id=? AND paper_id=? AND anchor_key=?",
                          (question_id, paper_id, anchor)).fetchone()["id"]
     return {"id": eid, "question_id": question_id, "created": bool(inserted)}
@@ -112,6 +124,69 @@ def get_entries(registry, question_id):
 
 def anchor_path(entry):
     return f"/reader/{entry['paper_id']}?" + urlencode({"evidence": entry["id"], "page": entry["page"] + 1})
+
+
+def _card_context(raw):
+    """Keep unverified card fields separate from verbatim, anchored extracts."""
+    try:
+        card = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        card = {}
+    if not isinstance(card, dict):
+        card = {}
+    design = card.get("design")
+    if not isinstance(design, dict):
+        design = {}
+
+    def texts(value):
+        values = value if isinstance(value, list) else [value]
+        return [v.strip() for v in values if isinstance(v, str) and v.strip()]
+
+    samples = [s for key in ("cohorts", "species", "tissues") for s in texts(design.get(key))]
+    return {"sample_source": list(dict.fromkeys(samples)),
+            # A cell count or a sample size does not establish the analysis unit.
+            "analysis_unit": texts(design.get("analysis_unit")),
+            "methods": texts(card.get("methods")),
+            "findings": texts(card.get("key_findings")) or texts(card.get("one_sentence")),
+            "limitations": texts(card.get("limitations"))}
+
+
+def question_comparison(registry, question_id):
+    """Read a question and its non-trashed, excerpted studies for the UI and MCP.
+
+    Pages are 1-based in this projection; the reader looks up the saved PDF
+    revision and highlight rectangles through the evidence ID in each URL.
+    """
+    question = registry.one("SELECT id,title,judgment FROM evidence_questions WHERE id=? AND status='active'",
+                            (question_id,))
+    if question is None:
+        return None
+    papers = {}
+    for row in registry.query("""
+        SELECT p.id,p.title,p.doi,p.first_author,p.year,p.card_json FROM papers p
+        WHERE p.status!='ignored' AND p.id IN
+            (SELECT e.paper_id FROM evidence_entries e WHERE e.question_id=?)
+        ORDER BY p.year IS NULL,p.year,p.first_author,p.id
+    """, (question_id,)):
+        pid = row["id"]
+        papers[pid] = {"paper_id": pid, "title": row["title"], "doi": row["doi"],
+                       "first_author": row["first_author"], "year": row["year"],
+                       "card_context": _card_context(row["card_json"]), "evidence": []}
+    for e in registry.query("""
+        SELECT id,paper_id,page,revision,quote,source,stance,note,dimension FROM evidence_entries
+        WHERE question_id=? ORDER BY paper_id,page,id
+    """, (question_id,)):
+        paper = papers.get(e["paper_id"])
+        if paper is not None:
+            paper["evidence"].append({**dict(e), "page": e["page"] + 1, "url": anchor_path(e)})
+    # Older libraries create the gap table on first use. A read-only query
+    # (including an MCP call) must never initialize tables.
+    gaps = []
+    if registry.one("SELECT 1 FROM sqlite_master WHERE type='table' AND name='question_gaps'"):
+        gaps = [dict(row) for row in registry.query(
+            "SELECT id,text,status FROM question_gaps WHERE question_id=? ORDER BY status='closed',id",
+            (question_id,))]
+    return {**dict(question), "papers": list(papers.values()), "gaps": gaps}
 
 
 def export_markdown(title, entries, base_url):

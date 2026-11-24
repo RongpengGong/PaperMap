@@ -40,6 +40,26 @@ def test_management_requires_local_csrf_and_does_not_disclose_a_token(ui):
     assert client.get("/api/v1/papers", headers=auth).status_code == 401
 
 
+def test_mcp_credential_lifecycle_is_independent_of_import_access(ui):
+    client, csrf = ui
+    mcp_rotate = "/api/extensions/mcp-token/rotate"
+    assert client.post(mcp_rotate, json={}).status_code == 403
+    assert client.post(mcp_rotate, json={"csrf": csrf}, headers={"Origin": "http://localhost:9999"}).status_code == 403
+    full_token = client.post("/api/extensions/token/rotate", json={"csrf": csrf}).json()["token"]
+    response = client.post(mcp_rotate, json={"csrf": csrf})
+    read_token = response.json()["token"]
+    assert read_token != full_token and response.headers["cache-control"] == "no-store"
+    readonly = {"Authorization": "Bearer " + read_token}
+    assert client.post("/api/v1/import", headers=readonly, content=b"%PDF-").status_code == 401
+    listing = client.post("/api/extensions/list", json={"csrf": csrf}).text
+    assert 'data-mcp-enabled="yes"' in listing and read_token not in listing and full_token not in listing
+    assert read_token not in client.get("/settings?section=extensions").text
+    assert client.post("/api/extensions/mcp-token/revoke", json={"csrf": csrf}).json()["ok"]
+    listing = client.post("/api/extensions/list", json={"csrf": csrf}).text
+    assert 'data-mcp-enabled="no"' in listing and 'data-api-enabled="yes"' in listing
+    assert client.get("/api/v1/papers", headers={"Authorization": "Bearer " + full_token}).status_code == 200
+
+
 def test_shipped_examples_use_normal_approval_and_action_paths(ui):
     client, csrf = ui
     for name in ("reading-tools", "event-inspector"):

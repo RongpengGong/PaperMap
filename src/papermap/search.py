@@ -162,9 +162,11 @@ def query_terms(q: str) -> list[str]:
 
 
 def search(registry: Registry, q: str, kinds: set[str] | None = None, paper_ids: list[int] | None = None,
-           limit: int = 300, any_term: bool = False, terms: list[str] | None = None) -> list[dict]:
+           limit: int = 300, any_term: bool = False, terms: list[str] | None = None, *,
+           offset: int = 0, visible_only: bool = False) -> list[dict]:
     """Hits for all terms (AND; ``any_term`` = OR). Each: paper_id, kind, page, label, snippet."""
-    ensure_schema(registry)
+    if not registry.one("SELECT 1 FROM sqlite_master WHERE name='search_index' AND type='table'"):
+        return []
     terms = terms if terms is not None else query_terms(q)
     if not terms:
         return []
@@ -186,10 +188,12 @@ def search(registry: Registry, q: str, kinds: set[str] | None = None, paper_ids:
     if paper_ids:
         where.append(f"paper_id IN ({','.join('?' * len(paper_ids))})")
         params += paper_ids
-    order = "ORDER BY rank" if long_terms else ""
+    if visible_only:
+        where.append("paper_id IN (SELECT id FROM papers WHERE status != 'ignored')")
+    order = "ORDER BY rank,rowid" if long_terms else "ORDER BY rowid"
     rows = registry.query(
-        f"SELECT paper_id, kind, page, label, body FROM search_index WHERE {' AND '.join(where)} {order} LIMIT ?",
-        (*params, limit))
+        f"SELECT paper_id, kind, page, label, body FROM search_index WHERE {' AND '.join(where)} {order} LIMIT ? OFFSET ?",
+        (*params, limit, offset))
     return [{"paper_id": int(r["paper_id"]), "kind": r["kind"], "page": r["page"], "label": r["label"],
              "snippet": snippet(r["body"], terms), "body": r["body"]} for r in rows]
 

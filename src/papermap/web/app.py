@@ -55,12 +55,20 @@ SETTINGS_SECTIONS = {item[0]: (group, item[1]) for group, items in SETTINGS_GROU
 
 
 def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAPI:
+    from contextlib import asynccontextmanager
     from ..plugin_hooks import PluginHooks
+    from . import mcp_api
     from .plugin_admin import EXAMPLES, mount_admin
     from .plugin_api import mount_api
 
     hooks = PluginHooks(config, registry)
-    app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None, lifespan=hooks.lifespan)
+    @asynccontextmanager
+    async def lifespan(app):
+        async with hooks.lifespan(app), mcp_api.lifespan(registry) as transport:
+            yield {"papermap_mcp": transport}
+
+    app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.add_route("/mcp", mcp_api.ReadOnlyEndpoint(registry), methods=["POST", "GET", "DELETE"])
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["fromjson"] = lambda s: json.loads(s or "[]")
@@ -2119,6 +2127,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": str(exc)}
         pipeline.llm._client = None
         report = await run_in_threadpool(backup_mod.check_library, config, registry)
+        await run_in_threadpool(pipeline.jobs.recover)
         return {"ok": True, **res, "report": report}
 
     @app.get("/api/backup/check")
