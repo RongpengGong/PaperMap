@@ -82,7 +82,9 @@
 
   const overlay = document.getElementById("drop_overlay");
   let depth = 0;
-  const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  // a note editor takes its own drops (pictures); everywhere else a dropped file is a PDF to import
+  const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes("Files")
+    && !(e.target && e.target.closest && e.target.closest(".kb-user.editing"));
   window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; if (overlay) overlay.hidden = false; });
   window.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
   window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; if (overlay) overlay.hidden = true; } });

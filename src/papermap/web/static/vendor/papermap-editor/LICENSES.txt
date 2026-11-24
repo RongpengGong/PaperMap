@@ -32,6 +32,7 @@ w3c-keyname@2.2.8 MIT
 @tiptap/extension-hard-break@3.32.2 MIT
 @tiptap/extension-heading@3.32.2 MIT
 @tiptap/extension-horizontal-rule@3.32.2 MIT
+@tiptap/extension-image@3.32.2 MIT
 @tiptap/extension-italic@3.32.2 MIT
 @tiptap/extension-link@3.32.2 MIT
 @tiptap/extension-list-item@3.32.2 MIT

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import secrets
 import threading
 from html import escape
 from pathlib import Path
+from urllib.parse import unquote
 
 import markdown as md
 import nh3
@@ -137,6 +139,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     def md_html(text: str) -> str:
         html = md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
         # to-do items written in the note editor ("- [ ] x" / "- [x] x")
+        html = html.replace('src="../attachments/', 'src="/attachments/')  # images pasted into notes
         html = re.sub(r"<li>(<p>)?\[([ xX])\] ", lambda m: f"<li>{m.group(1) or ''}{'☐' if m.group(2) == ' ' else '☑'} ", html)
         # external links open in the system browser (pywebview honours target=_blank)
         return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', _clean_markdown_html(html))
@@ -1319,6 +1322,35 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         note = read_user_section(path) or ""
         return {"ok": True, "html": md_html(note) if note.strip() else ""}
 
+    # Images pasted / dropped into a note live in knowledge/attachments/ and are written into the
+    # Markdown as ../attachments/<name>, so the note also shows them when opened in Obsidian.
+    @app.post("/api/kb/attachments")
+    async def kb_attachment_upload(request: Request):
+        _check_csrf(request.headers.get("x-csrf", ""), csrf_token)
+        data = await request.body()
+        if not data or len(data) > ATTACH_MAX:
+            return {"ok": False, "message": "图片最大 20 MB"}
+        ext = _image_ext(data)
+        if not ext:
+            return {"ok": False, "message": "只支持 PNG、JPEG、GIF、WebP 图片"}
+        stem = re.sub(r"[^\w\-]+", "-", Path(unquote(request.headers.get("x-filename", "")) or "image").stem,
+                      flags=re.A).strip("-")[:40] or "image"
+        name = f"{stem}-{hashlib.sha256(data).hexdigest()[:10]}.{ext}"
+        folder = config.knowledge_dir / "attachments"
+        folder.mkdir(parents=True, exist_ok=True)
+        if not (folder / name).exists():  # same picture pasted twice is stored once
+            (folder / name).write_bytes(data)
+        return {"ok": True, "src": f"../attachments/{name}", "alt": stem}
+
+    @app.get("/attachments/{name}")
+    def kb_attachment(name: str):
+        f = config.knowledge_dir / "attachments" / name
+        ext = name.rsplit(".", 1)[-1].lower()
+        if not re.fullmatch(r"[\w\-]+\.(png|jpe?g|gif|webp)", name, flags=re.A) or not f.is_file():
+            raise HTTPException(404)
+        return FileResponse(f, media_type=ATTACH_TYPES[ext], headers={"Cache-Control": "max-age=86400",
+                                                                       "X-Content-Type-Options": "nosniff"})
+
     @app.get("/concept/{slug}", response_class=HTMLResponse)
     def concept_page(request: Request, slug: str):
         path = config.knowledge_dir / "concepts" / f"{slug}.md"
@@ -1872,6 +1904,23 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     mount_evidence(app, config, registry, render, csrf_token, reader_pdf)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
+
+
+ATTACH_MAX = 20 * 1024 * 1024
+ATTACH_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+
+
+def _image_ext(data: bytes) -> str:
+    """File type from the bytes themselves, never from the name the browser sent."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return ""
 
 
 def _clean_markdown_html(html: str) -> str:

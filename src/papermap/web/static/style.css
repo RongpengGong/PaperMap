@@ -659,6 +659,8 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .kb-user .tiptap { outline: none; min-height: 120px; }
 .kb-user .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 .kb-user .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.kb-user img { max-width: 100%; height: auto; border-radius: 6px; display: block; margin: 8px 0; }
+.kb-user .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); }
 .kb-user .tiptap ul[data-type="taskList"] li { display: flex; gap: 6px; align-items: flex-start; }
 .kb-user .tiptap ul[data-type="taskList"] li > label { margin-top: 3px; }
 .kb-user .tiptap table { border-collapse: collapse; }
