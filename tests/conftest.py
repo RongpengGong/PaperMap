@@ -135,6 +135,9 @@ class FakeCompletions:
             content = "两篇都用了 Visium [P1][P2]。"
         elif "search keywords for a full-text index" in system:
             content = json.dumps({"keywords": ["fibroblast", "Visium", "肝癌"]})
+        elif "evidence gap into search terms" in system:
+            self.gap_calls = getattr(self, "gap_calls", 0) + 1
+            content = json.dumps({"terms": ["Visium", "spatial transcriptomics", "fibroblast", "study"]})
         elif "judge what ONE new paper changes" in system:
             self.update_calls = getattr(self, "update_calls", 0) + 1
             outs = getattr(self, "update_outputs", [])

@@ -672,3 +672,31 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .kb-user .tiptap ul[data-type="taskList"] li > label { margin-top: 3px; }
 .kb-user .tiptap table { border-collapse: collapse; }
 .kb-user .tiptap td, .kb-user .tiptap th { border: 1px solid var(--line); padding: 4px 8px; min-width: 60px; }
+
+/* evidence gaps and "may answer your question" reminders (stage 7 task 5) */
+.gaps { margin: 14px 0 18px; }
+.gaps-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.gap { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 8px 0; }
+.gap[data-status="closed"] { opacity: .75; }
+.gap-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.gap-row .grow, .ghit-head .grow { flex: 1; }
+.gap-text { font-weight: 600; }
+.gap-status { font-size: 12px; border-radius: 999px; padding: 1px 9px; background: color-mix(in srgb, #f0b429 22%, transparent); color: #9a6b00; }
+.gap-status[data-status="closed"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.gap-terms { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 6px 0 2px; }
+.gap-terms code, .ghit code { font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--bg); }
+.gap-form { display: grid; gap: 6px; margin: 8px 0; }
+.gap-form input { width: 100%; }
+.ghit { border-left: 3px solid #f0b429; background: color-mix(in srgb, #f6c343 9%, transparent); border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 8px 0; }
+.ghit[data-status="answered"] { border-left-color: var(--accent); }
+.ghit-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ghit-tag { font-size: 12px; font-weight: 600; color: #9a6b00; }
+.ghit p { margin: 4px 0; }
+.ghit-gap { font-weight: 600; }
+.ghit-passage { display: block; font-size: 12.5px; line-height: 1.5; color: var(--fg); padding: 5px 8px; margin: 4px 0; border-radius: 6px; background: var(--bg); }
+.ghit-passage:hover { text-decoration: none; outline: 1px solid var(--line-strong); }
+.ghit-passage b { color: var(--accent); margin-right: 4px; }
+.ghit-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.gap-alert { margin: 8px 0; border: 1px solid color-mix(in srgb, #f0b429 55%, transparent); border-radius: 10px; padding: 6px 10px; }
+.gap-alert > summary { cursor: pointer; font-weight: 600; color: #9a6b00; }
+.ghit-passage mark { background: color-mix(in srgb, #f6c343 45%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }

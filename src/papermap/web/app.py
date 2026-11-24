@@ -246,7 +246,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import updates as upd
 
         ucards = upd.for_paper(registry, paper_id)
-        return {"p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
+        from .. import gaps as gapmod
+
+        return {"gap_hits": gapmod.for_paper(registry, paper_id), "p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf_file(row) is not None,
                 "update_cards": ucards, "update_pending": sum(u["status"] == "pending" for u in ucards),
                 "update_questions": upd.candidate_questions(registry, paper_id), "update_outcomes": upd.OUTCOMES,
                 "backlinks": notelinks.backlinks(registry, config.knowledge_dir, paper_id),
@@ -939,6 +941,86 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
 
+    # ---------------------------------------------------------------- evidence gaps (stage 7 task 5)
+    def _gap_terms(qid: int, text: str, terms) -> tuple[list[str], str]:
+        from .. import gaps as gapmod
+
+        mine = gapmod.clean_terms(terms or [])
+        if mine:
+            return mine, "user"
+        if config.model_ready():  # papers are mostly English; gaps are often written in Chinese
+            q = registry.one("SELECT title FROM evidence_questions WHERE id=?", (qid,))
+            try:
+                return pipeline.gap_terms(q["title"] if q else "", text), "model"
+            except Exception as exc:  # noqa: BLE001 - fall back to the free terms
+                registry.log("warning", f"Search terms for an evidence gap not generated: {exc}")
+        return gapmod.auto_terms(text), "auto"
+
+    @app.post("/api/evidence/questions/{qid}/gaps")
+    async def gap_create(qid: int, request: Request):
+        from .. import gaps as gapmod
+
+        body = await json_body(request)
+        text = body.get("text")
+        try:
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("请写下缺少的证据。")
+            terms, origin = await run_in_threadpool(_gap_terms, qid, text, body.get("terms"))
+            gid = gapmod.add_gap(registry, qid, text, terms, origin)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        found = gapmod.scan_library(registry, gid)
+        return {"ok": True, "id": gid, "terms": gapmod.get_gap(registry, gid)["terms"], "found": found}
+
+    @app.post("/api/gaps/{gid}")
+    async def gap_action(gid: int, request: Request):
+        from .. import gaps as gapmod
+
+        body = await json_body(request)
+        action = str(body.get("action", ""))
+        g = gapmod.get_gap(registry, gid)
+        if g is None:
+            return {"ok": False, "message": "这个缺口不存在。"}
+        try:
+            if action == "edit":
+                terms = body.get("terms")
+                origin = "user"
+                if body.get("regenerate"):
+                    terms, origin = await run_in_threadpool(_gap_terms, g["question_id"], body.get("text") or g["text"], [])
+                gapmod.update_gap(registry, gid, body.get("text"), terms, origin)
+                return {"ok": True, "terms": gapmod.get_gap(registry, gid)["terms"], "found": gapmod.scan_library(registry, gid)}
+            if action in ("close", "reopen"):
+                pid = body.get("paper_id")
+                gapmod.set_gap_status(registry, gid, "closed" if action == "close" else "open",
+                                      int(pid) if str(pid).isdigit() else None)
+                return {"ok": True, "found": gapmod.scan_library(registry, gid) if action == "reopen" else 0}
+            if action == "delete":
+                gapmod.delete_gap(registry, gid)
+                return {"ok": True}
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": "无效的操作"}
+
+    @app.post("/api/gap-hits/{hid}")
+    async def gap_hit_action(hid: int, request: Request):
+        from .. import gaps as gapmod
+
+        body = await json_body(request)
+        action = str(body.get("action", ""))
+        try:
+            if action == "update":  # ask the model what the paper changes (task 3) — separate from the reminder
+                h = registry.one("SELECT h.paper_id, g.question_id FROM gap_hits h JOIN question_gaps g "
+                                 "ON g.id=h.gap_id WHERE h.id=?", (hid,))
+                if h is None:
+                    raise ValueError("这条提醒不存在。")
+                pipeline.submit_update(h["paper_id"], h["question_id"])
+                gapmod.decide_hit(registry, hid, "seen")
+                return {"ok": True, "paper_id": h["paper_id"]}
+            gapmod.decide_hit(registry, hid, action)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True}
+
     @app.post("/api/updates/{card_id}")
     async def api_update_decide(card_id: int, request: Request):
         from .. import updates as upd
@@ -1165,10 +1247,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         flagged = registry.query("SELECT * FROM papers WHERE status='done' AND needs_review=1 ORDER BY id DESC")
         items = [(p, registry.paper_field_rows(p["id"])) for p in flagged]
         pending = [(r, registry.pending_papers(r["id"])) for r in registry.pending_fields("open")]
-        from .. import updates as upd
+        from .. import gaps as gapmod, updates as upd
 
         return render(request, "review.html", unverified=unverified, items=items, pending=pending,
                       update_cards=upd.pending(registry), update_outcomes=upd.OUTCOMES,
+                      gap_hits=gapmod.new_hits(registry),
                       threshold=pipeline.new_field_threshold,
                       all_fields=registry.active_fields(), error=error,
                       accept=float(config.classification.get("accept_confidence", 0.6)))
@@ -1970,7 +2053,9 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
     ready = sum(1 for r in registry.pending_fields("open") if r["n_papers"] >= threshold)
     from ..updates import pending_count
 
-    return (int(row["n"]) if row else 0) + ready + pending_count(registry)
+    from ..gaps import new_count
+
+    return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry)
 
 
 def _safe(fn):

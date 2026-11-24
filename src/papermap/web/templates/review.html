@@ -5,6 +5,13 @@
 {% if error %}<div class="notice">{{ error }}</div>{% endif %}
 {% if busy %}<div class="notice ok">{{ _("后台正在处理，稍后刷新页面查看结果。") }}</div>{% endif %}
 
+{% if gap_hits %}
+{% from "_gap_hits.html" import ghit %}
+<h3>{{ _("可能回答你问题的论文（") }}{{ gap_hits|length }}）</h3>
+<p class="muted small">{{ _("全文检索发现这些论文碰到了你记下的证据缺口。先读给出的段落，再决定：让模型判断改变了什么、确认补上了缺口，或标为不相关。") }}</p>
+{% for h in gap_hits %}{{ ghit(h, 'paper') }}{% endfor %}
+{% endif %}
+
 {% if update_cards %}
 {% from "_update_cards.html" import ucard %}
 <h3>{{ _("待核对的更新卡（") }}{{ update_cards|length }}）</h3>

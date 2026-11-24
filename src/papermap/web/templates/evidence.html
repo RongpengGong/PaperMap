@@ -3,6 +3,7 @@
 {% block head %}<link rel="stylesheet" href="/static/evidence.css?v={{ static_v }}">{% endblock %}
 {% block content %}
 {% from "_update_cards.html" import ucard %}
+{% from "_gap_hits.html" import ghit %}
 <div id="evidence-notebook" class="evidence-notebook">
   <div class="ev-heading"><h1>{{ _("证据笔记") }}</h1><button type="button" class="secondary" id="new-question">{{ _("新建研究问题") }}</button></div>
   <form id="new-question-form" class="ev-create" hidden>
@@ -23,6 +24,39 @@
     <select data-link-field title="{{ _("挂到学科，会显示在知识地图上") }}"><option value="">{{ _("＋ 挂到学科…") }}</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ fname(f) }}</option>{% endfor %}</select>
     {% if not linked_fields %}<span class="muted small">{{ _("挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。") }}</span>{% endif %}
   </div>
+  <section class="gaps" id="gaps" data-question="{{ selected.id }}">
+    <div class="gaps-head"><h2 class="ev-question-title">{{ _("还缺什么证据") }}</h2>
+      <button type="button" class="secondary" data-gap-new>{{ _("＋ 记一个缺口") }}</button></div>
+    <p class="muted small">{{ _("写下这个问题还缺的证据。导入新论文时，PaperMap 会用全文检索（不花模型费用）对照这些缺口，可能相关时提醒你，并给出值得先读的段落。是否真的补上，由你读过后决定。") }}</p>
+    <form class="gap-form" data-gap-form hidden>
+      <label>{{ _("缺少的证据") }}<input type="text" name="text" maxlength="300" required placeholder="{{ _("例如：还没有在人体样本里验证 CXCL12 的作用") }}"></label>
+      <label>{{ _("检索词（可选，逗号分隔）") }}<input type="text" name="terms" maxlength="800" placeholder="{{ _("留空则自动生成：已连接模型时生成英文检索词，否则取描述里的英文词") }}"></label>
+      <div class="ev-actions"><button type="button" class="secondary" data-gap-cancel>{{ _("取消") }}</button><button type="submit">{{ _("保存缺口") }}</button></div>
+    </form>
+    {% for g in gaps %}
+    <article class="gap" data-gap="{{ g.id }}" data-status="{{ g.status }}">
+      <div class="gap-row">
+        <span class="gap-status" data-status="{{ g.status }}">{{ g.status_label }}</span>
+        <span class="gap-text">{{ g.text }}</span>
+        <span class="grow"></span>
+        {% if g.status == 'open' %}<button type="button" class="ghost" data-gap-act="close" title="{{ _("你确认这个缺口已经补上") }}">{{ _("标记已补上") }}</button>
+        {% else %}<span class="muted small">{% if g.closed_by %}{{ _("由") }} <a href="/?id={{ g.closed_by }}">{{ g.closed_author or '' }} {{ g.closed_year or '' }}</a> {{ _("补上") }} · {% endif %}{{ (g.closed_at or '')[:10] }}</span>
+        <button type="button" class="ghost" data-gap-act="reopen">{{ _("重新打开") }}</button>{% endif %}
+        <button type="button" class="ghost" data-gap-act="delete">{{ _("删除") }}</button>
+      </div>
+      <div class="gap-terms">
+        <span class="muted small">{{ _("检索词") }}</span>
+        {% for t in g.terms %}<code>{{ t }}</code>{% else %}<span class="warn-text small">{{ _("还没有检索词，不会提醒。请补上检索词。") }}</span>{% endfor %}
+        <button type="button" class="ghost small" data-gap-act="terms">{{ _("编辑") }}</button>
+      </div>
+      <form class="gap-form" data-gap-terms hidden>
+        <input type="text" name="terms" maxlength="800" value="{{ g.terms|join(', ')|keep }}">
+        <div class="ev-actions"><button type="button" class="ghost" data-gap-act="regen">{{ _("让模型重新生成") }}</button><button type="button" class="secondary" data-gap-cancel>{{ _("取消") }}</button><button type="submit">{{ _("保存并重新查找") }}</button></div>
+      </form>
+      {% for h in g.hits %}{{ ghit(h, 'paper') }}{% endfor %}
+    </article>
+    {% endfor %}
+  </section>
   {% for e in entries %}
   <article class="ev-entry" id="evidence-{{ e.id }}" data-entry="{{ e.id }}">
     <div class="ev-entry-head"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span>

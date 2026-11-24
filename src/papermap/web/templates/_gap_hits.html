@@ -1,0 +1,28 @@
+{# One "this paper may answer your question" reminder. show: 'question' (inside a paper) or 'paper' (review / evidence pages). #}
+{% macro ghit(h, show='question') %}
+<article class="ghit" data-ghit="{{ h.id }}" data-status="{{ h.status }}">
+  <div class="ghit-head">
+    <span class="ghit-tag">{{ _("可能回答了你的问题") }}</span>
+    {% if h.status != 'new' %}<span class="muted small">{{ h.status_label }}</span>{% endif %}
+    <span class="grow"></span>
+    <span class="muted small">{{ _("全文检索匹配，未经模型判断") }}{% if h.origin == 'library' %} {{ _("· 库里已有") }}{% endif %}</span>
+  </div>
+  {% if show == 'paper' %}<p class="small"><a href="/?id={{ h.paper_id }}" title="{{ h.paper_title }}">{{ h.paper_label }}</a> · <span class="muted">{{ (h.paper_title or '')[:90] }}</span></p>{% endif %}
+  <p class="small">{{ _("研究问题：") }}<a href="/evidence?question={{ h.question_id }}#gaps">{{ h.question }}</a></p>
+  <p class="ghit-gap">{{ _("缺口：") }}{{ h.gap }}</p>
+  <p class="muted small">{{ _("命中检索词：") }}{% for t in h.matched %}<code>{{ t }}</code>{% if not loop.last %} {% endif %}{% endfor %}</p>
+  <p class="small"><b>{{ _("值得先读的段落") }}</b></p>
+  {% for ps in h.passages %}
+  <a class="ghit-passage" data-ghit-read href="/reader/{{ h.paper_id }}?page={{ ps.page + 1 }}&amp;q={{ ps.terms|join(' ')|urlencode }}" title="{{ _("在 PDF 中打开这一页") }}"><b>p.{{ ps.page + 1 }}</b> {{ ps.snippet }}</a>
+  {% endfor %}
+  <div class="ghit-actions">
+    {% if h.status in ('new', 'seen') and h.gap_status == 'open' %}
+    <button type="button" data-gact="update" title="{{ _("让模型对照这个问题的已有证据，判断这篇论文改变了什么（生成更新卡，需你核对）") }}">{{ _("判断改变了什么") }}</button>
+    <button type="button" class="secondary" data-gact="answered" title="{{ _("你读过后确认：这篇补上了这个缺口") }}">{{ _("补上了缺口") }}</button>
+    {% if h.status == 'new' %}<button type="button" class="secondary" data-gact="seen">{{ _("知道了") }}</button>{% endif %}
+    <button type="button" class="ghost" data-gact="dismissed">{{ _("不相关") }}</button>
+    {% elif h.status == 'answered' %}<span class="muted small">{{ _("你确认这篇补上了缺口") }}</span>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}

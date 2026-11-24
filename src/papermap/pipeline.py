@@ -385,6 +385,7 @@ class Pipeline:
         except Exception:  # noqa: BLE001
             log.exception("applying Zotero notes failed")
         self.reindex(paper_id)
+        self._match_gaps(paper_id)
         threading.Thread(target=self._fetch_citations, args=(paper_id,), daemon=True).start()
         try:
             self._auto_jobs(paper_id)
@@ -764,6 +765,23 @@ class Pipeline:
         if not self.registry.one("SELECT 1 FROM evidence_questions WHERE id=? AND status='active'", (question_id,)):
             raise ValueError("这个研究问题不存在或还没有确认")
         return self.jobs.submit("update", paper_id, str(question_id))
+
+    def _match_gaps(self, paper_id: int) -> None:
+        """Free reminder: does this new paper touch an open evidence gap? (full-text index only)"""
+        from . import gaps
+
+        try:
+            found = gaps.match_paper(self.registry, paper_id)
+        except Exception:  # noqa: BLE001 - a reminder must never break processing
+            log.exception("gap matching failed for paper %s", paper_id)
+            return
+        if found:
+            self.registry.log("info", f"Paper #{paper_id} may answer {len(found)} open evidence gap(s)", paper_id)
+
+    def gap_terms(self, question: str, gap: str) -> list[str]:
+        from . import gaps
+
+        return gaps.model_terms(self.llm, question, gap)
 
     def submit_skill(self, paper_id: int, skill_id: str) -> int:
         self._paper_files(paper_id)

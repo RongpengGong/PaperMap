@@ -13,7 +13,7 @@ for f in glob.glob("src/papermap/web/static/*.js") + glob.glob("src/papermap/web
     for m in re.finditer(r"""(?<![\w$.])t\(\s*("(?:[^"\\\n]|\\.)*")""", s):
         add(json.loads(m.group(1)), f)
 py = ["src/papermap/web/app.py", "src/papermap/web/evidence_routes.py", "src/papermap/web/plugin_admin.py",
-      "src/papermap/updates.py", "src/papermap/evidence.py", "src/papermap/questions.py", "src/papermap/themes.py",
+      "src/papermap/updates.py", "src/papermap/gaps.py", "src/papermap/evidence.py", "src/papermap/questions.py", "src/papermap/themes.py",
       "src/papermap/backup.py", "src/papermap/consolidate.py", "src/papermap/desktop.py"]
 for f in py:
     for node in ast.walk(ast.parse(open(f).read())):

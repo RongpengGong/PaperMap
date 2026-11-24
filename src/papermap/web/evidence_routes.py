@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .. import evidence
+from .. import gaps as gapmod
 from .. import questions as qmod
 from .. import updates as upd
 
@@ -40,6 +41,7 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
                       linked_fields=linked, all_fields=all_fields,
                       update_cards=upd.for_question(registry, selected["id"]) if selected else [],
                       update_outcomes=upd.OUTCOMES,
+                      gaps=gapmod.for_question(registry, selected["id"]) if selected else [],
                       stances=evidence.STANCES, sources=evidence.SOURCES, anchor_path=evidence.anchor_path)
 
     @app.get("/evidence/{qid}.md")

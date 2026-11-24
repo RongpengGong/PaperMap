@@ -289,6 +289,11 @@ class Registry:
                               "WHERE paper_id=?", (existing_id, paper_id))
             self.conn.execute("UPDATE files SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
             self.conn.execute("UPDATE update_cards SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
+            if self.conn.execute("SELECT 1 FROM sqlite_master WHERE name='gap_hits'").fetchone():
+                self.conn.execute("UPDATE OR IGNORE gap_hits SET paper_id=? WHERE paper_id=?", (existing_id, paper_id))
+                self.conn.execute("DELETE FROM gap_hits WHERE paper_id=?", (paper_id,))
+            if self.conn.execute("SELECT 1 FROM sqlite_master WHERE name='question_gaps'").fetchone():
+                self.conn.execute("UPDATE question_gaps SET closed_by=? WHERE closed_by=?", (existing_id, paper_id))
             self.conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
 
     # -- events ------------------------------------------------------------
