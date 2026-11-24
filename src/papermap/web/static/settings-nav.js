@@ -36,6 +36,8 @@
       else link.removeAttribute("aria-current");
     });
     if (sectionField) sectionField.value = id;
+    const save = document.getElementById("settings_save");
+    if (save) save.hidden = id === "mobile" || id === "extensions";
     if (title && selected) title.textContent = selected.dataset.title || selected.textContent.trim();
     if (group && selected) group.textContent = selected.dataset.groupLabel || t("设置");
     if (title) document.title = title.textContent + " - PaperMap";

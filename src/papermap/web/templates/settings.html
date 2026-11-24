@@ -308,6 +308,9 @@
 </section>
 
 </form>
+<section class="settings-panel" data-settings-panel="mobile" aria-label="{{ _("鸿蒙手机同步") }}" {% if settings_section != 'mobile' %}hidden{% endif %}>
+  {% if settings_section == 'mobile' %}{% include "_mobile_sync.html" %}{% endif %}
+</section>
 {% include "_extensions.html" %}
 <section class="settings-panel" data-settings-panel="appearance" aria-label="{{ _("外观") }}" {% if settings_section != 'appearance' %}hidden{% endif %}>
   <p class="muted small">{{ _("点一下立即生效，并自动保存。") }}</p>
@@ -340,6 +343,7 @@
 {% endblock %}
 {% block scripts %}
 <script defer src="/static/extensions.js?v={{ static_v }}"></script>
+<script defer src="/static/mobile-sync.js?v={{ static_v }}"></script>
 <script src="/static/settings-nav.js?v={{ static_v }}"></script>
 <script src="/static/settings.js?v={{ static_v }}"></script>
 {% endblock %}

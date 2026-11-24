@@ -1,0 +1,30 @@
+    {% if error %}<p class="notice err" role="alert">{{ _(error) }}</p>{% endif %}
+    {% if lan.active %}
+    <section class="card">
+      <h2>{{ _("正在共享") }}</h2>
+      <p>{{ lan.address }} · {{ lan.paperIds|length }} {{ _("篇论文") }}</p>
+      <ul class="small">{% for p in papers if p.id in lan.paperIds %}<li>{{ p.title }}</li>{% endfor %}</ul>
+      {% if code %}
+      <p>{{ _("让手机和电脑连上同一 Wi-Fi，在鸿蒙版「电脑同步」中扫描此码。") }}</p>
+      <img src="{{ qr }}" alt="{{ _('手机配对二维码') }}" style="display:block;width:min(100%,390px);background:white">
+      <details><summary>{{ _("复制配对信息") }}</summary><textarea readonly rows="4" style="width:100%" onclick="this.select()" spellcheck="false">{{ code }}</textarea></details>
+      {% else %}
+      <form action="/settings/mobile/show" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ _("显示配对码") }}</button></form>
+      {% endif %}
+      <p class="muted">{{ _("关闭共享或退出电脑端会让本次配对码失效。手机已下载的论文仍可离线阅读。") }}</p>
+      <form action="/settings/mobile/stop" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ _("关闭共享") }}</button></form>
+    </section>
+    {% else %}
+    <form class="card" action="/settings/mobile/start" method="post">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p>{{ _("只共享你勾选的论文、对应的证据摘录和阅读位置。配对的手机可以传回新摘录和阅读进度。") }}</p>
+      <label>{{ _("电脑的局域网地址") }}
+        <select name="address" required>{% for addr in addresses %}<option value="{{ addr }}" {% if addr == selected_address %}selected{% endif %}>{{ addr }}</option>{% endfor %}</select>
+      </label>
+      {% if not addresses %}<p role="status">{{ _("尚未找到局域网地址，请连接 Wi-Fi 后刷新。") }}</p>{% endif %}
+      <fieldset style="margin:1rem 0;max-height:38vh;overflow:auto"><legend>{{ _("选择要在手机上阅读的论文") }}</legend>
+        {% for p in papers %}<label class="inline" style="display:flex;margin:.5rem 0"><input type="checkbox" name="paper_id" value="{{ p.id }}" {% if p.id in selected_ids %}checked{% endif %}> {{ p.title }}</label>{% else %}<p>{{ _("暂无已入库的论文") }}</p>{% endfor %}
+      </fieldset>
+      <button {% if not addresses or not papers %}disabled{% endif %}>{{ _("开启共享并显示配对码") }}</button>
+    </form>
+    {% endif %}

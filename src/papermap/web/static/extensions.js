@@ -4,7 +4,6 @@
   const list = document.getElementById("extensions-list");
   const status = document.getElementById("extension-status");
   const output = document.getElementById("extension-output");
-  const save = document.getElementById("settings_save");
   const scopes = {};
   for (const area of panel.querySelectorAll("[data-token-scope]")) {
     const name = area.dataset.tokenScope;
@@ -47,7 +46,6 @@
     }
   }
   function onSection() {
-    save.hidden = !panel.hidden;
     if (panel.hidden) {
       clearSecrets();
     } else {

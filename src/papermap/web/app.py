@@ -47,6 +47,7 @@ SETTINGS_GROUPS = (
     (L("AI 服务"), (("models", L("模型与账号"), "settings"), ("translation", L("翻译"), "handbooks"))),
     (L("文献库"), (("import", L("导入与文件夹"), "inbox"), ("processing", L("论文处理"), "papers"),
                 ("library", L("知识库位置"), "folder"), ("backup", L("备份与恢复"), "folder"),
+                ("mobile", L("鸿蒙手机同步"), "papers"),
                 ("taxonomy", L("学科与版本"), "fields"))),
     (L("应用"), (("appearance", L("外观"), "settings"), ("extensions", L("插件与接口"), "skills"),
              ("application", L("后台运行"), "events"))),
@@ -58,15 +59,21 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from contextlib import asynccontextmanager
     from ..plugin_hooks import PluginHooks
     from . import mcp_api
+    from ..mobile_lan import MobileLan
+    from .mobile_admin import mount_mobile
     from .field_tasks import FieldTasks
     from .plugin_admin import EXAMPLES, mount_admin
     from .plugin_api import mount_api
 
     hooks = PluginHooks(config, registry)
+    mobile = MobileLan(config, registry)
     @asynccontextmanager
     async def lifespan(app):
         async with hooks.lifespan(app), mcp_api.lifespan(registry) as transport:
-            yield {"papermap_mcp": transport}
+            try:
+                yield {"papermap_mcp": transport}
+            finally:
+                await run_in_threadpool(mobile.stop)
 
     app = FastAPI(title="PaperMap", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_route("/mcp", mcp_api.ReadOnlyEndpoint(registry), methods=["POST", "GET", "DELETE"])
@@ -1906,6 +1913,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     def events(request: Request):
         return render(request, "events.html", events=registry.recent_events(500))
 
+    mobile_settings = mount_mobile(app, mobile, registry, render, csrf_token, _check_csrf, SETTINGS_GROUPS)
+
     @app.get("/settings", response_class=HTMLResponse)
     def settings(request: Request, saved: int = 0, welcome: int = 0, section: str = "models"):
         from ..claude_cli import model_options as claude_model_options
@@ -1942,6 +1951,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             tr={**config.raw["translation"], "services": tr_services}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
             claude_model_options=claude_model_options(),
+            **(mobile_settings() if section == "mobile" else {}),
             settings_section=section, settings_groups=SETTINGS_GROUPS,
             settings_group_label=SETTINGS_SECTIONS[section][0], settings_title=SETTINGS_SECTIONS[section][1],
         )
@@ -2240,6 +2250,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if running or busy:
             return {"ok": False, "message": "还有翻译、解读或批量任务在运行，请等它们完成后再恢复"}
         try:
+            # A restore can replace both the library identity and internal paper IDs.
+            await run_in_threadpool(mobile.stop)
             res = await run_in_threadpool(backup_mod.restore, config, registry, str(body.get("name", "")),
                                           pipeline._lock)
         except (ValueError, OSError) as exc:

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ _("鸿蒙手机同步") }} - PaperMap{% endblock %}
+{% block content_class %}settings-content{% endblock %}
+{% block content %}
+<div class="settings-shell">
+  <header class="settings-header"><div><div class="settings-breadcrumb">{{ _("设置") }} / {{ _("文献库") }}</div><h1>{{ _("鸿蒙手机同步") }}</h1></div></header>
+  <div class="settings-scroll">
+    {% include "_mobile_sync.html" %}
+  </div>
+</div>
+{% endblock %}

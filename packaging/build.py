@@ -63,6 +63,7 @@ def _patch_info_plist(app: Path) -> None:
         "CFBundleVersion": __version__,
         "NSHumanReadableCopyright": "PaperMap",
         "NSDocumentsFolderUsageDescription": "PaperMap reads the PDFs in the inbox folders you choose.",
+        "NSLocalNetworkUsageDescription": "PaperMap shares selected papers and reading notes with your paired phone on the same Wi-Fi when you turn on phone sync.",
         "NSDownloadsFolderUsageDescription": "PaperMap reads the PDFs in the inbox folders you choose.",
     })
     with open(info, "wb") as fh:

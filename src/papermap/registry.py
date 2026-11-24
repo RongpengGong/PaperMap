@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS evidence_region_previews (
     revision TEXT NOT NULL, page INTEGER NOT NULL, rects_json TEXT NOT NULL, png BLOB NOT NULL,
     PRIMARY KEY(revision, page, rects_json)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS mobile_library (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    library_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mobile_note_receipts (
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    revision TEXT NOT NULL, client_id TEXT NOT NULL, signature TEXT NOT NULL,
+    segment_id TEXT NOT NULL, evidence_id INTEGER NOT NULL,
+    PRIMARY KEY (paper_id, revision, client_id)
+) WITHOUT ROWID;
 CREATE TRIGGER IF NOT EXISTS evidence_region_cleanup AFTER DELETE ON evidence_entries WHEN OLD.source='region'
 BEGIN
     DELETE FROM evidence_region_previews WHERE revision=OLD.revision AND page=OLD.page AND rects_json=OLD.rects_json
