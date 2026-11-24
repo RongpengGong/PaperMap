@@ -78,43 +78,79 @@
     ed.on("focus", () => live.classList.add("typing")); ed.on("blur", () => live.classList.remove("typing"));
   }
 
-  // Card: edit in place; saved as the user's version, kept when the card is refreshed
+  // Card: edit in place; saved as the user's version, kept when the card is refreshed.
+  // Each editing session first stores the previous version, so earlier versions can be restored.
   function card(panel) {
-    const btn = panel.querySelector("[data-card-edit]"), reset = panel.querySelector("[data-card-reset]");
+    const btn = panel.querySelector("[data-card-edit]"), hist = panel.querySelector("[data-card-reset]");
+    const undo = panel.querySelector("[data-card-undo]");
     const bodyEl = panel.querySelector("[data-card-body]"), status = panel.querySelector("[data-card-status]");
     const pid = panel.dataset.paper;
-    if (reset) reset.addEventListener("click", async () => {
-      if (!(await (window.pmDialog ? window.pmDialog(t("放弃你对这张卡片的全部修改，换回模型生成的版本？（不重新调用模型；旧版本留在知识库的 git 历史里）"), { okText: t("放弃修改"), danger: true }) : confirm(t("放弃修改？"))))) return;
-      if (ed) { clearTimeout(timer); ed.destroy(); ed = null; }
-      const r = await fetch(`/paper/${pid}/card`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, reset: true }) }).then(x => x.json());
-      if (r.ok && window.pmOpenPaper) window.pmOpenPaper(pid, false); else say(r.message || t("操作失败"));
-    });
     if (!btn || !bodyEl) return;
-    let ed = null, saved = "", timer = null, host = null;
+    let ed = null, saved = "", start = null, timer = null, host = null, session = "";
+    const send = body => fetch(`/paper/${pid}/card`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csrf, session, ...body }) }).then(x => x.json()).catch(() => ({ ok: false }));
     async function save() {
       clearTimeout(timer); timer = null;
       if (!ed) return;
       const text = tidy(ed.getMarkdown());
       if (text === saved) return;
       status.textContent = t("保存中…");
-      const r = await fetch(`/paper/${pid}/card`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, text }) })
-        .then(x => x.json()).catch(() => ({ ok: false }));
+      const r = await send({ text });
       if (!r.ok) { status.textContent = t("未保存"); say(r.message || t("保存失败")); return; }
       saved = text; status.textContent = t("已保存");
     }
+    function close() {
+      clearTimeout(timer); timer = null;
+      if (ed) { ed.destroy(); ed = null; }
+      if (host) { host.remove(); host = null; }
+      if (window.pmOpenPaper) window.pmOpenPaper(pid, false);
+    }
     btn.addEventListener("click", async () => {
-      if (ed) { await save(); ed.destroy(); ed = null; host.remove(); if (window.pmOpenPaper) window.pmOpenPaper(pid, false); return; }
+      if (ed) { await save(); close(); return; }
       const [j] = await Promise.all([fetch(`/paper/${pid}/card.md`).then(r => r.json()), window.pmLoadEditor()]).catch(() => [{}]);
       if (!j || !j.ok) { say(t("打开编辑器失败")); return; }
-      saved = j.text;
+      saved = j.text; start = { text: j.text, edited: j.edited }; session = String(Date.now());
       host = document.createElement("div"); host.className = "kb-user editing card-editing";
       bodyEl.hidden = true; bodyEl.after(host);
       ed = window.PMEditor.create(host, j.text, "", () => { status.textContent = t("未保存…"); clearTimeout(timer); timer = setTimeout(save, 1200); },
         () => save(), uploader("../../attachments/"));
       linkSuggest(ed);
       btn.textContent = t("完成");
-      if (reset) reset.hidden = false;  // only offered while editing
+      if (undo) undo.hidden = false;
+      if (hist) hist.hidden = false;
       ed.commands.focus("start");
+    });
+    // back to how the card looked when this editor was opened
+    undo && undo.addEventListener("click", async () => {
+      if (!start) return;
+      clearTimeout(timer);
+      if (ed && tidy(ed.getMarkdown()) !== start.text &&
+          !(await window.pmDialog(t("放弃这次编辑的改动，回到打开编辑器之前的样子？"), { okText: t("放弃这次编辑"), danger: true }))) return;
+      const r = start.edited ? await send({ text: start.text }) : await send({ reset: true });
+      if (!r.ok) { say(r.message || t("操作失败")); return; }
+      close();
+    });
+    // earlier versions: before each editing session, and the generated card
+    hist && hist.addEventListener("click", async e => {
+      const x = e.clientX, y = e.clientY;
+      await save();
+      const j = await fetch(`/paper/${pid}/card/versions`).then(r => r.json()).catch(() => null);
+      if (!j || !j.ok) { say(t("读取历史版本失败")); return; }
+      const when = s => { const d = new Date(s), p = n => String(n).padStart(2, "0");
+        return isNaN(d) ? s.slice(5, 16).replace("T", " ") : `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+      const restore = async (body, label) => {
+        if (!(await window.pmDialog(`${t("把卡片换成")}「${label}」？${t("现在的内容会先存为一个历史版本，随时可以换回来。")}`, { okText: t("恢复") }))) return;
+        const r = await send(body);
+        if (r.ok) { say(t("已恢复")); close(); } else say(r.message || t("操作失败"));
+      };
+      const items = [{ label: t("恢复到哪个版本？") }];
+      j.versions.filter(v => !v.generated).forEach((v, i) => {
+        const label = `${i === 0 ? t("上个版本") : t("我的版本")} · ${when(v.at)}`;
+        items.push({ text: `${label}${v.preview ? " — " + v.preview : ""}`, run: () => restore({ restore: v.id }, label) });
+      });
+      if (j.versions.filter(v => !v.generated).length === 0) items.push({ label: t("还没有更早的我的版本") });
+      items.push("-", { text: t("模型生成的版本（丢掉所有我的修改）"), run: () => restore({ reset: true }, t("模型生成的版本")) });
+      window.pmMenu(x, y, items);
     });
   }
 

@@ -85,7 +85,9 @@
     {% if body_html and p.card_json %}<div class="card-bar" data-card-bar>
       <button type="button" class="ghost-btn" data-card-edit>{{ _("编辑卡片") }}</button>
       {% if p.card_override %}<span class="card-edited" title="{{ _("你改过这张卡片；之后加星标、改分类等刷新卡片时，仍保留你的版本。") }}">✎ {{ _("已手动修改") }}</span>
-      <button type="button" class="link-btn" data-card-reset hidden title="{{ _("丢弃你的全部修改，换回模型生成的版本") }}">{{ _("放弃我的修改，恢复模型版本…") }}</button>{% endif %}
+{% endif %}
+      <button type="button" class="ghost-btn" data-card-undo hidden title="{{ _("丢掉这次打开编辑器之后的改动，回到编辑前的样子") }}">{{ _("放弃这次编辑") }}</button>
+      <button type="button" class="ghost-btn" data-card-reset hidden title="{{ _("你以前每次编辑之前的版本，以及模型生成的版本") }}">{{ _("历史版本…") }}</button>
       <span class="muted small" data-card-status></span>
     </div>{% endif %}
     {% if body_html %}<div class="md" data-card-body>{{ body_html|safe }}</div>

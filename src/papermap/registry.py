@@ -104,6 +104,13 @@ CREATE TABLE IF NOT EXISTS evidence_entries (
     stance TEXT NOT NULL, note TEXT NOT NULL, anchor_key TEXT NOT NULL,
     created_at TEXT NOT NULL, UNIQUE(question_id, paper_id, anchor_key)
 );
+CREATE TABLE IF NOT EXISTS card_versions (  -- earlier states of a card the user edited (text NULL = generated)
+    id INTEGER PRIMARY KEY,
+    paper_id INTEGER NOT NULL,
+    text TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_card_versions ON card_versions(paper_id, id);
 CREATE TABLE IF NOT EXISTS update_cards (  -- "what does this paper change" (stage 7 task 3)
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     paper_id INTEGER NOT NULL REFERENCES papers(id),

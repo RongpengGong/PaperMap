@@ -365,24 +365,59 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return {"ok": True, "text": editable_part(path.read_text("utf-8"), config.output_language),
                 "edited": bool(row["card_override"])}
 
+    _card_sessions: dict[int, str] = {}
+
+    def _keep_version(paper_id: int, current) -> None:
+        """Remember the card as it was before a change (None = the generated card), unless it is unchanged."""
+        last = registry.one("SELECT text FROM card_versions WHERE paper_id=? ORDER BY id DESC LIMIT 1", (paper_id,))
+        if last is not None and last["text"] == current:
+            return
+        registry.execute("INSERT INTO card_versions(paper_id, text, created_at) VALUES (?,?,?)",
+                         (paper_id, current, now_iso()))
+        registry.execute("DELETE FROM card_versions WHERE paper_id=? AND id NOT IN "
+                         "(SELECT id FROM card_versions WHERE paper_id=? ORDER BY id DESC LIMIT 50)", (paper_id, paper_id))
+
     @app.post("/paper/{paper_id}/card")
     async def paper_card_save(paper_id: int, request: Request):
-        """The user's own edit of a card (kept when the card is refreshed); reset=true restores the generated one."""
+        """The user's own edit of a card (kept when the card is refreshed).
+        Every editing session (and every reset / restore) first stores the previous state as a version."""
         body = await json_body(request)
         row, path = _card_path(paper_id)
         text = body.get("text")
+        session = str(body.get("session") or "")
         if body.get("reset"):
-            override = None
+            override, new_session = None, True
+        elif body.get("restore"):
+            v = registry.one("SELECT text FROM card_versions WHERE id=? AND paper_id=?", (int(body["restore"]), paper_id))
+            if v is None:
+                return {"ok": False, "message": "找不到这个版本"}
+            override, new_session = v["text"], True
         elif isinstance(text, str) and text.strip() and len(text) <= 200_000:
             override = text.replace("\r\n", "\n").strip()
+            new_session = not session or _card_sessions.get(paper_id) != session
         else:
             return {"ok": False, "message": "卡片内容不能为空，最多 20 万字符"}
+        if new_session and override != row["card_override"]:
+            _keep_version(paper_id, row["card_override"])
+        if session:
+            _card_sessions[paper_id] = session
         registry.update_paper(paper_id, card_override=override)
         pipeline._refresh_card(paper_id)
         background("reindex", pipeline.reindex, paper_id)
         pipeline.kb_commit(("Restore" if override is None else "Edit") + f" card #{paper_id}")
         ctx = paper_panel_ctx(paper_id)
         return {"ok": True, "html": ctx["body_html"] if ctx else "", "edited": override is not None}
+
+    @app.get("/paper/{paper_id}/card/versions")
+    def paper_card_versions(paper_id: int):
+        row, _ = _card_path(paper_id)
+        out = []
+        for v in registry.query("SELECT id, text, created_at FROM card_versions WHERE paper_id=? ORDER BY id DESC LIMIT 30",
+                                (paper_id,)):
+            first = next((ln.strip("# ").strip() for ln in (v["text"] or "").splitlines() if ln.strip()), "")
+            out.append({"id": v["id"], "at": v["created_at"], "generated": v["text"] is None,
+                        "current": v["text"] == row["card_override"], "preview": first[:50]})
+        return {"ok": True, "versions": out, "edited": bool(row["card_override"])}
 
     @app.post("/paper/{paper_id}/meta")
     async def paper_meta(paper_id: int, request: Request):

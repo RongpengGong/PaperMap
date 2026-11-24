@@ -76,3 +76,29 @@ def test_card_edit_kept_over_refresh_and_reset(config, registry, pdfs):
     r = c.post(f"/paper/{pid}/card", json={"csrf": tok, "reset": True}).json()
     assert r["ok"] and not r["edited"] and "我的补充" not in r["html"]
     assert not c.post(f"/paper/{pid}/card", json={"csrf": tok, "text": " "}).json()["ok"]
+
+
+def test_card_versions_undo_and_restore(config, registry, pdfs):
+    from .conftest import OWN_DOI
+    from .test_reader import client as reader_client
+
+    c, pipe, _ = reader_client(config, registry, pdfs)
+    pid = registry.paper_by_doi(OWN_DOI)["id"]
+    tok = _token(c)
+    base = c.get(f"/paper/{pid}/card.md").json()["text"]
+    save = lambda **kw: c.post(f"/paper/{pid}/card", json={"csrf": tok, **kw}).json()  # noqa: E731
+    # first editing session: two autosaves, one version (the generated card) is kept
+    assert save(text=base + "\n\n第一次A", session="s1")["ok"]
+    assert save(text=base + "\n\n第一次B", session="s1")["ok"]
+    # second session
+    assert save(text=base + "\n\n第二次", session="s2")["ok"]
+    v = c.get(f"/paper/{pid}/card/versions").json()["versions"]
+    assert [x["generated"] for x in v] == [False, True]  # newest first: my first version, then the generated card
+    first = v[0]
+    r = save(restore=first["id"])
+    assert r["ok"] and "第一次B" in r["html"] and "第二次" not in r["html"]
+    v = c.get(f"/paper/{pid}/card/versions").json()["versions"]
+    assert any(not x["generated"] and x["preview"] for x in v) and len(v) == 3  # the replaced version is kept too
+    r = save(reset=True)
+    assert r["ok"] and not r["edited"]
+    assert len(c.get(f"/paper/{pid}/card/versions").json()["versions"]) == 4
