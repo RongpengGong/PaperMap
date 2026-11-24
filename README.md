@@ -14,7 +14,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/macOS-已测试-1B54E8?style=for-the-badge&logo=apple&labelColor=20242D">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-34D399?style=for-the-badge&logo=python&logoColor=white&labelColor=20242D">
   <img alt="local first" src="https://img.shields.io/badge/数据-只存本机-E3B341?style=for-the-badge&labelColor=20242D">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/GITHUB_OWNER/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/RongpengGong/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
 </p>
 
 如果 PaperMap 对你有帮助，欢迎点右上角的 **⭐ Star**，也欢迎[赞助](#赞助)支持后续开发。
@@ -83,12 +83,12 @@ PaperMap 在你自己的电脑上运行。它把每篇论文读成一张结构�
 
 ### 安装
 
-**macOS 应用**：从 [Releases](https://github.com/GITHUB_OWNER/PaperMap/releases) 下载 `PaperMap-macOS.zip`，解压后把 `PaperMap.app` 拖进「应用程序」。应用还没有经过 Apple 公证：第一次打开如果提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。
+**macOS 应用**：从 [Releases](https://github.com/RongpengGong/PaperMap/releases) 下载 `PaperMap-macOS.zip`，解压后把 `PaperMap.app` 拖进「应用程序」。应用还没有经过 Apple 公证：第一次打开如果提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。
 
 **用 Python 安装**（Python 3.10+）：
 
 ```bash
-pip install "papermap[desktop] @ git+https://github.com/GITHUB_OWNER/PaperMap"
+pip install "papermap[desktop] @ git+https://github.com/RongpengGong/PaperMap"
 papermap            # 首次运行会创建配置并打开窗口
 ```
 
@@ -109,7 +109,7 @@ papermap            # 首次运行会创建配置并打开窗口
 ## 开发
 
 ```bash
-git clone https://github.com/GITHUB_OWNER/PaperMap && cd PaperMap
+git clone https://github.com/RongpengGong/PaperMap && cd PaperMap
 python -m venv .venv && .venv/bin/pip install -e ".[dev,desktop]"
 .venv/bin/python -m pytest -q          # 400+ 个测试
 .venv/bin/papermap serve --port 8799   # 只开网页，用浏览器调试

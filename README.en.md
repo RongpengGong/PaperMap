@@ -14,7 +14,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/macOS-tested-1B54E8?style=for-the-badge&logo=apple&labelColor=20242D">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-34D399?style=for-the-badge&logo=python&logoColor=white&labelColor=20242D">
   <img alt="local first" src="https://img.shields.io/badge/data-stays%20local-E3B341?style=for-the-badge&labelColor=20242D">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/GITHUB_OWNER/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/RongpengGong/PaperMap?style=for-the-badge&color=5319E7&labelColor=20242D"></a>
 </p>
 
 If PaperMap helps you, please give it a **⭐ Star** – and consider [sponsoring](#sponsor) its development.
@@ -83,12 +83,12 @@ PaperMap runs on your own computer. It reads every paper into a structured card,
 
 ### Install
 
-**macOS app**: download `PaperMap-macOS.zip` from [Releases](https://github.com/GITHUB_OWNER/PaperMap/releases), unzip and drag `PaperMap.app` into Applications. The app is not notarised yet: if macOS says it cannot verify the developer, allow it under System Settings → Privacy & Security.
+**macOS app**: download `PaperMap-macOS.zip` from [Releases](https://github.com/RongpengGong/PaperMap/releases), unzip and drag `PaperMap.app` into Applications. The app is not notarised yet: if macOS says it cannot verify the developer, allow it under System Settings → Privacy & Security.
 
 **With Python** (3.10+):
 
 ```bash
-pip install "papermap[desktop] @ git+https://github.com/GITHUB_OWNER/PaperMap"
+pip install "papermap[desktop] @ git+https://github.com/RongpengGong/PaperMap"
 papermap            # creates a configuration on first run and opens the window
 ```
 
@@ -109,7 +109,7 @@ More details – every page, translation services, plugins and MCP, command line
 ## Development
 
 ```bash
-git clone https://github.com/GITHUB_OWNER/PaperMap && cd PaperMap
+git clone https://github.com/RongpengGong/PaperMap && cd PaperMap
 python -m venv .venv && .venv/bin/pip install -e ".[dev,desktop]"
 .venv/bin/python -m pytest -q          # 400+ tests
 .venv/bin/papermap serve --port 8799   # web UI only, for debugging in a browser
