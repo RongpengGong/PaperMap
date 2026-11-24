@@ -23,6 +23,10 @@
       <div class="chat-compose-foot">
         <button type="button" class="ghost-btn" data-chat-end title="{{ _("让模型总结这次讨论，你确认后追加到「我的笔记」") }}">{{ _("结束讨论，总结到笔记") }}</button>
         <span class="grow"></span>
+        <select class="chat-enter" data-chat-enter title="{{ _("用哪个键发送；另一个用来换行") }}">
+          <option value="enter">{{ _("↩ 发送，⇧↩ 换行") }}</option>
+          <option value="cmd">{{ _("⌘↩ 发送，↩ 换行") }}</option>
+        </select>
         <button type="button" data-chat-send>{{ _("发送") }}</button>
       </div>
       <p class="muted small chat-privacy">{{ _("论文全文、卡片和你的笔记会发给所选模型的服务商；费用计入费用页。") }}</p>

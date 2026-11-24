@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ _("收藏簿 - PaperMap") }}{% endblock %}
+{% block content %}
+<div class="clips-page">
+  <div class="tr-head">
+    <h1>{{ _("收藏簿") }}</h1>
+    <span class="grow"></span>
+    <label class="inline small muted"><input type="checkbox" id="clips_auto" {{ 'checked' if auto }}> {{ _("每周自动整理（有 5 条以上新收藏时）") }}</label>
+    <button type="button" id="clips_digest" {{ 'disabled' if not items }}>{{ _("用 AI 整理收藏簿") }}</button>
+  </div>
+  <p class="muted small">{{ _("在卡片、PDF、AI 回答或任何页面里选中一句话，右键（PDF 里在选中后的工具条上）点「收藏」，它就会存到这里。整理时，AI 只根据你收藏的句子按主题归纳知识点，每条都标出来自哪几条收藏，不会加入收藏以外的内容。") }}</p>
+
+  {% if digest %}
+  <section class="clips-digest card">
+    <div class="row"><b>{{ _("最近一次整理") }}</b><span class="muted small">{{ digest.created_at[:16]|replace('T', ' ') }} UTC · {{ digest.model or '' }}{% if new_n %} · {{ new_n }} {{ _("条新收藏还没整理") }}{% endif %}</span>
+      <span class="grow"></span>{% if digest.kb_path %}<span class="muted small">{{ _("已存为") }} <code>knowledge/{{ digest.kb_path }}</code></span>{% endif %}</div>
+    <div class="md">{{ digest_html|safe }}</div>
+  </section>
+  {% endif %}
+
+  <h2>{{ _("全部收藏") }} <span class="muted small">{{ items|length }}</span></h2>
+  {% for c in items %}
+  <article class="clip" id="clip-{{ c.id }}" data-clip="{{ c.id }}">
+    <div class="clip-head">
+      <b class="clip-id">C{{ c.id }}</b>
+      <span class="muted small">{{ c.created_at[:10] }} · {{ {'card': _('卡片'), 'pdf': _('PDF 原文'), 'chat': _('AI 回答'), 'page': _('页面')}.get(c.source, c.source) }}</span>
+      {% if c.paper_id %}<a class="small" href="{% if c.source == 'pdf' and c.page is not none %}/reader/{{ c.paper_id }}?page={{ c.page + 1 }}&amp;q={{ c.text[:60]|urlencode }}{% else %}/?id={{ c.paper_id }}{% endif %}">{{ c.first_author or '' }} {{ c.year or '' }}{% if c.page is not none %} · p.{{ c.page + 1 }}{% endif %}</a>
+      {% elif c.url %}<a class="small" href="{{ c.url }}">{{ _("来源页面") }}</a>{% endif %}
+      <span class="grow"></span>
+      <button type="button" class="icon-btn" data-clip-del title="{{ _("删除这条收藏") }}">×</button>
+    </div>
+    <blockquote class="clip-text">{{ c.text }}</blockquote>
+    <input type="text" class="clip-note" data-clip-note value="{{ c.note|keep }}" placeholder="{{ _("加一句自己的话（可选，整理时会一起参考）") }}">
+  </article>
+  {% else %}
+  <p class="ev-empty">{{ _("还没有收藏。选中任何一句话，右键点「收藏这句」。") }}</p>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const csrf = document.body.dataset.csrf;
+  const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...b }) }).then(r => r.json());
+  const btn = document.getElementById("clips_digest");
+  btn && btn.addEventListener("click", async () => {
+    btn.disabled = true; const label = btn.textContent; btn.textContent = t("正在整理…（可能要一两分钟）");
+    const r = await post("/api/clips-digest", { scope: "all" }).catch(() => ({ ok: false }));
+    btn.disabled = false; btn.textContent = label;
+    if (r.ok) location.reload(); else window.pmToast && window.pmToast(r.message || t("整理失败"));
+  });
+  document.getElementById("clips_auto").addEventListener("change", e => post("/api/clips-digest", { auto: e.target.checked }));
+  document.addEventListener("click", async e => {
+    const del = e.target.closest("[data-clip-del]"); if (!del) return;
+    const art = del.closest("[data-clip]");
+    if ((await post(`/api/clips/${art.dataset.clip}/delete`, {})).ok) art.remove();
+  });
+  document.addEventListener("change", e => {
+    const n = e.target.closest("[data-clip-note]"); if (!n) return;
+    post(`/api/clips/${n.closest("[data-clip]").dataset.clip}/note`, { note: n.value });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,13 @@
+<div class="write-tools">
+  <button type="button" class="ghost-btn" data-w-copy>{{ _("复制 Markdown") }}</button>
+  <a class="ghost-btn" href="/write/{{ current.id }}.docx">{{ _("下载 Word") }}</a>
+  <a class="ghost-btn" href="/write/{{ current.id }}.bib">{{ _("下载 BibTeX") }}</a>
+  <button type="button" class="ghost-btn" data-w-style="{{ 'author_year' if current.style == 'numbered' else 'numbered' }}" data-id="{{ current.id }}">{{ _("改成作者-年份引用") if current.style == 'numbered' else _("改成编号引用") }}</button>
+  <span class="grow"></span>
+  <button type="button" data-w-check="{{ current.id }}" title="{{ _("让模型逐句对照原文，检查每个引用是否真的支持这句话") }}">{{ _("核对这段的引用") }}</button>
+</div>
+<div class="md write-text">{{ current.html|safe }}</div>
+{% if current.gaps %}<div class="notice small"><b>{{ _("缺少证据：") }}</b>{% for g in current.gaps %}{{ g }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}
+{% if current.refs %}<h3>References</h3><div class="write-refs">{% for r in current.refs %}<div class="md">{{ r|safe }}</div>{% endfor %}</div>{% endif %}
+<p class="muted small">{{ current.model or '' }}{% if current.cost %} · ${{ "%.4f"|format(current.cost) }}{% endif %} · {{ _("引用了") }} {{ current.cited|length }} {{ _("篇") }}</p>
+<textarea id="w_md" hidden>{{ current.markdown }}</textarea>

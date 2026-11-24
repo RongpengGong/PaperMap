@@ -350,6 +350,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       plugin_exports=[{"id": key, "name": item["name"], "extension": item.get("extension", "md")}
                                       for key, item in export_templates(config).items()],
                       purposes_menu=_purposes.all_tags(registry),
+                      trash_expiring=__import__("papermap.trash", fromlist=["expiring"]).expiring(config, registry),
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
                       **((paper_panel_ctx(selected) or {}) if selected else {}))
@@ -471,6 +472,39 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         pipeline.kb_commit(("Restore" if override is None else "Edit") + f" card #{paper_id}")
         ctx = paper_panel_ctx(paper_id)
         return {"ok": True, "html": ctx["body_html"] if ctx else "", "edited": override is not None}
+
+    FORMATS = {"bold": "**{t}**", "italic": "*{t}*", "underline": "<u>{t}</u>", "strike": "~~{t}~~",
+               "highlight": '<mark style="background-color: {c}">{t}</mark>', "color": '<span style="color: {c}">{t}</span>'}
+
+    @app.post("/paper/{paper_id}/card/format")
+    async def paper_card_format(paper_id: int, request: Request):
+        """Format a passage selected in the rendered card (right-click), without opening the editor.
+        The passage is found in the card's Markdown; each change is a new version, so it can be undone."""
+        from ..kb_writer import editable_part
+
+        body = await json_body(request)
+        row, path = _card_path(paper_id)
+        sel = str(body.get("text") or "").strip()
+        kind = str(body.get("kind") or "")
+        color = str(body.get("color") or "")
+        if kind not in FORMATS or not sel or "\n" in sel or len(sel) > 2000:
+            return {"ok": False, "message": _gettext("请在卡片里选中同一段里的文字")}
+        if kind in ("highlight", "color") and not re.fullmatch(r"#[0-9a-fA-F]{3,8}", color):
+            return {"ok": False, "message": _gettext("颜色无效")}
+        md_text = editable_part(path.read_text("utf-8"), config.output_language)
+        spots = [m.start() for m in re.finditer(re.escape(sel), md_text)]
+        if not spots:
+            return {"ok": False, "message": _gettext("选中的文字跨过了格式或链接，请用「编辑卡片」来改")}
+        n = int(body.get("occurrence") or 0)
+        at = spots[n] if 0 <= n < len(spots) else spots[0]
+        new = md_text[:at] + FORMATS[kind].format(t=sel, c=color) + md_text[at + len(sel):]
+        _keep_version(paper_id, row["card_override"])
+        registry.update_paper(paper_id, card_override=new.strip())
+        pipeline._refresh_card(paper_id)
+        background("reindex", pipeline.reindex, paper_id)
+        pipeline.kb_commit(f"Format card #{paper_id}")
+        ctx = paper_panel_ctx(paper_id)
+        return {"ok": True, "html": ctx["body_html"] if ctx else "", "edited": True}
 
     @app.get("/paper/{paper_id}/card/versions")
     def paper_card_versions(paper_id: int):
@@ -1902,7 +1936,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             appearances=__import__("papermap.themes", fromlist=["x"]).APPEARANCES,
             ui_languages=i18n.LANGUAGES,
             swatches=__import__("papermap.themes", fromlist=["x"]).SWATCH,
-            backups=backup_mod.list_backups(config)[:30], backup_cfg=backup_mod.settings(config),
+            backups=backup_mod.list_backups(config)[:30], backup_cfg=backup_mod.settings(config), mirror_state=backup_mod.mirror_state(config),
             backup_dir=str(backup_mod.backup_dir(config)),
             tr={**config.raw["translation"], "services": tr_services}, bilibili_models=__import__("papermap.translate", fromlist=["x"]).BILIBILI_MODELS,
             protocols_all=PROTOCOLS,
@@ -1940,6 +1974,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         clear_openalex_key: str = Form(""),
         tracking_enabled: str = Form(""),
         tracking_model_rank: str = Form(""),
+        tracking_digest: str = Form(""),
         tr_default: str = Form("bilibili"),
         tr_bilibili_model: str = Form("Index-Translate-35B-A3B"),
         tr_target: str = Form("zh"),
@@ -1995,6 +2030,12 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             except ValueError:
                 b["keep"] = 14
             b["dir"] = str(form_b.get("backup_dir") or "").strip()
+            b["mirror_enabled"] = bool(form_b.get("mirror_enabled"))
+            b["mirror_dir"] = str(form_b.get("mirror_dir") or "").strip()
+            try:
+                raw["trash_days"] = max(0, min(3650, int(str(form_b.get("trash_days") or 30))))
+            except ValueError:
+                raw["trash_days"] = 30
         llm = raw["llm"]
         llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") or provider == llm.get("provider") else "deepseek"
         store = llm.setdefault("presets", {})
@@ -2058,6 +2099,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             tr = raw.setdefault("tracking", {})
             tr["enabled"] = bool(tracking_enabled)
             tr["model_rank"] = bool(tracking_model_rank)
+            tr["digest"] = bool(tracking_digest)
         config.validate()
         path = config.save()
         try:
@@ -2206,6 +2248,19 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         await run_in_threadpool(pipeline.jobs.recover)
         return {"ok": True, **res, "report": report}
 
+    @app.post("/api/backup/mirror")
+    async def api_backup_mirror(body: dict):
+        _check_csrf(str(body.get("csrf", "")), csrf_token)
+        chosen = str(body.get("dir") or "").strip()
+        if chosen and chosen != backup_mod.settings(config)["mirror_dir"]:  # picked but not saved yet
+            config.raw.setdefault("backup", {})["mirror_dir"] = chosen
+            config.save()
+        try:
+            st = await run_in_threadpool(backup_mod.mirror, config, registry)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
+        return {"ok": True, **st}
+
     @app.get("/api/backup/check")
     async def api_backup_check():
         return {"ok": True, "report": await run_in_threadpool(backup_mod.check_library, config, registry)}
@@ -2293,6 +2348,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .tracking_routes import mount_tracking
 
     mount_tracking(app, config, registry, pipeline, render, csrf_token)
+    from .writing_routes import mount_writing
+
+    mount_writing(app, config, registry, pipeline, render, json_body, md_html, _gettext, _check_csrf, csrf_token, _flat_tree)
     from .chat_routes import mount_chat
 
     mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path, _gettext)

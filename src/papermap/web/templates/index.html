@@ -25,6 +25,7 @@
       </select>
       <button type="button" class="icon-btn" id="export_btn" title="{{ _("导出参考文献（BibTeX / RIS）") }}">⇪</button>
     </div>
+    {% if trash_expiring %}<div class="notice small">🗑 {{ trash_expiring|length }} {{ _("篇已删除的论文将在 3 天内从回收站永久删除：") }}{% for x in trash_expiring[:3] %}<a href="/?id={{ x.id }}&amp;status=ignored">{{ (x.title or '')[:40] }}</a>{% if not loop.last %}、{% endif %}{% endfor %}{% if trash_expiring|length > 3 %} …{% endif %} · <a href="/?status=ignored">{{ _("查看并恢复") }}</a></div>{% endif %}
     {% if bulk %}
     <div class="notice compact">
       <strong>{{ bulk.papers }} {{ _("篇新论文等待处理") }}</strong><br>

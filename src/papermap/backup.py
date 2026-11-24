@@ -20,6 +20,7 @@ import re
 import sqlite3
 import tempfile
 import threading
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,7 +41,92 @@ _lock = threading.Lock()
 def settings(config) -> dict[str, Any]:
     b = config.raw.get("backup") or {}
     return {"enabled": b.get("enabled", True), "keep": max(1, int(b.get("keep") or 14)),
-            "dir": (b.get("dir") or "").strip(), "every_hours": float(b.get("every_hours") or 24)}
+            "dir": (b.get("dir") or "").strip(), "every_hours": float(b.get("every_hours") or 24),
+            "mirror_enabled": bool(b.get("mirror_enabled")), "mirror_dir": (b.get("mirror_dir") or "").strip()}
+
+
+# ------------------------------------------------------------------ knowledge mirror
+# The database backup above leaves out knowledge/ (cards, notes, PDF copies, AI summaries). A mirror
+# copies that folder to another place - an external drive, an iCloud / OneDrive folder - and keeps it
+# up to date by copying only new or changed files. Files deleted from the library stay in the mirror,
+# so a mistake here can always be undone from there. The newest database backup goes along with it,
+# so the mirror alone is enough to rebuild the whole library.
+MIRROR_STATE = "mirror_state.json"
+_mirror_failed = [-1e9]
+
+
+def mirror_state(config) -> dict[str, Any]:
+    try:
+        return json.loads((config.data_dir / MIRROR_STATE).read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _mirror_target(config) -> Path:
+    d = settings(config)["mirror_dir"]
+    if not d:
+        raise ValueError("请先选择同步位置")
+    target = Path(d).expanduser()
+    kb = config.knowledge_dir.resolve()
+    t = target.resolve()
+    if t == kb or kb in t.parents or t in kb.parents:
+        raise ValueError("同步位置不能在知识库文件夹里面，也不能包含它")
+    return target
+
+
+def mirror(config, registry: Registry | None = None) -> dict[str, Any]:
+    """Copy new / changed files of knowledge/ (and the newest database backup) to the mirror folder."""
+    import shutil
+
+    target = _mirror_target(config)
+    if not target.parent.exists():
+        raise ValueError(f"同步位置不可用（外接硬盘没连上？）：{target}")
+    dest = target / "knowledge"
+    copied = skipped = 0
+    size = 0
+    with _lock:
+        for src in config.knowledge_dir.rglob("*"):
+            if src.is_symlink() or not src.is_file():
+                continue
+            out = dest / src.relative_to(config.knowledge_dir)
+            st = src.stat()
+            try:
+                o = out.stat()
+                if o.st_size == st.st_size and int(o.st_mtime) == int(st.st_mtime):
+                    skipped += 1
+                    continue
+            except OSError:
+                pass
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_name(out.name + ".papermap-tmp")
+            shutil.copy2(src, tmp)
+            os.replace(tmp, out)
+            copied += 1
+            size += st.st_size
+        newest = next((b for b in list_backups(config) if not b["meta"].get("broken")), None)
+        if newest is not None:
+            (target / "database").mkdir(parents=True, exist_ok=True)
+            out = target / "database" / newest["name"]
+            if not out.exists():
+                shutil.copy2(newest["path"], out)
+                for old in sorted((target / "database").glob("papermap-backup-*.zip"))[:-3]:
+                    old.unlink(missing_ok=True)  # the mirror keeps the 3 newest database backups
+    state = {"last": datetime.now(timezone.utc).isoformat(timespec="seconds"), "copied": copied,
+             "unchanged": skipped, "bytes": size, "target": str(target)}
+    (config.data_dir / MIRROR_STATE).write_text(json.dumps(state), "utf-8")
+    if registry is not None:
+        registry.log("info", f"Knowledge folder synced to {target}: {copied} file(s) copied")
+    return state
+
+
+def mirror_due(config) -> bool:
+    s = settings(config)
+    if not (s["mirror_enabled"] and s["mirror_dir"]):
+        return False
+    last = mirror_state(config).get("last")
+    if not last:
+        return True
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() >= s["every_hours"] * 3600 - 60
 
 
 def backup_dir(config) -> Path:
@@ -157,6 +243,18 @@ def run_scheduler(config, registry: Registry, stop: threading.Event | None = Non
             if due(config):
                 path = create(config, registry)
                 registry.log("info", f"Backup saved: {path.name}")
+            try:
+                from . import trash
+
+                trash.purge(config, registry)
+            except Exception:  # noqa: BLE001
+                log.exception("emptying the trash failed")
+            if mirror_due(config) and time.monotonic() - _mirror_failed[0] > 6 * 3600:
+                try:
+                    mirror(config, registry)
+                except ValueError as exc:  # drive not connected: say so, then wait a few hours
+                    _mirror_failed[0] = time.monotonic()
+                    registry.log("warning", f"Knowledge sync skipped: {exc}")
         except Exception as exc:  # noqa: BLE001 - never crash the app over a backup
             log.exception("backup failed")
             registry.log("error", f"Automatic backup failed: {exc}")

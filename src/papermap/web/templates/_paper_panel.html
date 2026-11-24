@@ -6,7 +6,7 @@
 {% set names = {'new':_('等待处理'),'extracting':_('处理中…'),'doi_unverified':_('DOI 待确认'),'skipped_supplement':_('补充材料（已跳过）'),'error':_('出错'),'done':_('已完成')} %}
 <article class="panel {{ 'has-pdf' if has_pdf }}" data-paper="{{ p.id }}">
   {% if p.status == 'ignored' %}<div class="notice deleted-notice">{% if p.trash_path %}{{ _("这篇论文已删除，文件在回收站：") }}<code>{{ p.trash_path }}</code>
-    <button type="button" data-action="restore-paper">{{ _("恢复") }}</button>{% else %}{{ _("这个文件在待审核里被忽略了。") }}{% endif %}</div>{% endif %}
+    <button type="button" data-action="restore-paper">{{ _("恢复") }}</button>{% elif p.status_detail == 'Deleted permanently' %}{{ _("这篇论文已从回收站永久删除；同一个 PDF 以后也不会再被自动导入。") }}{% else %}{{ _("这个文件在待审核里被忽略了。") }}{% endif %}</div>{% endif %}
   <header class="panel-head">
     <div class="title-row">
       <button type="button" class="icon-btn list-toggle" data-action="toggle-list" aria-controls="paper-list-pane" aria-expanded="true" aria-label="{{ _("收起论文列表") }}" title="{{ _("收起论文列表") }}"><span class="list-chevron" aria-hidden="true">‹</span><span class="list-caption">{{ _("展开论文列表") }}</span></button>

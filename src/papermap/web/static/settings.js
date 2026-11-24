@@ -390,6 +390,13 @@
     bNow.disabled = false;
     if (r.ok) { bStatus.textContent = t("已保存 ") + r.name; setTimeout(() => location.reload(), 700); } else bStatus.textContent = "";
   });
+  const mNow = document.getElementById("mirror_now"), mStatus = document.getElementById("mirror_status");
+  mNow && mNow.addEventListener("click", async () => {
+    mNow.disabled = true; mStatus.textContent = t("正在同步…（第一次会复制所有文件，可能要几分钟）");
+    const r = await window.pmApi("/api/backup/mirror", { dir: (document.getElementById("mirror_dir") || {}).value || "" });
+    mNow.disabled = false;
+    mStatus.textContent = r.ok ? `${t("已同步：复制了")} ${r.copied} ${t("个文件，")}${r.unchanged} ${t("个没变")}` : (r.message || t("同步失败"));
+  });
   const bCheck = document.getElementById("backup_check");
   bCheck && bCheck.addEventListener("click", async () => {
     bStatus.textContent = t("正在检查…");

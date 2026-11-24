@@ -11,6 +11,11 @@
   <p class="muted small">{{ _("围绕你自己的文献库追踪新论文：你的学科、引用了你库里论文的新文章、关注的作者，以及证据缺口。每天自动检查一次；关机几天后再打开，会从每个来源上次成功的位置补查。同一篇被多个来源或订阅发现只出现一次，并列出推荐理由。这里只是「值得一读」的提醒，点「收进来」才会进入文献库。") }}</p>
   {% if not settings.enabled %}<div class="notice">{{ _("新文献追踪已在设置中关闭，不会自动检查。") }}</div>{% endif %}
 
+  {% if digest %}<details class="tr-digest" open>
+    <summary><b>{{ _("本周简报") }}</b> <span class="muted small">{{ digest.at[:10] }} · {{ _("每周一次，同时发系统通知") }}</span></summary>
+    <ol>{% for c in digest["items"] %}<li><a href="#cand-{{ c.id }}" data-digest-jump="{{ c.id }}">{{ c.title }}</a>
+      <span class="muted small">— {% if c.model_reason %}{{ c.model_reason }}{% elif c.reasons %}{{ c.reasons[0].text }}{% endif %}{% if c.status != 'new' %} · {{ statuses.get(c.status, c.status) }}{% endif %}</span></li>{% endfor %}</ol>
+  </details>{% endif %}
   <div class="tr-tabs" role="tablist">
     {% for k, v in statuses.items() %}<a class="tr-tab {{ 'on' if k == status }}" href="/tracking?status={{ k }}">{{ v }}<i>{{ counts.get(k, 0) }}</i></a>{% endfor %}
   </div>
@@ -18,7 +23,7 @@
   <div class="tr-body">
   <div class="tr-list">
   {% for c in items %}
-  <article class="tr-card" data-cand="{{ c.id }}">
+  <article class="tr-card" data-cand="{{ c.id }}" id="cand-{{ c.id }}">
     <div class="tr-card-head">
       <span class="tr-score" title="{{ _("免费打分：引用库内论文、关注作者、缺口、学科；模型精排分也计入") }}">{{ "%.1f"|format(c.score) }}</span>
       {% if c.is_preprint %}<span class="tr-badge pre">{{ _("预印本") }}</span>{% endif %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ _("写作 - PaperMap") }}{% endblock %}
+{% block content_class %}qa-content{% endblock %}
+{% block content %}
+<div class="qa-layout">
+  <section class="qa-main">
+    <h2>{{ _("用库里的证据写一段") }}</h2>
+    <p class="muted small">{{ _("选一组论文（比如标了「引言可引用」的），写下这段要讲什么。模型只根据这些论文的卡片写，每句话都要标出处；标不出处的内容不写，缺的证据会单独列出来。写完可以复制、下载 Word 和 BibTeX，或者直接送去「引用核对」。") }}</p>
+    <div class="qa-ask">
+      <textarea id="w_topic" rows="3" placeholder="{{ _("例如：引言第二段——肝细胞癌中成纤维细胞空间分布的已有证据，以及各研究之间的分歧") }}">{{ (current.topic if current else '')|keep }}</textarea>
+      <div class="row write-opts">
+        <select id="w_scope" title="{{ _("用哪些论文") }}">
+          {% if ids %}<option value="" data-ids="{{ ids }}" selected>{{ _("列表里选中的论文") }}</option>{% endif %}
+          {% for k, v in scopes %}<option value="{{ k }}" {{ 'selected' if k == scope }}>{{ v }}</option>{% endfor %}
+        </select>
+        <select id="w_lang">{% for k, v in [('en', 'English'), ('zh', '中文'), ('de', 'Deutsch')] %}<option value="{{ k }}" {{ 'selected' if k == default_lang }}>{{ v }}</option>{% endfor %}</select>
+        <select id="w_len"><option value="short">{{ _("一段（约 120 词）") }}</option><option value="medium" selected>{{ _("一两段（约 250 词）") }}</option><option value="long">{{ _("三四段（约 500 词）") }}</option></select>
+        <select id="w_style"><option value="author_year">{{ _("作者-年份引用") }}</option><option value="numbered">{{ _("编号引用 [1]") }}</option></select>
+        <span class="grow"></span>
+        <button type="button" id="w_go">{{ _("开始写（⌘↩）") }}</button>
+      </div>
+    </div>
+    <div id="w_out" class="qa-answer">{% if current %}{% include "_write_result.html" %}{% endif %}</div>
+  </section>
+  <aside class="qa-history">
+    <h3>{{ _("草稿") }}</h3>
+    {% for h in history %}<a href="/write?id={{ h.id }}" class="qa-h {{ 'active' if current and current.id == h.id }}">{{ h.topic[:60] }}<i>{{ h.created_at[:10] }}</i><button type="button" class="qa-del" data-w-del="{{ h.id }}" title="{{ _("删除这段草稿") }}">×</button></a>{% else %}<p class="muted small">{{ _("还没有草稿。") }}</p>{% endfor %}
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const csrf = document.body.dataset.csrf;
+  const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...b }) }).then(r => r.json()).catch(() => ({ ok: false }));
+  const go = document.getElementById("w_go"), topic = document.getElementById("w_topic");
+  async function write() {
+    if (!topic.value.trim()) return;
+    const sc = document.getElementById("w_scope"), opt = sc.selectedOptions[0];
+    go.disabled = true; document.getElementById("w_out").innerHTML = `<p class="job-line"><span class="spinner"></span>${t("正在根据你的文献写…（通常 20–60 秒）")}</p>`;
+    const r = await post("/api/write", { topic: topic.value, scope: sc.value, ids: opt && opt.dataset.ids || "",
+      language: document.getElementById("w_lang").value, length: document.getElementById("w_len").value,
+      style: document.getElementById("w_style").value });
+    go.disabled = false;
+    if (!r.ok) { document.getElementById("w_out").innerHTML = `<p class="err-text">${(r.message || t("出错了")).replace(/</g, "&lt;")}</p>`; return; }
+    location.href = "/write?id=" + r.id;
+  }
+  go.addEventListener("click", write);
+  topic.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") write(); });
+  document.addEventListener("click", async e => {
+    const del = e.target.closest("[data-w-del]");
+    if (del) { e.preventDefault(); if ((await post(`/api/write/${del.dataset.wDel}/delete`, {})).ok) del.closest("a").remove(); return; }
+    const copy = e.target.closest("[data-w-copy]");
+    if (copy) { navigator.clipboard && navigator.clipboard.writeText(document.getElementById("w_md").value); window.pmToast && window.pmToast(t("已复制 Markdown")); return; }
+    const style = e.target.closest("[data-w-style]");
+    if (style) { const r = await post(`/api/write/${style.dataset.id}/style`, { style: style.dataset.wStyle }); if (r.ok) location.reload(); return; }
+    const chk = e.target.closest("[data-w-check]");
+    if (chk) { chk.disabled = true; const r = await post(`/api/write/${chk.dataset.wCheck}/check`, {}); if (r.ok) location.href = "/citecheck?id=" + r.run; else { chk.disabled = false; window.pmToast && window.pmToast(r.message || t("操作失败")); } }
+  });
+})();
+</script>
+{% endblock %}

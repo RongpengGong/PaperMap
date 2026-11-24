@@ -83,6 +83,7 @@ def ensure_schema(registry: Registry) -> None:
 def settings(config) -> dict:
     t = config.raw.get("tracking") or {}
     return {"enabled": t.get("enabled", True) is not False, "model_rank": t.get("model_rank", True) is not False,
+            "digest": t.get("digest", True) is not False,
             "model_top": int(t.get("model_top", 30) or 0), "per_query": int(t.get("per_query", 50) or 50)}
 
 
@@ -719,11 +720,71 @@ def run(pipeline, force: bool = False) -> dict:
                 errors.append(f"模型精排：{str(exc)[:200]}")
         prune(registry)
         _state(registry, "last_run", now_iso())
+        try:
+            maybe_digest(config, registry)
+        except Exception as exc:  # noqa: BLE001 - the digest is a nicety
+            log.warning("weekly digest failed: %s", exc)
         registry.log("info" if not errors else "warning",
                      f"Literature tracking: {found_new} new candidate(s)" + (f"; {len(errors)} error(s)" if errors else ""))
         return {"ok": True, "new": found_new, "ranked": ranked, "errors": errors}
     finally:
         _run_lock.release()
+
+
+# ------------------------------------------------------------------ weekly digest
+DIGEST_EVERY_DAYS = 7
+DIGEST_SIZE = 5
+
+
+def last_digest(registry: Registry) -> dict | None:
+    raw = _state(registry, "last_digest")
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def digest_items(registry: Registry, since: str | None) -> list[dict]:
+    """The best new candidates found since the last digest (all-time on the first one)."""
+    rows = registry.query(
+        "SELECT id FROM track_candidates WHERE status='new' AND created_at > ? ORDER BY score DESC, id DESC LIMIT ?",
+        (since or "", DIGEST_SIZE))
+    ids = {r["id"] for r in rows}
+    return [c for c in candidates(registry, "new", 500) if c["id"] in ids][:DIGEST_SIZE]
+
+
+def maybe_digest(config, registry: Registry, send=None, force: bool = False) -> dict | None:
+    """Once a week: notify the top candidates of the week and keep them for the 「新文献」 page."""
+    from . import notify
+
+    ensure_schema(registry)
+    if not settings(config)["digest"] and not force:
+        return None
+    last = last_digest(registry)
+    if last and not force:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(last["at"])
+        if age < timedelta(days=DIGEST_EVERY_DAYS):
+            return None
+    items = digest_items(registry, last["at"] if last else None)
+    if not items:
+        return None
+    info = {"at": now_iso(), "ids": [c["id"] for c in items]}
+    _state(registry, "last_digest", json.dumps(info))
+    top = items[0]
+    body = (f"{len(items)} 篇值得一读，最相关：{top['title'][:90]}" if config.output_language != "en"
+            else f"{len(items)} papers worth reading; top: {top['title'][:90]}")
+    (send or notify.send)("PaperMap · 本周新文献" if config.output_language != "en" else "PaperMap · New this week", body)
+    registry.log("info", f"Weekly new-literature digest: {len(items)} paper(s)")
+    return info
+
+
+def digest_for_page(registry: Registry) -> dict | None:
+    last = last_digest(registry)
+    if not last:
+        return None
+    by_id = {c["id"]: c for c in candidates(registry, "all", 2000)} if last["ids"] else {}
+    items = [by_id[i] for i in last["ids"] if i in by_id]
+    return {"at": last["at"], "items": items} if items else None
 
 
 def due(registry: Registry) -> bool:
@@ -745,6 +806,12 @@ def run_scheduler(pipeline, stop: threading.Event | None = None, interval_s: flo
         except Exception as exc:  # noqa: BLE001
             log.exception("literature tracking failed")
             pipeline.registry.log("error", f"Literature tracking failed: {exc}")
+        try:
+            from . import clips
+
+            clips.maybe_auto_digest(pipeline)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("weekly clippings digest failed: %s", exc)
         stop.wait(interval_s)
 
 
@@ -773,8 +840,11 @@ def sync_library(registry: Registry) -> None:
 def candidates(registry: Registry, status: str = "new", limit: int = 200) -> list[dict]:
     ensure_schema(registry)
     sync_library(registry)
-    rows = registry.query("SELECT * FROM track_candidates WHERE status=? ORDER BY score DESC, pub_date DESC, id DESC "
-                          "LIMIT ?", (status, limit))
+    if status == "all":
+        rows = registry.query("SELECT * FROM track_candidates ORDER BY score DESC, pub_date DESC, id DESC LIMIT ?", (limit,))
+    else:
+        rows = registry.query("SELECT * FROM track_candidates WHERE status=? ORDER BY score DESC, pub_date DESC, id DESC "
+                              "LIMIT ?", (status, limit))
     watch = {r["id"]: r for r in registry.query("SELECT * FROM track_watches")}
     lib_by_oa = {r["openalex_id"]: r for r in registry.query(
         "SELECT id, openalex_id, first_author, year FROM papers WHERE openalex_id IS NOT NULL")}

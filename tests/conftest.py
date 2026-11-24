@@ -143,6 +143,18 @@ class FakeCompletions:
             content = f"成纤维细胞在边缘富集 [p.1]。（第 {self.chat_calls} 次回答）"
         elif "turn a discussion about one paper" in system:
             content = "- 成纤维细胞在边缘富集 [p.1]\n- 待核对：样本量"
+        elif "You draft academic prose" in system:
+            content = "Fibroblasts sit at tumour margins [P1]. Spatial methods were used [P1][P99]. Linking sentence."
+        elif "You check citations in a scientific manuscript" in system:
+            user = kwargs["messages"][-1]["content"]
+            refs = re.findall(r"^### (R\d+):", user, re.M)
+            quote = "We profiled tumours with single-cell RNA sequencing and Visium spatial transcriptomics."
+            verdict = "contradicts" if "never used" in user else "supports"
+            content = json.dumps({"results": [{"ref": r, "verdict": verdict, "passage": f"{r}.1", "quote": quote,
+                                               "explanation": "原文写明了。"} for r in refs]})
+        elif "You organise a researcher's clippings notebook" in system:
+            ids = re.findall(r"^\[(C\d+)\]", kwargs["messages"][-1]["content"], re.M)
+            content = "## 成纤维细胞\n\n- 位于边缘 " + "".join(f"[{i}]" for i in ids) + " [C9999]\n\n## 值得追问\n\n- 为什么？"
         elif "evidence gap into search terms" in system:
             self.gap_calls = getattr(self, "gap_calls", 0) + 1
             content = json.dumps({"terms": ["Visium", "spatial transcriptomics", "fibroblast", "study"]})

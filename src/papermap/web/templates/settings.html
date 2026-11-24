@@ -258,6 +258,21 @@
     </tr>{% else %}<tr><td colspan="5" class="muted">{{ _("还没有备份。") }}</td></tr>{% endfor %}
   </table>
   <div id="backup_report" class="notice" hidden></div>
+
+  <h3>{{ _("同步知识库（卡片、笔记、PDF 副本）") }}</h3>
+  <p class="muted small">{{ _("把整个知识库文件夹复制到另一个地方（移动硬盘、iCloud / OneDrive 文件夹），以后每天只复制新增和改过的文件；知识库里删掉的文件在同步位置里保留，不会跟着删。最新的数据库备份也会一起放过去，所以只靠这个文件夹就能恢复整个文献库。") }}</p>
+  <p><label class="inline"><input type="checkbox" name="mirror_enabled" value="1" {{ 'checked' if backup_cfg.mirror_enabled }}> {{ _("每天自动同步") }}</label></p>
+  <div class="row">
+    <label class="grow">{{ _("同步位置") }}<input type="text" id="mirror_dir" name="mirror_dir" value="{{ backup_cfg.mirror_dir }}" placeholder="/Volumes/{{ _("移动硬盘") }}/PaperMap"></label>
+    <button type="button" class="secondary" data-pick-folder="mirror_dir" data-pick-replace>{{ _("选择文件夹…") }}</button>
+  </div>
+  <div class="row"><button type="button" id="mirror_now">{{ _("立即同步") }}</button>
+    <span id="mirror_status" class="muted small" role="status">{% if mirror_state.last %}{{ _("上次同步：") }}{{ mirror_state.last[:16]|replace('T', ' ') }} UTC · {{ _("复制了") }} {{ mirror_state.copied }} {{ _("个文件") }}{% else %}{{ _("还没有同步过。") }}{% endif %}</span></div>
+  <p class="muted small">{{ _("想保留每次改动的历史（可以退回某天的笔记），可以在「知识库」设置里打开「用 git 记录知识库的改动」。") }}</p>
+
+  <h3>{{ _("回收站") }}</h3>
+  <div class="row"><label>{{ _("删除的论文在回收站里保留几天（0 = 一直保留）") }}<input type="number" min="0" max="3650" name="trash_days" value="{{ cfg.raw.get('trash_days', 30) }}"></label></div>
+  <p class="muted small">{{ _("到期前 3 天会在论文列表上方提醒你。到期后文件被永久删除，但同一个 PDF 以后仍不会被自动导入。") }}</p>
 </section>
 
 <section class="settings-panel" data-settings-panel="taxonomy" aria-label="{{ _("学科与版本") }}" {% if settings_section != 'taxonomy' %}hidden{% endif %}>
@@ -284,6 +299,7 @@
   <input type="hidden" name="tracking_form" value="1">
   {% set trk = cfg.tracking or {} %}
   <p><label class="check"><input type="checkbox" name="tracking_enabled" value="1" {{ 'checked' if trk.enabled is not defined or trk.enabled }}> {{ _("每天自动检查新文献（PaperMap 打开时检查；关机几天后会从上次成功的位置补查）") }}</label></p>
+  <p><label class="check"><input type="checkbox" name="tracking_digest" value="1" {{ 'checked' if trk.digest is not defined or trk.digest }}> {{ _("每周发一次简报：本周最值得读的 5 篇（系统通知 + 「新文献」页顶部）") }}</label></p>
   <p><label class="check"><input type="checkbox" name="tracking_model_rank" value="1" {{ 'checked' if trk.model_rank is not defined or trk.model_rank }}> {{ _("用主模型给得分最高的 30 篇精排并写一句理由（每次检查约 1 次模型调用）") }}</label></p>
   <label for="openalex_api_key">{{ _("OpenAlex API Key（可选，免费）") }}</label>
   <input type="password" id="openalex_api_key" name="openalex_api_key" autocomplete="off" placeholder="{{ _('已保存；留空保持不变') if cfg.metadata.openalex_api_key else _('不填也能用，但每天额度很小') }}">

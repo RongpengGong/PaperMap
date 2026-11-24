@@ -42,7 +42,6 @@
     const sumBox = box.querySelector("[data-chat-summary]"), sumText = box.querySelector("[data-chat-summary-text]");
     let quote = null, loaded = false, count = 0;
     if (isPage) {
-      input.placeholder = t("问问这个页面的内容…… ⌘↩ 发送");
       const pv = box.querySelector(".chat-privacy");
       if (pv) pv.textContent = t("当前页面的文字（必要时加上文献库概况）会发给所选模型的服务商；费用计入费用页。");
     }
@@ -105,7 +104,27 @@
       bubble(j.reply); scroll();
     }
     sendBtn.addEventListener("click", send);
-    input.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
+    // Enter to send (Shift+Enter = new line) or ⌘/Ctrl+Enter to send; never while an input method is composing
+    const enterSel = box.querySelector("[data-chat-enter]");
+    const enterMode = () => { try { return localStorage.getItem("pm_chat_enter") || "enter"; } catch (e) { return "enter"; } };
+    const hint = () => {
+      const cmd = enterMode() === "cmd";
+      input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
+                                 : t(cmd ? "问点什么，或在 PDF 里选中一段点「问 AI」。⌘↩ 发送" : "问点什么，或在 PDF 里选中一段点「问 AI」。↩ 发送，⇧↩ 换行");
+    };
+    if (enterSel) {
+      enterSel.value = enterMode();
+      enterSel.addEventListener("change", () => {
+        try { localStorage.setItem("pm_chat_enter", enterSel.value); } catch (e) { /* private mode */ }
+        document.querySelectorAll("[data-chat-enter]").forEach(s => { s.value = enterSel.value; }); hint();
+      });
+    }
+    hint();
+    input.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+      const cmd = e.metaKey || e.ctrlKey;
+      if (enterMode() === "cmd" ? cmd : (!e.shiftKey && !e.altKey && !cmd) || cmd) { e.preventDefault(); send(); }
+    });
 
     function setQuote(q) {
       quote = q && q.text ? { text: q.text.slice(0, 4000), page: q.page || null } : null;

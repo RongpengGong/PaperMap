@@ -31,7 +31,8 @@ def mount_tracking(app, config, registry, pipeline, render, csrf_token):
                       sources=tracking.source_status(registry), kinds=tracking.KINDS,
                       running=tracking._run_lock.locked(),  # noqa: SLF001
                       settings=tracking.settings(config), last_run=tracking._state(registry, "last_run"),  # noqa: SLF001
-                      has_key=bool((config.raw.get("metadata") or {}).get("openalex_api_key")))
+                      has_key=bool((config.raw.get("metadata") or {}).get("openalex_api_key")),
+                      digest=tracking.digest_for_page(registry))
 
     @app.post("/api/tracking/run")
     def tracking_run(body: dict):

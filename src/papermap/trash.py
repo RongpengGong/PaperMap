@@ -107,3 +107,69 @@ def _refresh(pipeline, slugs: set[str]) -> None:
         pipeline.refresh_concepts()
     except Exception as exc:  # noqa: BLE001 - pages are rebuilt again on the next change
         pipeline.registry.log("warning", f"Could not refresh pages after delete/restore: {exc}")
+
+
+# ------------------------------------------------------------------ automatic emptying
+WARN_DAYS = 3  # papers this close to being emptied are listed on the library page
+
+
+def keep_days(config) -> int:
+    try:
+        return max(0, int(config.raw.get("trash_days", 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _deleted_at(name: str) -> datetime | None:
+    try:
+        return datetime.strptime(name.split("_", 1)[0], "%Y%m%d-%H%M%S")
+    except ValueError:
+        return None
+
+
+def _age_days(path: Path) -> float | None:
+    when = _deleted_at(path.name)
+    if when is None:
+        try:
+            when = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            return None
+    return (datetime.now() - when).total_seconds() / 86400
+
+
+def expiring(config, registry: Registry) -> list[dict]:
+    """Deleted papers that will be emptied from the trash within WARN_DAYS days."""
+    days = keep_days(config)
+    if not days:
+        return []
+    out = []
+    for r in registry.query("SELECT id, title, trash_path FROM papers WHERE status='ignored' AND trash_path IS NOT NULL"):
+        age = _age_days(config.data_dir / r["trash_path"])
+        if age is not None and age >= days - WARN_DAYS:
+            out.append({"id": r["id"], "title": r["title"], "left": max(0, round(days - age, 1))})
+    return out
+
+
+def purge(config, registry: Registry) -> int:
+    """Permanently remove trash entries older than the configured number of days.
+    The database row stays (status ignored), so the same PDF is still not imported again."""
+    days = keep_days(config)
+    if not days:
+        return 0
+    n = 0
+    for r in registry.query("SELECT id, trash_path FROM papers WHERE status='ignored' AND trash_path IS NOT NULL"):
+        path = config.data_dir / r["trash_path"]
+        age = _age_days(path)
+        if age is None or age < days:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        registry.update_paper(r["id"], trash_path=None, status_detail="Deleted permanently")
+        registry.log("info", f"Emptied from the trash after {days} days", r["id"])
+        n += 1
+    qa = trash_dir(config.data_dir) / "qa"
+    if qa.is_dir():
+        for f in qa.iterdir():
+            age = _age_days(f)
+            if f.is_file() and age is not None and age >= days:
+                f.unlink(missing_ok=True)
+    return n

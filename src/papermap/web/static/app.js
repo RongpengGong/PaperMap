@@ -624,6 +624,7 @@
       } }));
       items.push({ text: t("＋ 新建分组并加入…"), run: () => newGroup(null, ids) });
       items.push("-", { text: t("导出参考文献…"), run: () => exportMenu(e.clientX, e.clientY, ids) });
+      items.push({ text: t("用这些论文写一段…"), run: () => { location.href = "/write?ids=" + ids.join(","); } });
       items.push({ text: ids.length > 1 ? `${t("删除所选")} ${ids.length} ${t("篇…")}` : t("删除这篇论文…"), danger: true, run: () => window.pmDeletePapers(ids) });
       if (ids.length > 1) items.push({ text: `${t("对比所选")} ${ids.length} ${t("篇论文")}`, run: () => { location.href = "/compare?ids=" + ids.join(","); } });
       const tags = JSON.parse(document.getElementById("purpose_tags")?.textContent || "[]");

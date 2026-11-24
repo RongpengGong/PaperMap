@@ -434,6 +434,12 @@
       selInfo = keep; if (note) addAnnotation("yellow", note);
     }
     if (b.dataset.act === "translate") translateSelection();
+    if (b.dataset.act === "clip") {
+      const keep = selInfo; hideToolbar(); window.getSelection().removeAllRanges();
+      const r = await post("/api/clips", { text: keep.text, paper_id: +pid, page: keep.page, source: "pdf",
+                                           url: `/reader/${pid}?page=${keep.page + 1}` });
+      toast(r.ok ? t("已收藏到收藏簿") : (r.message || t("操作失败")));
+    }
     if (b.dataset.act === "ask") {
       const keep = selInfo; hideToolbar(); window.getSelection().removeAllRanges();
       try { window.parent.pmChatAsk(pid, keep.text, keep.page + 1); } catch (err) { /* not embedded */ }

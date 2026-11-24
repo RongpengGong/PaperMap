@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ _("引用核对 - PaperMap") }}{% endblock %}
+{% block content_class %}qa-content{% endblock %}
+{% block content %}
+<div class="qa-layout">
+  <section class="qa-main">
+    <h2>{{ _("引用核对") }}</h2>
+    <p class="muted small">{{ _("上传你的稿件（Word .docx）。PaperMap 读出每句话后面的引用（[3]、[1–4]、上标数字、(Smith et al., 2020)），通过稿件末尾的参考文献表对上文献库里的论文，再让模型对照那篇论文的原文判断：支持、部分支持、没找到、还是相反。每条判断都要给出原文里逐字存在的句子和页码，给不出就标「无法确认」。稿件本身不会被修改。") }}</p>
+    <form id="cc_form" class="cc-drop">
+      <input type="file" id="cc_file" accept=".docx">
+      <span class="muted small">{{ _("或者在「写作」页把草稿直接送来核对") }}</span>
+    </form>
+    {% if current %}
+    {% set c = current.counts %}
+    <div class="cc-summary card">
+      <div class="row"><b>{{ current.name }}</b><span class="grow"></span>
+        {% if current.status == 'running' %}<span class="job-line"><span class="spinner"></span><span id="cc_prog">{{ current.done }} / {{ current.total }}</span></span>
+        <button type="button" class="ghost-btn" data-cc="stop">{{ _("停止") }}</button>
+        {% elif c.get('pending') %}<button type="button" data-cc="start">{{ _("开始核对") }}（{{ _("约") }} {{ current.total }} {{ _("次模型调用") }}）</button>{% endif %}
+        <a class="ghost-btn" href="/citecheck/{{ current.id }}.md">{{ _("导出报告") }}</a>
+        <button type="button" class="ghost-btn danger-btn" data-cc="delete">{{ _("删除") }}</button></div>
+      <p class="small">{{ current["items"] }} {{ _("处引用") }} · {{ current.papers }} {{ _("篇在文献库里") }}{% if current.refs.entries %} · {{ _("参考文献表") }} {{ current.refs.entries }} {{ _("条，对上") }} {{ current.refs.matched }} {{ _("条") }}{% endif %}
+        {% if current.status == 'error' %}<span class="err-text"> · {{ current.message }}</span>{% endif %}</p>
+      <div class="cc-filters">
+        <button type="button" class="purpose-chip on" data-ccf="">{{ _("全部") }} {{ rows|length }}</button>
+        {% for k in ['contradicts', 'not_found', 'partial', 'unclear', 'supports', 'not_in_library', 'no_text', 'pending'] if c.get(k) %}
+        <button type="button" class="purpose-chip cc-{{ k }}" data-ccf="{{ k }}">{{ _(verdicts[k]) }} {{ c[k] }}</button>{% endfor %}
+      </div>
+    </div>
+    <div class="cc-list">
+      {% for r in rows %}
+      <article class="cc-item cc-{{ r.verdict }} {{ 'done' if r.decided }}" data-verdict="{{ r.verdict }}" data-item="{{ r.id }}">
+        <div class="cc-head"><span class="cc-badge">{{ _(verdicts.get(r.verdict, r.verdict)) }}</span>
+          <span class="muted small">[{{ r.ref_label }}]{% if r.paper_id %} → <a href="/?id={{ r.paper_id }}">{{ r.first_author or '' }} {{ r.year or '' }}</a>{% elif r.ref_text %} {{ r.ref_text[:90] }}{% endif %}</span>
+          <span class="grow"></span>
+          {% if r.verdict not in ('pending', 'supports') %}<label class="inline small muted"><input type="checkbox" data-cc-done {{ 'checked' if r.decided }}> {{ _("已处理") }}</label>{% endif %}
+        </div>
+        <p class="cc-sentence">{{ r.sentence }}</p>
+        {% if r.quote %}<a class="vcheck-quote" href="/reader/{{ r.paper_id }}?page={{ (r.page or 0) + 1 }}&amp;q={{ r.quote[:80]|urlencode }}">{% if r.page is not none %}<b>p.{{ r.page + 1 }}</b> {% endif %}{{ r.quote }}</a>{% endif %}
+        {% if r.explanation %}<p class="muted small">{{ r.explanation }}</p>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+  <aside class="qa-history">
+    <h3>{{ _("核对记录") }}</h3>
+    {% for h in runs %}<a href="/citecheck?id={{ h.id }}" class="qa-h {{ 'active' if current and current.id == h.id }}">{{ h.name[:60] }}<i>{{ h.created_at[:10] }} · {{ h.done }}/{{ h.total }}</i></a>{% else %}<p class="muted small">{{ _("还没有核对过。") }}</p>{% endfor %}
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const csrf = document.body.dataset.csrf;
+  const runId = {{ current.id if current else 'null' }};
+  const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...b }) }).then(r => r.json()).catch(() => ({ ok: false }));
+  document.getElementById("cc_file").addEventListener("change", async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append("csrf", csrf); fd.append("file", f);
+    const r = await fetch("/api/citecheck/upload", { method: "POST", body: fd }).then(x => x.json()).catch(() => ({ ok: false }));
+    if (r.ok) location.href = "/citecheck?id=" + r.id; else window.pmToast && window.pmToast(r.message || t("上传失败"));
+  });
+  document.addEventListener("click", async e => {
+    const b = e.target.closest("[data-cc]");
+    if (b) {
+      if (b.dataset.cc === "delete" && !(await window.pmDialog(t("删除这次核对的结果？"), { okText: t("删除"), danger: true }))) return;
+      const r = await post(`/api/citecheck/${runId}/${b.dataset.cc}`, {});
+      if (!r.ok && r.message) { window.pmToast && window.pmToast(r.message); return; }
+      location.href = b.dataset.cc === "delete" ? "/citecheck" : "/citecheck?id=" + runId; return;
+    }
+    const f = e.target.closest("[data-ccf]");
+    if (f) {
+      document.querySelectorAll("[data-ccf]").forEach(x => x.classList.toggle("on", x === f));
+      document.querySelectorAll(".cc-item").forEach(it => { it.hidden = !!f.dataset.ccf && it.dataset.verdict !== f.dataset.ccf; });
+    }
+  });
+  document.addEventListener("change", e => {
+    const d = e.target.closest("[data-cc-done]"); if (!d) return;
+    const it = d.closest("[data-item]"); it.classList.toggle("done", d.checked);
+    post(`/api/citecheck/${runId}/decide`, { item: +it.dataset.item, on: d.checked });
+  });
+  const prog = document.getElementById("cc_prog");
+  if (prog) {
+    const tick = async () => {
+      const s = await fetch(`/api/citecheck/${runId}`).then(r => r.json()).catch(() => null);
+      if (!s) return setTimeout(tick, 3000);
+      prog.textContent = `${s.done} / ${s.total}`;
+      if (s.status === "running") setTimeout(tick, 2500); else location.reload();
+    };
+    setTimeout(tick, 2500);
+  }
+})();
+</script>
+{% endblock %}
