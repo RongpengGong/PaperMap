@@ -653,3 +653,13 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .kb-user { border-radius: 8px; }
 .kb-user:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); cursor: text; }
 .kb-user-text { width: 100%; min-height: 140px; margin: 6px 0; }
+.kb-user.editing { cursor: auto; background: none; margin: 6px 0 14px; }
+.kb-user-status { margin-left: 10px; font-weight: 400; }
+.kb-user.editing { outline: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 12px; }
+.kb-user .tiptap { outline: none; min-height: 120px; }
+.kb-user .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
+.kb-user .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.kb-user .tiptap ul[data-type="taskList"] li { display: flex; gap: 6px; align-items: flex-start; }
+.kb-user .tiptap ul[data-type="taskList"] li > label { margin-top: 3px; }
+.kb-user .tiptap table { border-collapse: collapse; }
+.kb-user .tiptap td, .kb-user .tiptap th { border: 1px solid var(--line); padding: 4px 8px; min-width: 60px; }

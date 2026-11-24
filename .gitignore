@@ -13,3 +13,4 @@ build/
 dist/
 *.spec
 build.log
+packaging/editor/node_modules/

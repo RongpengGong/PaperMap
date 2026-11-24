@@ -102,6 +102,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     def md_html(text: str) -> str:
         html = md.markdown(_wikilinks(text, registry), extensions=["extra", "sane_lists"])
+        # to-do items written in the note editor ("- [ ] x" / "- [x] x")
+        html = re.sub(r"<li>(<p>)?\[([ xX])\] ", lambda m: f"<li>{m.group(1) or ''}{'☐' if m.group(2) == ' ' else '☑'} ", html)
         # external links open in the system browser (pywebview honours target=_blank)
         return re.sub(r'<a href="(https?://)', r'<a target="_blank" rel="noopener" href="\1', _clean_markdown_html(html))
 
@@ -1263,7 +1265,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if text is None:
             raise HTTPException(404)
         placeholder = text.strip() in _notes_hints()
-        return {"ok": True, "text": "" if placeholder else text, "hint": text.strip() if placeholder else ""}
+        return {"ok": True, "text": "" if placeholder else text, "hint": text.strip() if placeholder else "",
+                "html": "" if placeholder or not text.strip() else md_html(text)}
 
     @app.post("/api/kb/notes")
     async def kb_notes_save(request: Request):
