@@ -123,6 +123,9 @@ def _load(args: argparse.Namespace):
         from . import backup
 
         threading.Thread(target=backup.run_scheduler, args=(cfg, reg), name="backup", daemon=True).start()
+        from . import tracking
+
+        threading.Thread(target=tracking.run_scheduler, args=(pipe,), name="tracking", daemon=True).start()
     return cfg, reg, pipe
 
 

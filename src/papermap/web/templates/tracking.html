@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ _("新文献 - PaperMap") }}{% endblock %}
+{% block content %}
+<div class="tracking" id="tracking">
+  <div class="tr-head">
+    <h1>{{ _("新文献") }}</h1>
+    <span class="grow"></span>
+    <span class="muted small" id="tr-last">{% if last_run %}{{ _("上次检查") }} {{ last_run[:16]|replace('T', ' ') }} UTC{% else %}{{ _("还没有检查过") }}{% endif %}</span>
+    <button type="button" id="tr-run" {{ 'disabled' if running }}>{{ _("检查中…") if running else _("立即检查") }}</button>
+  </div>
+  <p class="muted small">{{ _("围绕你自己的文献库追踪新论文：你的学科、引用了你库里论文的新文章、关注的作者，以及证据缺口。每天自动检查一次；关机几天后再打开，会从每个来源上次成功的位置补查。同一篇被多个来源或订阅发现只出现一次，并列出推荐理由。这里只是「值得一读」的提醒，点「收进来」才会进入文献库。") }}</p>
+  {% if not settings.enabled %}<div class="notice">{{ _("新文献追踪已在设置中关闭，不会自动检查。") }}</div>{% endif %}
+
+  <div class="tr-tabs" role="tablist">
+    {% for k, v in statuses.items() %}<a class="tr-tab {{ 'on' if k == status }}" href="/tracking?status={{ k }}">{{ v }}<i>{{ counts.get(k, 0) }}</i></a>{% endfor %}
+  </div>
+
+  <div class="tr-body">
+  <div class="tr-list">
+  {% for c in items %}
+  <article class="tr-card" data-cand="{{ c.id }}">
+    <div class="tr-card-head">
+      <span class="tr-score" title="{{ _("免费打分：引用库内论文、关注作者、缺口、学科；模型精排分也计入") }}">{{ "%.1f"|format(c.score) }}</span>
+      {% if c.is_preprint %}<span class="tr-badge pre">{{ _("预印本") }}</span>{% endif %}
+      {% if c.oa_urls %}<span class="tr-badge oa">{{ _("有开放获取 PDF") }}</span>{% endif %}
+      <span class="grow"></span>
+      <span class="muted small">{{ c.pub_date or c.year or '' }} · {{ c.sources|join(' + ') }}</span>
+    </div>
+    <h3 class="tr-title">{% if c.landing %}<a href="{{ c.landing }}" target="_blank" rel="noopener">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}</h3>
+    <p class="muted small">{{ c.authors[:4]|join(', ') }}{% if c.authors|length > 4 %} {{ _("等") }}{% endif %}{% if c.journal %} · <em>{{ c.journal }}</em>{% endif %}{% if c.doi %} · {{ c.doi }}{% endif %}</p>
+    <ul class="tr-reasons">
+      {% for r in c.reasons %}
+      <li data-kind="{{ r.kind }}">
+        {% if r.kind == 'cites' %}{{ r.text }} {{ r.n }} {{ _("篇：") }}{% for p in r.papers %}<a href="/?id={{ p.id }}">{{ p.first_author or '' }} {{ p.year or '' }}</a>{% if not loop.last %}、{% endif %}{% endfor %}
+        {% elif r.kind == 'gapmatch' %}{{ r.text }}：<a href="/evidence?question={{ r.qid }}#gaps">{{ r.label }}</a>
+        {% else %}{{ r.text }}：{{ r.label }} <span class="muted">（{{ r.sources|join(' + ') }}）</span>{% endif %}
+      </li>
+      {% endfor %}
+      {% if c.model_reason %}<li data-kind="model">{{ _("模型：") }}{{ c.model_reason }} <span class="muted">（{{ "%.0f"|format(c.model_score) }}/10）</span></li>{% endif %}
+    </ul>
+    {% if c.abstract %}<details class="tr-abs"><summary>{{ _("摘要") }}</summary><p>{{ c.abstract }}</p></details>{% endif %}
+    <div class="tr-actions">
+      {% if c.status == 'imported' %}<a class="ghost-btn" href="/?id={{ c.paper_id }}">{{ _("在文献库中打开") }}</a>
+      {% else %}
+      <button type="button" data-tact="take" title="{{ _("找合法的开放获取 PDF，走和拖进窗口相同的导入流程") }}">{{ _("收进来") }}</button>
+      {% if c.status != 'later' %}<button type="button" class="secondary" data-tact="later">{{ _("稍后看") }}</button>{% endif %}
+      {% if c.status != 'dismissed' %}<button type="button" class="ghost" data-tact="dismissed">{{ _("不感兴趣") }}</button>{% else %}<button type="button" class="ghost" data-tact="new">{{ _("移回新的") }}</button>{% endif %}
+      {% if c.status == 'wanted' %}<span class="muted small">{{ _("没有找到开放获取 PDF：请在出版商页面下载（连学校 VPN 可用学校权限），再拖进窗口，会自动对上这一条。") }}</span>{% endif %}
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  <p class="ev-empty">{% if status == 'new' %}{{ _("暂时没有新的候选。点「立即检查」或等每天的自动检查。") }}{% else %}{{ _("这里还是空的。") }}{% endif %}</p>
+  {% endfor %}
+  </div>
+
+  <aside class="tr-side">
+    <h2>{{ _("来源") }}</h2>
+    {% for s in sources %}
+    <p class="small"><b>{{ s.label }}</b>
+      {% if s.connected %}{% if s.newest %}<span class="muted">{{ _("最近成功：") }}{{ s.newest }}{% if s.oldest and s.oldest != s.newest %}{{ _("（最早的订阅停在") }} {{ s.oldest }}）{% endif %}</span>{% else %}<span class="muted">{{ _("还没有运行") }}</span>{% endif %}
+      {% if s.errs %}<span class="err-text">{{ s.errs }} {{ _("个订阅出错，下次会重试") }}</span>{% endif %}
+      {% else %}<span class="muted">{{ _("即将接入") }}</span>{% endif %}</p>
+    {% endfor %}
+    {% if not has_key %}<p class="muted small">{{ _("OpenAlex 不用 Key 也能用，但每天额度很小；在设置 → 导入与文件夹里填一个免费 Key，额度会大 10 倍。") }}</p>{% endif %}
+
+    <h2>{{ _("订阅") }}</h2>
+    {% for w in watches %}
+    <div class="tr-watch {{ '' if w.enabled else 'off' }}" data-watch="{{ w.id }}">
+      <label class="tr-watch-row"><input type="checkbox" data-wact="toggle" {{ 'checked' if w.enabled }}>
+        <span class="tr-kind" data-kind="{{ w.kind }}">{{ w.kind_label }}</span> <span>{{ w.label }}</span></label>
+      {% for cur in w.cursors %}<span class="muted small tr-cursor">{{ cur.last_success or _("未成功") }} · {{ _("新增") }} {{ cur.last_found }}{% if cur.last_error %} · <span class="err-text" title="{{ cur.last_error }}">{{ _("出错") }}</span>{% endif %}</span>{% endfor %}
+      {% if w.kind in ('field', 'gap') %}
+      <details class="tr-q"><summary class="small muted">{{ _("检索式") }}</summary>
+        <textarea rows="3" maxlength="500" data-wquery>{{ w.query|keep }}</textarea>
+        <button type="button" class="ghost small" data-wact="save">{{ _("保存检索式") }}</button></details>
+      {% elif w.kind == 'author' %}<button type="button" class="ghost small" data-wact="delete">{{ _("取消关注") }}</button>{% endif %}
+    </div>
+    {% endfor %}
+    <h3>{{ _("关注作者") }}</h3>
+    <div class="tr-author"><input type="search" id="tr-author-q" placeholder="{{ _("输入作者姓名，在 OpenAlex 中查找") }}"><div id="tr-author-res"></div></div>
+  </aside>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/tracking.js?v={{ static_v }}"></script>{% endblock %}

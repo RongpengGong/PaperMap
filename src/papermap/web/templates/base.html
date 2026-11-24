@@ -19,11 +19,12 @@
 {%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
 {%- elif name == 'folder' %}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 {%- elif name == 'inbox' %}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
+{%- elif name == 'tracking' %}<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 12l5.5-5.5M12 2v2M22 12h-2"/>
 {%- endif %}</svg>
 {%- endmacro -%}
 {%- set path = request.url.path -%}
 {%- set nav = [
-  ('/', 'papers', _('论文')), ('/evidence', 'evidence', _('证据笔记')), ('/qa', 'qa', _('问答')), ('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')),
+  ('/', 'papers', _('论文')), ('/tracking', 'tracking', _('新文献')), ('/evidence', 'evidence', _('证据笔记')), ('/qa', 'qa', _('问答')), ('/map', 'map', _('知识地图')), ('/fields', 'fields', _('学科')),
   ('/handbooks', 'handbooks', _('手册')), ('/concepts', 'concepts', _('工具')), ('/figures', 'figures', _('图片库')), ('/resources', 'resources', _('数据资源')), ('/citations', 'citations', _('引用')), ('/review', 'review', _('待审核')),
 ] -%}
 {%- set nav2 = [('/skills', 'skills', _('技能')), ('/taxonomy', 'taxonomy', _('分类表')), ('/costs', 'costs', _('费用')), ('/events', 'events', _('活动日志')), ('/settings', 'settings', _('设置'))] -%}
@@ -71,7 +72,7 @@
       <button type="button" class="coll-new" id="coll_new">{{ _("＋ 新建分组") }}</button>
     </div>
     {% else %}
-    <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span>{% if ic == 'review' and review_count %}<b class="badge">{{ review_count }}</b>{% endif %}</a>
+    <a class="{{ is_active(href) }}" href="{{ href }}" title="{{ label }}" {% if is_active(href) %}aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span>{% if ic == 'review' and review_count %}<b class="badge">{{ review_count }}</b>{% endif %}{% if ic == 'tracking' and tracking_badge %}<b class="badge soft" title="{{ _("值得一读的新候选") }}">{{ tracking_badge }}</b>{% endif %}</a>
     {% endif %}
     {% endfor %}
   </nav>

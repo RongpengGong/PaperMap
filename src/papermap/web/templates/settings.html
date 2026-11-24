@@ -280,6 +280,15 @@
   <label for="exclude_dirs">{{ _("永不处理的子文件夹名（逗号分隔）") }}</label><input type="text" id="exclude_dirs" name="exclude_dirs" value="{{ exclude_dirs }}">
   <label for="exclude_patterns">{{ _("永不处理的文件名模式（逗号分隔）") }}</label><input type="text" id="exclude_patterns" name="exclude_patterns" value="{{ exclude_patterns }}">
   <label for="contact_email">{{ _("联系邮箱（Crossref/OpenAlex 礼貌池，可留空）") }}</label><input type="text" id="contact_email" name="contact_email" value="{{ cfg.metadata.contact_email }}">
+  <h3>{{ _("新文献追踪") }}</h3>
+  <input type="hidden" name="tracking_form" value="1">
+  {% set trk = cfg.tracking or {} %}
+  <p><label class="check"><input type="checkbox" name="tracking_enabled" value="1" {{ 'checked' if trk.enabled is not defined or trk.enabled }}> {{ _("每天自动检查新文献（PaperMap 打开时检查；关机几天后会从上次成功的位置补查）") }}</label></p>
+  <p><label class="check"><input type="checkbox" name="tracking_model_rank" value="1" {{ 'checked' if trk.model_rank is not defined or trk.model_rank }}> {{ _("用主模型给得分最高的 30 篇精排并写一句理由（每次检查约 1 次模型调用）") }}</label></p>
+  <label for="openalex_api_key">{{ _("OpenAlex API Key（可选，免费）") }}</label>
+  <input type="password" id="openalex_api_key" name="openalex_api_key" autocomplete="off" placeholder="{{ _('已保存；留空保持不变') if cfg.metadata.openalex_api_key else _('不填也能用，但每天额度很小') }}">
+  {% if cfg.metadata.openalex_api_key %}<label class="check small"><input type="checkbox" name="clear_openalex_key" value="1"> {{ _("清除已保存的 Key") }}</label>{% endif %}
+  <p class="muted small">{{ _("在 openalex.org 注册后，在 Settings → API key 复制。Key 只保存在这台电脑上。") }}</p>
 </section>
 
 </form>

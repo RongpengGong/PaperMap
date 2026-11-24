@@ -158,6 +158,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             budget=float(config.llm.get("monthly_budget_usd") or 0),
             csrf=csrf_token,
             review_count=_review_count(registry, pipeline.new_field_threshold),
+            tracking_badge=_tracking_badge(registry),
             collection_tree=registry.collection_tree(),
             unfiled_n=registry.one("SELECT count(*) AS n FROM papers WHERE status != 'ignored' AND id NOT IN "
                                    "(SELECT paper_id FROM paper_collections)")["n"],
@@ -1654,6 +1655,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         exclude_dirs: str = Form(""),
         exclude_patterns: str = Form(""),
         contact_email: str = Form(""),
+        openalex_api_key: str = Form(""),
+        clear_openalex_key: str = Form(""),
+        tracking_enabled: str = Form(""),
+        tracking_model_rank: str = Form(""),
         tr_default: str = Form("bilibili"),
         tr_bilibili_model: str = Form("Index-Translate-35B-A3B"),
         tr_target: str = Form("zh"),
@@ -1763,6 +1768,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         raw["exclude"]["dir_names"] = _csv(exclude_dirs)
         raw["exclude"]["filename_patterns"] = _csv(exclude_patterns)
         raw["metadata"]["contact_email"] = contact_email.strip()
+        if clear_openalex_key:
+            raw["metadata"]["openalex_api_key"] = ""
+        elif openalex_api_key.strip():
+            raw["metadata"]["openalex_api_key"] = openalex_api_key.strip()
+        pipeline.metadata.openalex_key = raw["metadata"].get("openalex_api_key", "")
+        if "tracking_form" in form:
+            tr = raw.setdefault("tracking", {})
+            tr["enabled"] = bool(tracking_enabled)
+            tr["model_rank"] = bool(tracking_model_rank)
         config.validate()
         path = config.save()
         try:
@@ -1985,6 +1999,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .evidence_routes import mount_evidence
 
     mount_evidence(app, config, registry, render, csrf_token, reader_pdf)
+    from .tracking_routes import mount_tracking
+
+    mount_tracking(app, config, registry, pipeline, render, csrf_token)
     mount_admin(app, config, registry, hooks, csrf_token, templates)
     return app
 
@@ -2044,6 +2061,15 @@ def _reveal(path: Path) -> None:
         subprocess.Popen(["explorer", "/select,", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path.parent)])
+
+
+def _tracking_badge(registry: Registry) -> int:
+    from ..tracking import badge
+
+    try:
+        return badge(registry)
+    except Exception:  # noqa: BLE001 - the sidebar must render even if tracking tables are broken
+        return 0
 
 
 def _review_count(registry: Registry, threshold: int = 3) -> int:
