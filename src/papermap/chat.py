@@ -224,7 +224,7 @@ def paper_text(pdf: Path, data_dir: Path, limit: int = MAX_PAPER_CHARS) -> str:
         auto = ocr.scanned_document(doc)
         cache = ocr.cache_for(pdf, data_dir)
         for i in range(min(doc.page_count, 80)):
-            t = ocr.page_text(doc[i], cache, auto).strip()
+            t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", ocr.page_text(doc[i], cache, auto)).strip()
             if not t:
                 continue
             chunk = f"\n\n[p.{i + 1}]\n{t}"

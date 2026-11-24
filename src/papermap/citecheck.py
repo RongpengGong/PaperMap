@@ -237,7 +237,9 @@ def page_texts(pdf: Path) -> list[str]:
     key = (str(pdf), pdf.stat().st_mtime)
     if key not in _PAGES:
         with pymupdf.open(pdf) as doc:
-            _PAGES[key] = [re.sub(r"\s+", " ", doc[i].get_text()).strip() for i in range(min(doc.page_count, 80))]
+            # PDFs sometimes map symbols such as ≈ to control characters; they must not end up in quotations
+            _PAGES[key] = [re.sub(r"\s+", " ", re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", doc[i].get_text())).strip()
+                           for i in range(min(doc.page_count, 80))]
         if len(_PAGES) > 20:
             _PAGES.pop(next(iter(_PAGES)))
     return _PAGES[key]
