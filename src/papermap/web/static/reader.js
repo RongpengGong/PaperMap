@@ -15,6 +15,9 @@
   const ocrButton = document.getElementById("reader_ocr");
   let activeEvidence = null;
   const measure = document.createElement("canvas").getContext("2d");
+  window.pmRegionTool(pagesEl, (page, rect, preview) => {
+    window.pmEvidence.capture({paper: pid, revision: info.revision, page, rects: [rect], preview, source: "region", quote: ""});
+  });
   const progress = window.pmReadingProgress(root, pagesEl, pageEls, csrf);
 
   async function post(url, body) {
@@ -135,7 +138,7 @@
     if (activeEvidence?.page === i) {
       for (const [x0, y0, x1, y1] of activeEvidence.rects) {
         const mark = document.createElement("div");
-        mark.className = "evidence-source-mark";
+        mark.className = "evidence-source-mark" + (activeEvidence.source === "region" ? " region-mark" : "");
         mark.style.cssText = `left:${x0 * s}px;top:${y0 * s}px;width:${(x1 - x0) * s}px;height:${(y1 - y0) * s}px`;
         layer.appendChild(mark);
       }

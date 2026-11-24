@@ -1,6 +1,6 @@
 {# One passage the user quoted / highlighted on an earlier version, looked up in the new version. #}
 {% macro vcheck(c, show_paper=false) %}
-{% set st = {'same': _('原文相同'), 'moved': _('原文相同，页码变了'), 'changed': _('措辞改了'), 'missing': _('新版本里没找到')} %}
+{% set st = {'same': _('原文相同'), 'moved': _('原文相同，页码变了'), 'changed': _('措辞改了'), 'missing': _('新版本里没找到'), 'visual_review': _('请在新版本核对图表')} %}
 {% set what = {'evidence': _('证据摘录'), 'annotation': _('标注'), 'abstract': _('摘要')} %}
 <article class="vcheck {{ c.status }} {{ 'done' if c.decided }}" data-vcheck-item="{{ c.id }}">
   <div class="vcheck-head">
@@ -19,7 +19,8 @@
       {% elif c.old_page is not none %}<a class="vcheck-quote" href="/reader/{{ c.paper_id }}?pv={{ c.old_file }}&amp;page={{ c.old_page + 1 }}">{{ c.old_text[:600] }}</a>
       {% else %}<p class="vcheck-quote">{{ c.old_text[:1200] }}</p>{% endif %}</div>
     <div><p class="muted small">{{ _("新版本") }}{% if c.new_page is not none %} · p.{{ c.new_page + 1 }}{% endif %}</p>
-      {% if c.new_text %}{% if c.new_page is not none %}<a class="vcheck-quote" href="/reader/{{ c.paper_id }}?pv={{ c.new_file }}&amp;page={{ c.new_page + 1 }}">{{ c.new_text[:600] }}</a>
+      {% if c.status == 'visual_review' %}<a class="vcheck-quote" href="/reader/{{ c.paper_id }}?pv={{ c.new_file }}">{{ _("打开新版本核对图表") }}</a>
+      {% elif c.new_text %}{% if c.new_page is not none %}<a class="vcheck-quote" href="/reader/{{ c.paper_id }}?pv={{ c.new_file }}&amp;page={{ c.new_page + 1 }}">{{ c.new_text[:600] }}</a>
       {% else %}<p class="vcheck-quote">{{ c.new_text[:1200] }}</p>{% endif %}
       {% else %}<p class="muted small">{{ _("没有找到相近的段落，可能被删掉或大幅改写了。") }}</p>{% endif %}</div>
   </div>

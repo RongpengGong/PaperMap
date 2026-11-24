@@ -17,7 +17,7 @@ from pathlib import Path
 import pymupdf
 from rapidfuzz import fuzz
 
-from . import library
+from . import library, supplements
 from .registry import Registry, now_iso
 
 SCHEMA = """
@@ -55,6 +55,8 @@ def ensure_schema(registry: Registry) -> None:
 # ------------------------------------------------------------------ files
 def file_path(knowledge_dir: Path, registry: Registry, paper_id: int, file_id: int) -> Path | None:
     """An existing copy of one file of this paper, preferring the paper's own folder."""
+    if file_id < 0:
+        return supplements.file_path(knowledge_dir, registry, paper_id, -file_id)
     if not registry.one("SELECT 1 FROM files WHERE id=? AND paper_id=?", (file_id, paper_id)):
         return None
     row = registry.get_paper(paper_id)
@@ -86,6 +88,11 @@ def find_revision(knowledge_dir: Path, registry: Registry, paper_id: int, revisi
     from .evidence import document_revision
 
     ensure_schema(registry)
+    supplement = registry.one("SELECT id FROM paper_supplements WHERE paper_id=? AND revision=?", (paper_id, revision))
+    if supplement:
+        path = supplements.file_path(knowledge_dir, registry, paper_id, supplement["id"])
+        if path is not None:
+            return -supplement["id"]
     rows = registry.query("SELECT file_id FROM pdf_versions WHERE paper_id=?", (paper_id,))
     if len(rows) < 2:  # only real preprint / published versions; an edited PDF stays "changed"
         return None
@@ -150,7 +157,7 @@ def compare(knowledge_dir: Path, registry: Registry, paper_id: int, old_file: in
     pages = page_texts(new_p)
     old_rev = document_revision(old_p)
     items = [("evidence", r["id"], r["page"], r["quote"]) for r in registry.query(
-        "SELECT id, page, quote FROM evidence_entries WHERE paper_id=? AND revision=?", (paper_id, old_rev))]
+        "SELECT id, page, quote FROM evidence_entries WHERE paper_id=? AND revision=? AND source!='region'", (paper_id, old_rev))]
     original = registry.one("SELECT min(file_id) AS f FROM pdf_versions WHERE paper_id=?", (paper_id,))["f"]
     items += [("annotation", r["id"], r["page"], r["text"]) for r in registry.query(
         "SELECT id, page, text FROM annotations WHERE paper_id=? AND (pdf_file=? OR (pdf_file IS NULL AND ?=?)) "
@@ -162,6 +169,12 @@ def compare(knowledge_dir: Path, registry: Registry, paper_id: int, old_file: in
             status = MOVED
         stats[status] += 1
         _store(registry, paper_id, item, ref, old_file, new_file, page, text, status, new_page, new_text, score)
+    # A changed panel cannot be matched by comparing its label as if it were a quotation.
+    for r in registry.query("SELECT id,page,region_label FROM evidence_entries WHERE paper_id=? "
+                            "AND revision=? AND source='region'", (paper_id, old_rev)):
+        _store(registry, paper_id, "evidence", r["id"], old_file, new_file, r["page"], r["region_label"],
+               "visual_review", None, "", 0)
+        stats["visual_review"] = stats.get("visual_review", 0) + 1
     if old_abstract and new_abstract:
         score = fuzz.ratio(_norm(old_abstract), _norm(new_abstract))
         if score < 97:

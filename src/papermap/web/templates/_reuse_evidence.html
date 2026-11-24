@@ -1,0 +1,20 @@
+<dialog id="reuse-evidence" class="evidence-dialog" aria-labelledby="reuse-evidence-title">
+  <form>
+    <h2 id="reuse-evidence-title">{{ _("也用于其他问题…") }}</h2>
+    <label for="reuse-question">{{ _("目标研究问题") }}</label>
+    <select id="reuse-question" name="question">
+      {% for q in questions if q.id != selected.id %}<option value="{{ q.id }}">{{ q.title|keep }}</option>{% endfor %}
+      <option value="">{{ _("新建研究问题") }}</option>
+    </select>
+    <label id="reuse-title-row">{{ _("新问题") }}<input name="title" type="text" maxlength="300"></label>
+    <label for="reuse-stance">{{ _("与目标问题的关系") }}</label>
+    <select id="reuse-stance" name="stance">{% for k,v in stances.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+    <label for="reuse-dimension">{{ _("对照项目") }}</label>
+    <select id="reuse-dimension" name="dimension">{% for k,v in dimensions.items() %}<option value="{{ k }}" {% if k=='general' %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+    <label for="reuse-note">{{ _("在目标问题下的笔记（可选）") }}</label>
+    <textarea id="reuse-note" name="note" rows="2" maxlength="12000"></textarea>
+    <p role="alert" class="err-text small" hidden></p>
+    <div class="ev-actions"><button type="button" class="secondary" data-close>{{ _("取消") }}</button><button type="submit">{{ _("关联到问题") }}</button></div>
+  </form>
+</dialog>
+<p id="reuse-feedback" class="small" role="status" hidden><span></span> <a>{{ _("查看目标问题") }}</a></p>

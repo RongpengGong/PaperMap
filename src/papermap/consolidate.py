@@ -52,11 +52,13 @@ def confirmed_judgments(registry: Registry, paper_ids: list[int]) -> dict[int, l
             "AND COALESCE(u.user_outcome, u.outcome)!='unrelated'", tuple(paper_ids)):
         out.setdefault(r["paper_id"], []).append({**dict(r), "contrary": r["outcome"] == "contradicts"})
     for r in registry.query(
-            "SELECT e.paper_id, q.title AS question, e.stance, e.quote, e.created_at AS at FROM evidence_entries e "
+            "SELECT e.paper_id, q.title AS question, e.stance, e.quote, e.source, e.region_label, e.note, e.created_at AS at FROM evidence_entries e "
             f"JOIN evidence_questions q ON q.id=e.question_id WHERE e.stance IN ('supports','opposes') "
             f"AND e.paper_id IN ({marks})", tuple(paper_ids)):
+        text = ("figure/table: " + r["region_label"] + "; reader note: " + r["note"][:300]
+                if r["source"] == "region" else "quote: " + r["quote"][:300])
         out.setdefault(r["paper_id"], []).append({"question": r["question"], "outcome": r["stance"],
-                                                  "text": "quote: " + r["quote"][:300], "at": r["at"],
+                                                  "text": text, "at": r["at"],
                                                   "contrary": r["stance"] == "opposes"})
     for items in out.values():
         items.sort(key=lambda x: x["at"] or "", reverse=True)

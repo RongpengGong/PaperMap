@@ -494,9 +494,9 @@ class Pipeline:
         mtime = path.stat().st_mtime if path is not None and path.exists() else None
         sig = (spec, mtime)
         if self._taxonomy is None or sig != self._taxonomy_sig:
-            self._taxonomy = self.config.load_taxonomy()
-            self._taxonomy_sig = sig
-            self.registry.sync_fields(self._taxonomy)
+            taxonomy = self.config.load_taxonomy()
+            self.registry.sync_fields(taxonomy)
+            self._taxonomy, self._taxonomy_sig = taxonomy, sig
         return self._taxonomy
 
     def stale_classification_count(self) -> int:
@@ -626,7 +626,11 @@ class Pipeline:
         if switched:
             self.config.raw["taxonomy_file"] = "taxonomy.yaml"
             if self.config.path:
-                self.config.save()
+                try:
+                    self.config.save()
+                except OSError:
+                    self.config.raw["taxonomy_file"] = spec
+                    raise
         self._taxonomy = None  # force reload + field sync
         self.taxonomy()
 
@@ -646,41 +650,65 @@ class Pipeline:
                           name_en: str | None = None, description: str | None = None,
                           axis: str | None = None) -> str:
         """User confirmed a proposed field: add it to the taxonomy, attach its papers."""
-        row = self.registry.pending_by_id(pending_id)
-        if row is None or row["status"] != "open":
-            raise ValueError("this proposal is no longer open")
-        slug = (slug or row["slug"]).strip()
-        if not taxmod.SLUG_RE.match(slug):
-            raise ValueError("slug must be lowercase letters/digits joined by '-'")
-        if slug in self.taxonomy().by_slug:
-            raise ValueError(f"'{slug}' already exists in the taxonomy - use merge instead")
-        cat = {
-            "slug": slug, "axis": axis if axis in ("method", "topic") else row["axis"],
-            "name_zh": (name_zh or row["name_zh"] or row["name_en"]).strip(),
-            "name_en": (name_en or row["name_en"] or row["name_zh"]).strip(),
-            "description": (description or row["description"] or row["name_en"]).strip(),
-            "synonyms": json.loads(row["synonyms_json"] or "[]"),
-        }
         with self._lock:
-            self._edit_taxonomy(lambda text: taxmod.add_category_text(text, cat))
+            row = self.registry.pending_by_id(pending_id)
+            if row is None or row["status"] != "open":
+                raise ValueError("这项提议已处理，请刷新待审核页。")
+            # Until the paper links and files finish, the open row retains the target of
+            # this review. A retry can safely reuse the category it already wrote.
+            reserved = row["merged_into"]
+            slug = (slug or reserved or row["slug"]).strip()
+            categories = self.taxonomy().by_slug
+            if reserved and reserved in categories and slug != reserved:
+                raise ValueError("该学科已写入分类表，请使用已保存的标识继续完成建立。")
+            if not taxmod.SLUG_RE.match(slug):
+                raise ValueError("标识只能包含小写字母、数字和连接各段的短横线。")
+            if slug in categories and slug != reserved:
+                raise ValueError("此标识已存在，可修改标识或将提议合并到现有学科。")
+            if self.registry.one("SELECT 1 FROM pending_fields WHERE status='open' AND merged_into=? AND id!=?",
+                                 (slug, pending_id)):
+                raise ValueError("另一项提议已占用此标识，请修改后重试。")
+            cat = {
+                "slug": slug, "axis": axis if axis in ("method", "topic") else row["axis"],
+                "name_zh": (name_zh or row["name_zh"] or row["name_en"]).strip(),
+                "name_en": (name_en or row["name_en"] or row["name_zh"]).strip(),
+                "description": (description or row["description"] or row["name_en"]).strip(),
+                "synonyms": json.loads(row["synonyms_json"] or "[]"),
+            }
+
+            def apply_category(text):
+                if reserved == slug and slug in taxmod.parse_text(text).by_slug:
+                    return text
+                return taxmod.add_category_text(text, cat)
+
+            if slug not in categories:
+                self.registry.update_pending(pending_id, merged_into=slug, name_zh=cat["name_zh"],
+                                             name_en=cat["name_en"], axis=cat["axis"], description=cat["description"])
+                self._edit_taxonomy(apply_category)
             ids = self._assign_pending_papers(pending_id, slug)
-            self.registry.update_pending(pending_id, status="established", merged_into=slug)
             for pid in ids:
                 self._refresh_card(pid)
             self.refresh_fields({slug})
-            self.refresh_pending()
+            self.registry.update_pending(pending_id, status="established", merged_into=slug)
+            try:
+                self.refresh_pending()
+            except OSError as exc:
+                # The classification and hub are committed. The next refresh rebuilds this mirror.
+                self.registry.log("warning", f"Could not refresh pending-field files: {exc}")
         self.registry.log("info", f"New field established: {cat['name_zh']} ({slug}) with {len(ids)} papers")
         self.kb_commit(f"Establish field {slug}")
         return slug
 
     def merge_pending(self, pending_id: int, target_slug: str) -> None:
-        row = self.registry.pending_by_id(pending_id)
-        if row is None or row["status"] != "open":
-            raise ValueError("this proposal is no longer open")
-        if target_slug not in self.taxonomy().by_slug:
-            raise ValueError(f"unknown field {target_slug}")
-        names = [n for n in [row["name_en"], row["name_zh"], *json.loads(row["synonyms_json"] or "[]")] if n]
         with self._lock:
+            row = self.registry.pending_by_id(pending_id)
+            if row is None or row["status"] != "open":
+                raise ValueError("这项提议已处理，请刷新待审核页。")
+            if row["merged_into"] and row["merged_into"] in self.taxonomy().by_slug:
+                raise ValueError("该学科已写入分类表，请使用已保存的标识继续完成建立。")
+            if target_slug not in self.taxonomy().by_slug:
+                raise ValueError(f"unknown field {target_slug}")
+            names = [n for n in [row["name_en"], row["name_zh"], *json.loads(row["synonyms_json"] or "[]")] if n]
             self._edit_taxonomy(lambda text: taxmod.add_synonyms_text(text, target_slug, names))
             ids = self._assign_pending_papers(pending_id, target_slug)
             self.registry.update_pending(pending_id, status="merged", merged_into=target_slug)
@@ -693,10 +721,12 @@ class Pipeline:
         self.kb_commit(f"Merge proposed field {row['slug']} into {target_slug}")
 
     def reject_pending(self, pending_id: int) -> None:
-        row = self.registry.pending_by_id(pending_id)
-        if row is None or row["status"] != "open":
-            raise ValueError("this proposal is no longer open")
         with self._lock:
+            row = self.registry.pending_by_id(pending_id)
+            if row is None or row["status"] != "open":
+                raise ValueError("这项提议已处理，请刷新待审核页。")
+            if row["merged_into"] and row["merged_into"] in self.taxonomy().by_slug:
+                raise ValueError("该学科已写入分类表，请使用已保存的标识继续完成建立。")
             self.registry.update_pending(pending_id, status="rejected")
             self.registry.execute("UPDATE field_proposals SET status='closed', outcome='rejected' WHERE pending_id=?",
                                   (pending_id,))

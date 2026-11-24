@@ -28,7 +28,17 @@
       if (dialog.open) return;
       form.reset(); selected = item; save.disabled = true; problem(error, "");
       picker.replaceChildren(); title.hidden = true; form.querySelector(".ev-new-label").hidden = true;
-      document.getElementById("capture-page").textContent = t("第 ") + (item.page + 1) + t(" 页 · ") + (item.source === "ocr" ? t("本机 OCR") : t("PDF 原文"));
+      const region = item.source === "region";
+      const regionLabel = document.getElementById("capture-region-label");
+      regionLabel.required = region;
+      document.getElementById("capture-region-fields").hidden = !region;
+      document.getElementById("capture-quote").hidden = region;
+      if (region) {
+        const preview = document.getElementById("capture-preview");
+        preview.width = item.preview.width; preview.height = item.preview.height;
+        preview.getContext("2d").drawImage(item.preview, 0, 0);
+      }
+      document.getElementById("capture-page").textContent = t("第 ") + (item.page + 1) + t(" 页 · ") + (region ? t("图表局部") : item.source === "ocr" ? t("本机 OCR") : t("PDF 原文"));
       document.getElementById("capture-quote").textContent = item.quote;
       dialog.showModal();
       try {
@@ -42,7 +52,7 @@
         let last;
         try { last = localStorage.getItem("papermap.evidenceQuestion"); } catch (_) {}
         if (questions.some(q => String(q.id) === last)) picker.value = last;
-        questionChanged(); save.disabled = false; (title.hidden ? picker : title).focus();
+        questionChanged(); save.disabled = false; (region ? regionLabel : title.hidden ? picker : title).focus();
       } catch (err) { if (dialog.open && selected === item) problem(error, err.message); }
     }};
     picker.addEventListener("change", questionChanged);
@@ -55,13 +65,14 @@
       try {
         const {paper, page, quote, rects, revision, source} = selected;
         const result = await api("/api/reader/" + paper + "/evidence", {
-          page, quote, rects, revision, source, question_id: Number(picker.value),
+          page, quote, rects, revision, source, region_label: document.getElementById("capture-region-label").value,
+          question_id: Number(picker.value),
           question_title: title.value, stance: document.getElementById("capture-stance").value,
           note: document.getElementById("capture-note").value, dimension: document.getElementById("capture-dimension").value
         });
         try { localStorage.setItem("papermap.evidenceQuestion", String(result.question_id)); } catch (_) {}
         dialog.close(); window.getSelection()?.removeAllRanges();
-        window.pmToast(result.created ? t("已加入证据笔记") : t("这段原文已在该问题的笔记中"));
+        window.pmToast(result.created ? t("已加入证据笔记") : t("该摘录已在这个问题中"));
       } catch (err) { problem(error, err.message); }
       finally { saving = false; save.disabled = false; }
     });

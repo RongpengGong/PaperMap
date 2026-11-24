@@ -26,7 +26,7 @@
 {% block content_class %}reader-content{% endblock %}
 {% block content %}
 <div class="reader" id="reader" data-paper="{{ p.id }}" data-start="{{ start_page if start_page is not none else '' }}"
-     data-resume-page="{{ p.reading_page if p.reading_page is not none else '' }}" data-resume-offset="{{ p.reading_offset or 0 }}" data-resume-at="{{ p.reading_at or 0 }}" data-find="{{ find }}">
+     data-supplement="{{ supplement.id if supplement else '' }}" data-resume-page="{{ reading_position.reading_page if reading_position.reading_page is not none else '' }}" data-resume-offset="{{ reading_position.reading_offset or 0 }}" data-resume-at="{{ reading_position.reading_at or 0 }}" data-find="{{ find }}">
   <aside class="reader-side" id="reader_side">
     <div class="rs-tabs">
       <button type="button" class="active" data-rs="toc">{{ _("目录") }}</button>
@@ -45,10 +45,13 @@
       <button type="button" class="icon-btn" id="toggle_side" title="{{ _("显示/隐藏侧栏") }}">☰</button>
       {% if not embed %}<a class="ghost-btn" href="/?id={{ p.id }}" data-show-library-list>{{ _("← 返回论文列表") }}</a>{% endif %}
       <span class="reader-title" title="{{ p.title }}">{{ p.title }}</span>
-      {% if pdf_versions %}<select class="ghost-select version-select" id="pdf_version" title="{{ _("这篇论文有多个版本；你在哪个版本上做的摘录和标注，就在哪个版本上显示") }}">
+      {% if pdf_versions or supplements %}<select class="ghost-select version-select" id="pdf_version" title="{{ _("这篇论文有多个版本；你在哪个版本上做的摘录和标注，就在哪个版本上显示") }}">
+        {% if not pdf_versions %}<option value="" {{ 'selected' if not supplement }}>{{ _("论文正文") }}</option>{% endif %}
         {% for v in pdf_versions %}<option value="{{ v.file_id }}" {{ 'selected' if v.file_id == shown_version }}>{{ _(kind_label(v.kind)) }}{% if v.doi %} · {{ v.doi }}{% endif %}</option>{% endfor %}
+        {% for item in supplements %}<option value="{{ -item.id }}" {{ 'selected' if shown_version == -item.id }}>{{ _("补充材料") }} · {{ item.name|keep }}</option>{% endfor %}
       </select>{% endif %}
       <span class="grow"></span>
+      <button type="button" class="ghost-btn" id="capture-region" aria-pressed="false" title="{{ _("在一页内拖动框选图或表") }}">{{ _("框选图表") }}</button>
       <button type="button" class="ghost-btn" id="reader_ocr" hidden title="{{ _("用 Mac 本机文字识别处理当前页") }}">{{ _("识别本页") }}</button>
       <span class="page-ind"><input type="number" id="page_no" min="1" value="1"> / <span id="page_total">–</span></span>
       <button type="button" class="icon-btn" id="zoom_out" title="{{ _("缩小 (⌘-)") }}">−</button>
@@ -80,4 +83,4 @@
   <div class="tr-actions"><button type="button" class="ghost-btn" id="tr_copy">{{ _("复制译文") }}</button><button type="button" class="ghost-btn" id="tr_save">{{ _("存为批注") }}</button></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/evidence.js?v={{ static_v }}"></script><script src="/static/reader-position.js?v={{ static_v }}"></script><script src="/static/reader.js?v={{ static_v }}"></script>{% endblock %}
+{% block scripts %}<script src="/static/evidence.js?v={{ static_v }}"></script><script src="/static/reader-position.js?v={{ static_v }}"></script><script src="/static/reader-region.js?v={{ static_v }}"></script><script src="/static/reader.js?v={{ static_v }}"></script>{% endblock %}

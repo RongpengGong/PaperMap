@@ -3,11 +3,12 @@
 {% block content %}
 <p><a href="/fields">{{ _("← 全部学科") }}</a> · <a href="/map">{{ _("知识地图") }}</a></p>
 {% if created %}<div class="notice ok">{{ _("新学科已建立并写入分类表。") }}{% if hb_started %}{{ _("学习手册正在后台生成，稍后刷新本页。") }}{% endif %}</div>{% elif cons_started %}<div class="notice ok">{{ _("正在后台整合（约半分钟），稍后刷新本页。") }}</div>{% elif hb_started %}<div class="notice ok">{{ _("学习手册正在后台生成（约半分钟），稍后刷新本页。") }}</div>{% endif %}
+{% if hb_error %}<p class="notice" role="alert">{{ _("学习手册生成失败，可在本页重试。") }} {{ hb_error|keep }}</p>{% endif %}
 <div class="row" style="margin-bottom:12px">
   {% if has_handbook %}<a class="button" href="/handbook/{{ f.slug }}">{{ _("📘 打开学习手册") }}</a>{% endif %}
   {% if n_papers >= 2 %}<a class="ghost-btn" href="/compare?field={{ f.slug }}">{{ _("对比本学科论文") }}</a>{% endif %}
   {% if n_papers >= 2 %}<form method="post" action="/field/{{ f.slug }}/consolidate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" title="{{ _("让模型对比本学科的论文，重写概述、进展小结和争议（每条都带出处）") }}">{{ _("立即整合") }}</button></form>{% endif %}
-  {% if n_papers %}<form method="post" action="/handbook/{{ f.slug }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ _('重新生成学习手册') if has_handbook else _('生成学习手册') }}</button></form>{% endif %}
+  {% if n_papers %}<form method="post" action="/handbook/{{ f.slug }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary" {{ 'disabled' if hb_started }}>{{ _('重新生成学习手册') if has_handbook else _('生成学习手册') }}</button></form>{% endif %}
 </div>
 <section class="card field-questions" data-field="{{ f.slug }}">
   <div class="row"><h3 class="grow">{{ _("研究问题") }}</h3>

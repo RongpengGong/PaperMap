@@ -169,3 +169,90 @@ def test_web_pending_flow(config, registry, pipe):
     assert c.get("/field/glioblastoma").status_code == 200
     bad = c.post("/review/pending", data={"csrf": _token(c), "pending_id": 999, "action": "reject"}, follow_redirects=False)
     assert "error=" in bad.headers["location"]
+
+
+@pytest.mark.parametrize("failure", ["_assign_pending_papers", "refresh_fields"])
+def test_retry_establish_after_partial_taxonomy_write(config, registry, pipe, monkeypatch, failure):
+    pid = add_paper(registry, 1)
+    newfields.record_proposals(registry, config, pipe.taxonomy(), pid, [prop("Field recovery")])
+    qid = registry.pending_fields()[0]["id"]
+
+    def fail_once(*args):
+        raise OSError("simulated temporary write error")
+
+    with monkeypatch.context() as m:
+        m.setattr(pipe, failure, fail_once)
+        with pytest.raises(OSError):
+            pipe.establish_pending(qid, slug="my-field", name_zh="自定义名称")
+    assert registry.pending_by_id(qid)["status"] == "open"
+    assert parse_text((config.data_dir / "taxonomy.yaml").read_text()).by_slug["my-field"].name_zh == "自定义名称"
+
+    # Another process can finish the operation using the saved target, after losing
+    # all memory of the original form (including its custom slug and name).
+    restarted, _ = make_pipeline(config, registry)
+    with pytest.raises(ValueError):
+        restarted.reject_pending(qid)
+    with pytest.raises(ValueError):
+        restarted.merge_pending(qid, "cca")
+    assert restarted.establish_pending(qid) == "my-field"
+    assert registry.pending_by_id(qid)["status"] == "established"
+    assert [r["slug"] for r in registry.paper_field_rows(pid)] == ["my-field"]
+    assert (config.knowledge_dir / "fields/my-field.md").exists()
+
+
+def test_establish_responds_while_busy_and_runs_one_handbook(config, registry, pipe, monkeypatch):
+    import threading
+    import time
+
+    from fastapi.testclient import TestClient
+    from papermap.web.app import create_app
+    from .test_web import _token
+
+    pid = add_paper(registry, 1)
+    newfields.record_proposals(registry, config, pipe.taxonomy(), pid, [prop("Field creation")])
+    qid = registry.pending_fields()[0]["id"]
+    start = threading.Event()
+    finish = threading.Event()
+    calls = []
+
+    def slow_handbook(slug):
+        calls.append(slug)
+        start.set()
+        finish.wait(7)
+        raise ValueError("simulated provider unavailable")
+
+    monkeypatch.setattr(pipe, "generate_handbook", slow_handbook)
+    with TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765") as c:
+        url = f"/api/review/pending/{qid}/establishment"
+        data = {"csrf": _token(c), "pending_id": qid, "action": "establish", "make_handbook": "1"}
+        headers = {"Accept": "application/json"}
+        with pipe._lock:
+            for _ in range(2):
+                assert c.post("/review/pending", data=data, headers=headers).status_code == 202
+            assert c.get(url).json()["state"] == "working"
+            assert 'data-build-state="working"' in c.get("/review").text
+            assert c.get("/map").status_code == 200
+        try:
+            assert start.wait(3)
+            deadline = time.monotonic() + 3
+            while (result := c.get(url).json())["state"] == "working" and time.monotonic() < deadline:
+                time.sleep(.01)
+            assert result == {"state": "done", "url": "/field/field-creation?created=1"}
+            assert "学习手册正在后台生成" in c.get(result["url"]).text
+            assert "学习手册正在后台生成" not in c.get("/field/cca").text
+            assert c.post("/review/pending", data=data, follow_redirects=False).headers["location"] == result["url"]
+            assert calls == ["field-creation"]
+        finally:
+            finish.set()
+        deadline = time.monotonic() + 3
+        while "simulated provider unavailable" not in c.get(result["url"]).text:
+            assert time.monotonic() < deadline, "the handbook failure was never shown"
+
+        other = registry.create_pending("other", "topic", "", "Other", "Test", [])
+        data.update(pending_id=other, slug="Invalid!")
+        assert c.post("/review/pending", data=data, headers=headers).status_code == 202
+        deadline = time.monotonic() + 3
+        while (bad := c.get(f"/api/review/pending/{other}/establishment").json())["state"] == "working":
+            assert time.monotonic() < deadline
+        assert bad["state"] == "error" and "标识" in bad["message"]
+        assert registry.pending_by_id(other)["status"] == "open"

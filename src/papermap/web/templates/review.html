@@ -93,15 +93,16 @@
       <button name="action" value="reject" class="ghost pf-reject" onclick='return confirm({{ _("拒绝后，类似的提议以后会被自动忽略。确定？")|tojson }})'>{{ _("拒绝") }}</button>
     </form>
   </div>
-  <form method="post" action="/review/pending" class="pf-form" data-pf-form hidden>
+  <form method="post" action="/review/pending" class="pf-form" data-pf-form data-build-state="{{ builds[r.id].state }}" {% if builds[r.id].state == 'idle' %}hidden{% endif %}>
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pending_id" value="{{ r.id }}">
     <div class="row">
       <label class="grow">{{ _("中文名") }}<input type="text" name="name_zh" value="{{ (r.name_zh or '')|keep }}"></label>
       <label class="grow">{{ _("英文名") }}<input type="text" name="name_en" value="{{ (r.name_en or '')|keep }}"></label>
-      <label class="grow">slug<input type="text" name="slug" value="{{ r.slug }}"></label>
+      <label class="grow">slug<input type="text" name="slug" value="{{ r.merged_into or r.slug }}"></label>
       <label>{{ _("轴") }}<select name="axis"><option value="topic" {{ 'selected' if r.axis == 'topic' }}>{{ _("主题") }}</option><option value="method" {{ 'selected' if r.axis == 'method' }}>{{ _("方法") }}</option></select></label>
     </div>
     <label>{{ _("判别说明（给模型看）") }}<input type="text" name="description" value="{{ (r.description or '')|keep }}"></label>
+    <p class="small" role="status" aria-live="polite" data-build-status>{{ _(builds[r.id].get('message', '')) }}</p>
     <div class="pf-form-foot">
       <label class="inline"><input type="checkbox" name="make_handbook" value="1" checked> {{ _("同时生成学习手册（约 1 次 LLM 调用）") }}</label>
       <span class="grow"></span>
@@ -112,3 +113,4 @@
 </div>
 {% else %}<p class="muted">{{ _("没有。") }}</p>{% endfor %}
 {% endblock %}
+{% block scripts %}<script src="/static/review.js?v={{ static_v }}"></script>{% endblock %}

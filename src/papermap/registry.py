@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS pending_fields (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS paper_supplements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, revision TEXT NOT NULL,
+    reading_page INTEGER, reading_offset REAL, reading_at INTEGER,
+    UNIQUE(paper_id, revision)
+);
 CREATE TABLE IF NOT EXISTS evidence_questions (
     id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
 );
@@ -104,6 +111,24 @@ CREATE TABLE IF NOT EXISTS evidence_entries (
     revision TEXT NOT NULL, rects_json TEXT NOT NULL, quote TEXT NOT NULL, source TEXT NOT NULL,
     stance TEXT NOT NULL, note TEXT NOT NULL, anchor_key TEXT NOT NULL,
     created_at TEXT NOT NULL, UNIQUE(question_id, paper_id, anchor_key)
+);
+CREATE TABLE IF NOT EXISTS evidence_region_previews (
+    revision TEXT NOT NULL, page INTEGER NOT NULL, rects_json TEXT NOT NULL, png BLOB NOT NULL,
+    PRIMARY KEY(revision, page, rects_json)
+) WITHOUT ROWID;
+CREATE TRIGGER IF NOT EXISTS evidence_region_cleanup AFTER DELETE ON evidence_entries WHEN OLD.source='region'
+BEGIN
+    DELETE FROM evidence_region_previews WHERE revision=OLD.revision AND page=OLD.page AND rects_json=OLD.rects_json
+    AND NOT EXISTS (SELECT 1 FROM evidence_entries WHERE source='region' AND revision=OLD.revision
+                    AND page=OLD.page AND rects_json=OLD.rects_json);
+END;
+CREATE TABLE IF NOT EXISTS dataset_overlap_reviews (
+    question_id INTEGER NOT NULL REFERENCES evidence_questions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL, accession TEXT NOT NULL,
+    paper_a INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    paper_b INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE CHECK(paper_a < paper_b),
+    context_key TEXT NOT NULL, decision TEXT NOT NULL, note TEXT NOT NULL, updated_at TEXT NOT NULL,
+    PRIMARY KEY(question_id, kind, accession, paper_a, paper_b)
 );
 CREATE TABLE IF NOT EXISTS card_versions (  -- earlier states of a card the user edited (text NULL = generated)
     id INTEGER PRIMARY KEY,
@@ -239,7 +264,7 @@ MIGRATIONS = {
                            "origin": "TEXT NOT NULL DEFAULT 'user'",  # user / suggested
                            "rationale": "TEXT", "source_json": "TEXT",
                            "judgment": "TEXT NOT NULL DEFAULT ''"},
-    "evidence_entries": {"dimension": "TEXT NOT NULL DEFAULT 'general'"},
+    "evidence_entries": {"dimension": "TEXT NOT NULL DEFAULT 'general'", "region_label": "TEXT NOT NULL DEFAULT ''"},
 }
 
 PAPER_STATUSES = (

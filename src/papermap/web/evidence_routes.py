@@ -8,7 +8,7 @@ import pymupdf
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .. import evidence, i18n, versions
+from .. import evidence, evidence_links, i18n, versions
 from .. import gaps as gapmod
 from .. import questions as qmod
 from .. import updates as upd
@@ -44,6 +44,7 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
                                     "ORDER BY axis, sort_order, name_zh")
         return render(request, "evidence.html", questions=topics, selected=selected, entries=items,
                       comparison=comparison, dimensions=evidence.DIMENSIONS,
+                      overlaps=evidence_links.overlap_groups(registry, selected["id"]) if comparing else [],
                       linked_fields=linked, all_fields=all_fields,
                       update_cards=upd.for_question(registry, selected["id"]) if selected and not comparing else [],
                       update_outcomes=upd.OUTCOMES,
@@ -85,6 +86,16 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         except ValueError as exc:
             return problem(exc)
 
+    @app.post("/api/evidence/questions/{qid}/dataset-overlap")
+    def save_dataset_overlap(qid: int, body: dict):
+        check(body)
+        get_question(qid)
+        try:
+            evidence_links.save_overlap(registry, qid, body)
+        except ValueError as exc:
+            return problem(exc)
+        return {"ok": True}
+
     @app.post("/api/evidence/questions/{qid}/fields")
     def question_field(qid: int, body: dict):
         check(body)
@@ -124,14 +135,38 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             with pymupdf.open(path) as doc:
                 if type(page) is not int or not 0 <= page < len(doc):
                     return problem("PDF 页码无效。")
-                bounds = doc[page].rect
-            rects = evidence.validate_rects(body.get("rects"), bounds.width, bounds.height)
+                pdf_page = doc[page]
+                bounds = pdf_page.rect
+                rects = evidence.validate_rects(body.get("rects"), bounds.width, bounds.height)
+                preview = None
+                if body.get("source") == "region":
+                    crop = pymupdf.Rect(rects[0])
+                    if len(rects) != 1 or min(crop.width, crop.height) < 2:
+                        return problem("请重新框选图表区域。")
+                    scale = min(2.0, 1280 / max(crop.width, crop.height))
+                    preview = pdf_page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=crop,
+                                                 colorspace=pymupdf.csRGB, alpha=False).tobytes("png")
+                    if evidence.document_revision(path) != revision:
+                        return problem("PDF 版本已更换，请重新打开论文并选取原文。", 409)
             result = evidence.add_entry(registry, qid, body.get("question_title"), pid, page, revision, rects,
                                         body.get("quote"), body.get("source"), body.get("stance", "pending"),
-                                        body.get("note", ""), body.get("dimension", "general"))
+                                        body.get("note", ""), body.get("dimension", "general"),
+                                        region_label=body.get("region_label", ""), preview=preview)
             return {"ok": True, **result}
         except ValueError as exc:
             return problem(exc)
+
+    @app.get("/api/evidence/entries/{eid}/preview.png")
+    def preview_region(eid: int):
+        if not 0 < eid < 2**63:
+            raise HTTPException(404)
+        row = registry.one("SELECT r.png FROM evidence_entries e JOIN evidence_region_previews r "
+                           "ON e.revision=r.revision AND e.page=r.page AND e.rects_json=r.rects_json "
+                           "JOIN papers p ON p.id=e.paper_id WHERE e.id=? AND e.source='region' "
+                           "AND p.status!='ignored'", (eid,))
+        if row is None:
+            raise HTTPException(404)
+        return Response(content=row["png"], media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
     @app.get("/api/reader/{pid}/evidence/{eid}")
     def anchor(pid: int, eid: int):
@@ -146,7 +181,8 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             if pv is None:
                 raise HTTPException(409, "PDF 版本已更换，请对照笔记重新核对摘录位置。")
         return {"ok": True, "id": eid, "pv": pv, "question_id": row["question_id"], "page": row["page"],
-                "rects": json.loads(row["rects_json"]), "quote": row["quote"], "source": row["source"]}
+                "rects": json.loads(row["rects_json"]), "quote": row["quote"], "source": row["source"],
+                "region_label": row["region_label"]}
 
     @app.get("/api/reader/{pid}/update/{cid}/{k}")
     def update_anchor(pid: int, cid: int, k: int):
@@ -168,6 +204,13 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
         check(body)
         if not 0 < eid < 2**63:
             raise HTTPException(404)
+        if action == "reuse":
+            try:
+                return {"ok": True, **evidence_links.reuse_entry(registry, eid, body)}
+            except LookupError as exc:
+                return problem(exc, 404)
+            except ValueError as exc:
+                return problem(exc)
         if action == "delete":
             # A repeated delete after a lost response has the same outcome.
             registry.execute("DELETE FROM evidence_entries WHERE id=?", (eid,))

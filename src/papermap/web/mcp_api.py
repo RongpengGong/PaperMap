@@ -134,7 +134,8 @@ def _server(db_path: Path) -> FastMCP:
     def get_question_evidence(question_id: Identifier, ctx: Context, stance: Stance = "all",
                               after: After = 0, limit: PageSize = 15) -> dict[str, Any]:
         """Read saved source excerpts and the user's judgment. Filter for opposes to find counterevidence.
-        Each excerpt has a one-based PDF page and a revision-aware URL. Card context is unverified.
+        Each excerpt has a one-based PDF page and a revision-aware URL. A region has a figure label and
+        preview_url rather than a quotation; its note is the user's interpretation. Card context is unverified.
         Pass next_cursor as after for the next batch of excerpts."""
         with open_library() as registry:
             data = evidence.question_comparison(registry, question_id)
@@ -150,7 +151,10 @@ def _server(db_path: Path) -> FastMCP:
                 if pid not in groups:
                     groups[pid] = {k: paper[k] for k in ("paper_id", "title", "doi", "first_author", "year", "card_context")}
                     groups[pid]["evidence"] = []
-                groups[pid]["evidence"].append({**entry, "url": base + entry["url"]})
+                item = {**entry, "url": base + entry["url"]}
+                if entry["source"] == "region":
+                    item["preview_url"] = f"{base}/api/evidence/entries/{entry['id']}/preview.png"
+                groups[pid]["evidence"].append(item)
             return {"id": data["id"], "title": data["title"], "judgment": data["judgment"], "gaps": data["gaps"],
                     "url": f"{base}/evidence?question={question_id}", "papers": list(groups.values()),
                     "next_cursor": candidate[limit-1][0]["id"] if len(candidate) > limit else None}

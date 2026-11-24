@@ -17,7 +17,7 @@ import markdown as md
 import nh3
 import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -26,7 +26,7 @@ from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, Config
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
 from .. import backup as backup_mod
-from .. import kb_git, library, reading_progress
+from .. import kb_git, library, reading_progress, supplements
 from .. import ocr
 from .. import reader as reader_mod
 from ..llm import check_connection, list_chatgpt_model_options, list_models
@@ -58,6 +58,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from contextlib import asynccontextmanager
     from ..plugin_hooks import PluginHooks
     from . import mcp_api
+    from .field_tasks import FieldTasks
     from .plugin_admin import EXAMPLES, mount_admin
     from .plugin_api import mount_api
 
@@ -79,7 +80,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def pdf_version_param(request: Request, call_next):
         """?pv=<file id> picks one version of a paper's PDF for the reader and its API."""
         pv = request.query_params.get("pv", "")
-        token = _PDF_VERSION.set(int(pv) if pv.isdigit() and len(pv) < 18 else None)
+        # Positive IDs select article versions; negative IDs select a paper's PDF supplements.
+        value = int(pv) if re.fullmatch(r"-?[0-9]{1,17}", pv) else None
+        token = _PDF_VERSION.set(value or None)
         try:
             return await call_next(request)
         finally:
@@ -156,13 +159,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     busy: set[str] = set()  # names of running background jobs
 
     def background(name: str, fn, *args) -> None:
+        busy.add(name)
+
         def run():
-            busy.add(name)
             try:
                 fn(*args)
             finally:
                 busy.discard(name)
         threading.Thread(target=run, daemon=True).start()
+
+    field_tasks = FieldTasks(pipeline, background)
 
     def md_html(text: str) -> str:
         text = _highlights(text)
@@ -304,6 +310,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 "ptags": json.loads(row["tags_json"] or "[]"),
                 "ppurposes": _purposes.of_paper(registry, paper_id), "all_purposes": _purposes.all_tags(registry),
                 "pdf_versions": _versions.versions(config.knowledge_dir, registry, paper_id),
+                "supplements": supplements.listed(registry, paper_id),
                 "version_checks": _versions.checks(registry, paper_id), "kind_label": _versions.kind_label,
                 "pcollections": [{"id": r["id"], "path": registry.collection_path(r["id"])}
                                  for r in registry.paper_collections(paper_id)],
@@ -891,19 +898,22 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         pv = _PDF_VERSION.get()
         if row is not None and pv is not None:
             f = _versions.file_path(config.knowledge_dir, registry, paper_id, pv)
-            if f is not None:
-                return f
+            if f is None:
+                raise HTTPException(404)
+            return f
         f = pdf_file(row) if row else None
         if f is None:
             raise HTTPException(404)
         return f
 
     def shown_version(paper_id: int) -> int | None:
-        """files.id of the PDF the reader shows, when the paper has several versions."""
+        """Negative for supplements, positive for article versions, None for a single main PDF."""
+        pv = _PDF_VERSION.get()
+        if pv is not None and pv < 0:
+            return pv  # reader_pdf checked the supplement belongs to this paper
         vs = _versions.versions(config.knowledge_dir, registry, paper_id)
         if len(vs) < 2:
             return None
-        pv = _PDF_VERSION.get()
         return pv if pv in {v["file_id"] for v in vs} else vs[0]["file_id"]
 
     @app.get("/reader/{paper_id}", response_class=HTMLResponse)
@@ -917,17 +927,45 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                                  (evidence, paper_id, paper_id))
             if moved:
                 return RedirectResponse(request.url.replace(path=f"/reader/{moved['paper_id']}"), status_code=307)
+            # Open a supplement directly so the intermediate main reader never records a page visit.
+            attachment = registry.one(
+                "SELECT s.id FROM paper_supplements s JOIN evidence_entries e "
+                "ON s.paper_id=e.paper_id AND s.revision=e.revision WHERE e.id=? AND e.paper_id=?", (evidence, paper_id))
+            if attachment and _PDF_VERSION.get() != -attachment["id"]:
+                return RedirectResponse(request.url.include_query_params(pv=-attachment["id"]), status_code=307)
         reader_pdf(paper_id)
         if embed and request.headers.get("sec-fetch-dest") == "document":
             return RedirectResponse(request.url.remove_query_params("embed"), status_code=307,
                                     headers={"Vary": "Sec-Fetch-Dest"})
         vs = _versions.versions(config.knowledge_dir, registry, paper_id)
-        response = render(request, "reader.html", p=registry.get_paper(paper_id), embed=embed, start_page=page,
+        shown = shown_version(paper_id)
+        paper = registry.get_paper(paper_id)
+        supplement = registry.one("SELECT * FROM paper_supplements WHERE paper_id=? AND id=?", (paper_id, -shown)) if shown and shown < 0 else None
+        response = render(request, "reader.html", p=paper, embed=embed, start_page=page,
                           find=q, colors=reader_mod.COLORS, pdf_versions=vs if len(vs) > 1 else [],
-                          shown_version=shown_version(paper_id), kind_label=_versions.kind_label)
+                          shown_version=shown, supplement=supplement, reading_position=supplement or paper,
+                          supplements=supplements.listed(registry, paper_id), kind_label=_versions.kind_label)
         if embed:
             response.headers.add_vary_header("Sec-Fetch-Dest")
         return response
+
+    @app.post("/paper/{paper_id}/supplements")
+    async def attach_supplement(paper_id: int, request: Request):
+        async with request.form() as form:
+            _check_csrf(str(form.get("csrf", "")), csrf_token)
+            item = form.get("file")
+            if not hasattr(item, "file"):
+                raise HTTPException(400, _gettext("请选择 PDF 格式的补充材料。"))
+            paper = registry.get_paper(paper_id)
+            main_pdf = pdf_file(paper) if paper else None
+            if main_pdf is None:
+                raise HTTPException(404)
+            try:
+                sid = await run_in_threadpool(supplements.attach, config.knowledge_dir, registry, paper_id,
+                                              main_pdf, item.filename or "", item.file)
+            except ValueError as exc:
+                raise HTTPException(400, _gettext(str(exc))) from None
+        return {"ok": True, "url": f"/reader/{paper_id}?pv={-sid}"}
 
     @app.get("/api/reading/recent")
     def recent_reading():
@@ -941,7 +979,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         with lock:
             count = doc.page_count
         try:
-            written = reading_progress.save(registry, paper_id, body, count)
+            pv = _PDF_VERSION.get()
+            written = reading_progress.save(registry, paper_id, body, count, -pv if pv and pv < 0 else None)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         return {"ok": True, "saved": written, "recent": reading_progress.recent(registry)}
@@ -955,9 +994,11 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         data.update(revision=document_revision(path), ocr_available=ocr.available())
         shown = shown_version(paper_id)
         anns = registry.annotations(paper_id)
-        if shown is not None:  # highlights belong to the version they were made on
-            original = min(v["file_id"] for v in _versions.versions(config.knowledge_dir, registry, paper_id))
-            anns = [r for r in anns if (r["pdf_file"] or original) == shown]
+        if shown is not None and shown < 0:
+            anns = [r for r in anns if r["pdf_file"] == shown]
+        else:
+            original = min((v["file_id"] for v in _versions.versions(config.knowledge_dir, registry, paper_id)), default=None)
+            anns = [r for r in anns if (r["pdf_file"] or original) == (shown or original)]
         data["annotations"] = [dict(r, rects=json.loads(r["rects_json"])) for r in anns]
         data["pdf_version"] = shown
         return data
@@ -978,7 +1019,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             layer = reader_mod.page_layer(path, n, ocr.cache_for(path, config.data_dir), force=force)
         except IndexError:
             raise HTTPException(404) from None
-        if layer["source"] == "ocr":
+        if layer["source"] == "ocr" and (_PDF_VERSION.get() or 0) >= 0:
             index_ocr_page(registry, paper_id, n, layer["words"])
         return layer
 
@@ -1416,12 +1457,13 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import updates as upd
 
         changes, unchanged_n = upd.confirmed_for_field(registry, f["id"])
+        handbook_state = field_tasks.handbook_state(slug)
         return render(request, "field.html", f=f, body_html=body_html, rel=f"fields/{slug}.md",
                       changes=changes, unchanged_n=unchanged_n, update_outcomes=upd.OUTCOMES,
                       field_questions=qmod.field_questions(registry, f["id"]), suggested_questions=suggested,
                       suggest_busy=("questions:" + slug) in busy,
                       has_handbook=(config.knowledge_dir / "handbooks" / f"{slug}.md").exists(),
-                      created=created, hb_started=hb_started or ("handbook" in busy),
+                      created=created, hb_started=handbook_state["state"] == "working", hb_error=handbook_state.get("message"),
                       n_papers=len(registry.field_paper_rows(f["id"])),
                       cons_started=cons_started or ("consolidate" in busy))
 
@@ -1459,6 +1501,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       update_cards=upd.pending(registry), update_outcomes=upd.OUTCOMES,
                       gap_hits=gapmod.new_hits(registry), version_checks=_versions.checks(registry, open_only=True),
                       threshold=pipeline.new_field_threshold,
+                      builds={r["id"]: field_tasks.establishment_state(r["id"]) for r, _ in pending},
                       all_fields=registry.active_fields(), error=error,
                       accept=float(config.classification.get("accept_confidence", 0.6)))
 
@@ -1502,19 +1545,27 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return RedirectResponse(f"/review?error={_q(str(exc))}", status_code=303)
         return RedirectResponse("/review", status_code=303)
 
+    @app.get("/api/review/pending/{pending_id}/establishment")
+    def field_establishment_status(pending_id: int):
+        status = field_tasks.establishment_state(pending_id)
+        if status.get("message"):
+            status["message"] = _gettext(status["message"])
+        return JSONResponse(status, headers={"Cache-Control": "no-store"})
+
     @app.post("/review/pending")
-    def review_pending(csrf: str = Form(...), pending_id: int = Form(...), action: str = Form(...),
+    def review_pending(request: Request, csrf: str = Form(...), pending_id: int = Form(...), action: str = Form(...),
                        slug: str = Form(""), name_zh: str = Form(""), name_en: str = Form(""),
                        description: str = Form(""), axis: str = Form(""), target: str = Form(""),
                        make_handbook: str = Form("")):
         _check_csrf(csrf, csrf_token)
         try:
             if action == "establish":
-                new_slug = pipeline.establish_pending(pending_id, slug or None, name_zh or None, name_en or None,
-                                                      description or None, axis or None)
-                if make_handbook:
-                    background("handbook", _safe(pipeline.generate_handbook), new_slug)
-                return RedirectResponse(f"/field/{new_slug}?created=1", status_code=303)
+                details = {"slug": slug or None, "name_zh": name_zh or None, "name_en": name_en or None,
+                           "description": description or None, "axis": axis or None}
+                task = field_tasks.establish(pending_id, details, bool(make_handbook))
+                if "application/json" in request.headers.get("accept", ""):
+                    return JSONResponse({"state": "working"}, status_code=202)
+                return RedirectResponse(f"/field/{task.result()}?created=1", status_code=303)
             if action == "merge":
                 pipeline.merge_pending(pending_id, target)
                 return RedirectResponse(f"/field/{target}", status_code=303)
@@ -1653,7 +1704,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         _check_csrf(csrf, csrf_token)
         if registry.field_by_slug(slug) is None:
             raise HTTPException(404)
-        background("handbook", _safe(pipeline.generate_handbook), slug)
+        field_tasks.handbook(slug)
         return RedirectResponse(f"/field/{slug}?hb_started=1", status_code=303)
 
     # ---------------------------------------------------------------- taxonomy

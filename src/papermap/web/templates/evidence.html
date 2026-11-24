@@ -28,7 +28,7 @@
     <select data-link-field title="{{ _("挂到学科，会显示在知识地图上") }}"><option value="">{{ _("＋ 挂到学科…") }}</option>{% for f in all_fields if f.id not in mine %}<option value="{{ f.id }}">{{ fname(f) }}</option>{% endfor %}</select>
     {% if not linked_fields %}<span class="muted small">{{ _("挂到学科后，这个问题会出现在知识地图和学科页上；一个问题可以挂多个学科。") }}</span>{% endif %}
   </div>
-  {% if comparison %}{% include "_evidence_comparison.html" %}{% endif %}
+  {% if comparison %}{% include "_evidence_comparison.html" %}{% include "_dataset_overlap.html" %}{% endif %}
   <section class="gaps" id="gaps" data-question="{{ selected.id }}">
     <div class="gaps-head"><h2 class="ev-question-title">{{ _("还缺什么证据") }}</h2>
       <button type="button" class="secondary" data-gap-new>{{ _("＋ 记一个缺口") }}</button></div>
@@ -66,11 +66,14 @@
   <article class="ev-entry" id="evidence-{{ e.id }}" data-entry="{{ e.id }}">
     <div class="ev-entry-head"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span>
       <div class="muted small">{{ sources[e.source] }} {{ _("· 第") }} {{ e.page+1 }} {{ _("页") }}</div></div>
-    <blockquote>{{ e.quote }}</blockquote>
+    {% if e.source == 'region' %}<a class="ev-region-link" href="{{ anchor_path(e) }}">
+      <img class="ev-region-preview" loading="lazy" src="/api/evidence/entries/{{ e.id }}/preview.png" alt="{{ e.region_label }}">
+      <span>{{ e.region_label }}</span></a>{% else %}<blockquote>{{ e.quote }}</blockquote>{% endif %}
     <p class="ev-source">{{ e.title or _("未命名论文") }}{% if e.first_author or e.year %} <span class="muted small">· {{ e.first_author or "" }} {{ e.year or "" }}</span>{% endif %}</p>
     {% if e.note %}<p class="ev-note">{{ e.note }}</p>{% endif %}
     <div class="ev-entry-actions">
       <a class="ghost-btn" href="{{ anchor_path(e) }}">{{ _("定位原文 ↗") }}</a>
+      <button type="button" class="secondary" data-reuse-entry="{{ e.id }}">{{ _("也用于其他问题…") }}</button>
       <button type="button" class="secondary" data-edit>{{ _("编辑笔记") }}</button>
       <button type="button" class="ghost" data-delete>{{ _("删除") }}</button>
     </div>
@@ -84,10 +87,11 @@
     </form>
   </article>
   {% else %}<p class="ev-empty">{{ _("这个问题还没有摘录。在 PDF 中选中原文，点击「摘到证据笔记」即可添加。") }}</p>{% endfor %}{% endif %}
+  {% include "_reuse_evidence.html" %}
   {% if update_cards %}<h2 class="ev-question-title">{{ _("新论文带来的变化") }}</h2>
   {% for u in update_cards %}{{ ucard(u, 'paper_only', update_outcomes) }}{% endfor %}{% endif %}
   {% else %}<p class="ev-empty">{{ _("新建一个研究问题，或在阅读 PDF 时选中原文，点击「摘到证据笔记」。不同论文的摘录可以放在同一问题下。") }}</p>{% endif %}
   <p class="err-text small" id="notebook-error" role="alert" hidden></p>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/evidence.js?v={{ static_v }}"></script>{% endblock %}
+{% block scripts %}<script src="/static/evidence.js?v={{ static_v }}"></script><script src="/static/evidence_links.js?v={{ static_v }}"></script>{% endblock %}

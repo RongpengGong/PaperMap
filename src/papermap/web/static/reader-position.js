@@ -1,7 +1,7 @@
 // Keep one position per paper, across different reader sizes and reading sessions.
 window.pmReadingProgress = function (root, pagesEl, pageEls, csrf) {
   const pid = root.dataset.paper, embedded = window.self !== window.top;
-  const url = "/api/reader/" + pid + "/progress", cacheKey = "papermap.reading." + pid;
+  const url = "/api/reader/" + pid + "/progress", cacheKey = "papermap.reading." + pid + (root.dataset.supplement ? ".s" + root.dataset.supplement : "");
   let ready = false, engaged = false, timer = 0, pending = null, latest = null, inFlight = null;
   let placedTop = null;
 

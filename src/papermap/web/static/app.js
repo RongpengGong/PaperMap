@@ -710,3 +710,24 @@ document.addEventListener("click", async e => {
   if (r.ok) { const item = b.closest("[data-vcheck-item]"); item.classList.add("done"); b.replaceWith(Object.assign(document.createElement("span"), { className: "muted small", textContent: (window.t ? t("已核对") : "已核对") })); }
   else b.disabled = false;
 });
+
+document.addEventListener("submit", async event => {
+  const form = event.target.closest("[data-supplement-upload]");
+  if (!form) return;
+  event.preventDefault();
+  const submit = form.querySelector("button");
+  if (submit.disabled) return;
+  const status = form.querySelector("[data-upload-status]");
+  submit.disabled = true;
+  status.textContent = t("正在添加补充材料…");
+  try {
+    const response = await fetch(form.action, {method: "POST", body: new FormData(form)});
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.detail || t("添加失败，请重试。"));
+    location.assign(data.url);
+  } catch (error) {
+    status.textContent = error.message || t("添加失败，请重试。");
+  } finally {
+    submit.disabled = false;
+  }
+});

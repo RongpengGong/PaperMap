@@ -12,7 +12,7 @@ from .registry import Registry, now_iso
 from .i18n import L
 
 STANCES = {"pending": L("待核对"), "supports": L("支持"), "opposes": L("相反")}
-SOURCES = {"native": L("PDF 原文"), "ocr": L("本机 OCR")}
+SOURCES = {"native": L("PDF 原文"), "ocr": L("本机 OCR"), "region": L("图表局部")}
 DIMENSIONS = {
     "sample_source": L("样本来源"), "analysis_unit": L("比较 / 分析单位"), "methods": L("方法"),
     "findings": L("结果"), "limitations": L("局限"), "general": L("未分项摘录"),
@@ -82,9 +82,16 @@ def valid_dimension(value):
 
 
 def add_entry(registry, question_id, title, paper_id, page, revision, rects, quote, source, stance, note,
-              dimension="general"):
-    quote = valid_text(quote, "摘录", 30000)
-    if source not in ("native", "ocr"):
+              dimension="general", *, region_label="", preview=None):
+    if source == "region":
+        region_label = valid_text(region_label, "图表标记", 200)
+        if not preview or len(rects) != 1:
+            raise ValueError("请重新框选图表区域。")
+        quote = ""
+    else:
+        quote = valid_text(quote, "摘录", 30000)
+        region_label = ""
+    if not isinstance(source, str) or source not in SOURCES:
         raise ValueError("摘录来源无效。")
     stance, note = valid_note(stance, note)
     dimension = valid_dimension(dimension)
@@ -107,9 +114,12 @@ def add_entry(registry, question_id, title, paper_id, page, revision, rects, quo
             db.execute("UPDATE evidence_questions SET status='active' WHERE id=?", (question_id,))
         inserted = db.execute("""
             INSERT INTO evidence_entries
-            (question_id,paper_id,page,revision,rects_json,quote,source,stance,note,anchor_key,created_at,dimension)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(question_id,paper_id,anchor_key) DO NOTHING
-        """, (question_id, paper_id, page, revision, coords, quote, source, stance, note, anchor, now_iso(), dimension)).rowcount
+            (question_id,paper_id,page,revision,rects_json,quote,source,stance,note,anchor_key,created_at,dimension,region_label)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(question_id,paper_id,anchor_key) DO NOTHING
+        """, (question_id, paper_id, page, revision, coords, quote, source, stance, note, anchor, now_iso(), dimension, region_label)).rowcount
+        if source == "region":
+            db.execute("INSERT OR IGNORE INTO evidence_region_previews(revision,page,rects_json,png) VALUES (?,?,?,?)",
+                       (revision, page, coords, preview))
         eid = db.execute("SELECT id FROM evidence_entries WHERE question_id=? AND paper_id=? AND anchor_key=?",
                          (question_id, paper_id, anchor)).fetchone()["id"]
     return {"id": eid, "question_id": question_id, "created": bool(inserted)}
@@ -173,7 +183,7 @@ def question_comparison(registry, question_id):
                        "first_author": row["first_author"], "year": row["year"],
                        "card_context": _card_context(row["card_json"]), "evidence": []}
     for e in registry.query("""
-        SELECT id,paper_id,page,revision,quote,source,stance,note,dimension FROM evidence_entries
+        SELECT id,paper_id,page,revision,quote,source,stance,note,dimension,region_label FROM evidence_entries
         WHERE question_id=? ORDER BY paper_id,page,id
     """, (question_id,)):
         paper = papers.get(e["paper_id"])
@@ -194,7 +204,13 @@ def export_markdown(title, entries, base_url):
     for entry in entries:
         who = " ".join(str(item) for item in (entry["first_author"], entry["year"]) if item)
         lines.extend([f"## {STANCES[entry['stance']]} · {entry['title'] or '未命名论文'}", ""])
-        lines.extend("> " + t for t in entry["quote"].splitlines())
+        if entry["source"] == "region":
+            # Use a fixed link label. The user-supplied figure identifier is plain text.
+            label = SOURCES["region"]
+            lines.extend([f"**{label}** · " + entry["region_label"],
+                          f"![{label}]({base_url.rstrip('/')}/api/evidence/entries/{entry['id']}/preview.png)"])
+        else:
+            lines.extend("> " + t for t in entry["quote"].splitlines())
         lines.extend(["", f"{who} · 第 {entry['page'] + 1} 页 · {SOURCES[entry['source']]}",
                       f"[定位原文]({base_url.rstrip('/')}{anchor_path(entry)})"])
         if entry["doi"]:

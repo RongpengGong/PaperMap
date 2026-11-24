@@ -111,7 +111,7 @@ def paper_text(pdf: Path, limit: int) -> str:
 def old_evidence(registry: Registry, qid: int, paper_id: int) -> list:
     return registry.query(
         "SELECT e.*, p.title, p.first_author, p.year, p.doi FROM evidence_entries e JOIN papers p ON p.id=e.paper_id "
-        "WHERE e.question_id=? AND e.paper_id!=? ORDER BY e.id DESC LIMIT ?", (qid, paper_id, MAX_OLD))
+        "WHERE e.question_id=? AND e.paper_id!=? AND e.source!='region' ORDER BY e.id DESC LIMIT ?", (qid, paper_id, MAX_OLD))
 
 
 def candidate_questions(registry: Registry, paper_id: int) -> list[dict]:

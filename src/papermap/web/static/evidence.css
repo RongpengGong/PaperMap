@@ -52,3 +52,16 @@
 #ev-judgment label { font-size:16px; font-weight:600; }
 #ev-judgment textarea { width:100%; box-sizing:border-box; }
 #ev-judgment .ev-actions { margin-top:5px; }
+.select-region .page { touch-action:none; cursor:crosshair; -webkit-user-select:none; user-select:none; }
+.select-region .page * { pointer-events:none; -webkit-user-select:none; user-select:none; }
+.region-drag,.page .region-mark { position:absolute; box-sizing:border-box; border:2px solid var(--accent); border-radius:2px; background:rgba(48,111,215,.08); pointer-events:none; }
+.region-drag { z-index:6; }
+#capture-region[aria-pressed=true] { background:var(--accent); color:white; }
+.ev-region-preview { display:block; max-width:100%; max-height:220px; width:auto; height:auto; margin:6px 0; border:1px solid var(--line); border-radius:4px; }
+.ev-region-link { display:inline-block; max-width:100%; }
+.dataset-overlap summary { cursor:pointer; overflow-wrap:anywhere; }
+.ev-overlap-paper { border-block-end:1px solid var(--line); padding:10px 0; overflow-wrap:anywhere; }
+.ev-overlap-paper blockquote { margin:4px 0; color:var(--muted); line-height:1.45; }
+.dataset-overlap form { margin-top:14px; }
+.dataset-overlap label { min-width:0; }
+.dataset-overlap select,.dataset-overlap textarea { display:block; width:100%; }

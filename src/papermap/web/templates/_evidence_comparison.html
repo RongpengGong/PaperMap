@@ -1,9 +1,11 @@
 {% macro excerpt(e) %}
 <div class="ev-citation">
-  <a href="{{ e.url }}" title="{{ _('在 PDF 中定位这句原文') }}">
+  <a href="{{ e.url }}" title="{{ _('在 PDF 中定位') }}">
     <span class="ev-cite-meta"><span class="ev-stance" data-stance="{{ e.stance }}">{{ stances[e.stance] }}</span> · {{ sources[e.source] }} · p.{{ e.page }}</span>
-    <q>{{ e.quote }}</q>
+    {% if e.source == 'region' %}<img class="ev-region-preview" loading="lazy" src="/api/evidence/entries/{{ e.id }}/preview.png" alt="{{ e.region_label }}">
+      <span>{{ e.region_label }}</span>{% else %}<q>{{ e.quote }}</q>{% endif %}
   </a>
+  <button type="button" class="ghost small" data-reuse-entry="{{ e.id }}">{{ _("也用于其他问题…") }}</button>
   {% if e.note %}<p class="ev-cite-note"><span>{{ _('我的笔记') }}</span> {{ e.note }}</p>{% endif %}
 </div>
 {% endmacro %}

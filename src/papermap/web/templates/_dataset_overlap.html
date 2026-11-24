@@ -1,0 +1,26 @@
+{% if overlaps %}
+<section class="gaps dataset-overlap" data-overlaps="{{ selected.id }}">
+  <h2 class="ev-question-title">{{ _("可能复用了同一数据集") }}</h2>
+  <p class="muted small">{{ _("这些论文提到了同一数据登录号。请核对使用的样本，再判断是否属于独立验证。") }}</p>
+  {% set choices = {'same':_('相同样本'), 'partial':_('部分样本重叠'), 'distinct':_('样本无重叠'), 'citation':_('仅提及该数据'), 'uncertain':_('仍不确定')} %}
+  {% for group in overlaps %}
+  <details class="gap" data-dataset="{{ group.accession }}" data-kind="{{ group.kind }}" data-reviews="{{ group.reviews|tojson|forceescape }}">
+    <summary><strong>{{ group.accession|keep }}</strong> · {{ group.papers|length }} {{ _("篇论文") }}</summary>
+    {% for p in group.papers %}
+    <div class="ev-overlap-paper"><strong>{{ p.title|keep }}</strong>
+      {% if p.context %}<blockquote>{{ p.context|keep }}</blockquote>{% endif %}
+      {% if p.page is not none %}<a href="/reader/{{ p.paper_id }}?page={{ p.page+1 }}&amp;q={{ group.accession|urlencode }}">{{ _("查看登录号所在页") }} · p.{{ p.page+1 }}</a>{% endif %}
+    </div>
+    {% endfor %}
+    <ul data-reviewed-pairs aria-label="{{ _('已核对的论文组合') }}" hidden></ul>
+    <form class="gap-form" data-review-pair>
+      <label>{{ _("论文一") }}<select name="paper_a">{% for p in group.papers %}<option value="{{ p.paper_id }}" data-key="{{ p.context_key }}">{{ p.title|keep }}</option>{% endfor %}</select></label>
+      <label>{{ _("论文二") }}<select name="paper_b">{% for p in group.papers %}<option value="{{ p.paper_id }}" data-key="{{ p.context_key }}"{% if loop.index==2 %} selected{% endif %}>{{ p.title|keep }}</option>{% endfor %}</select></label>
+      <label>{{ _("核对结论") }}<select name="decision" required><option value="">{{ _("请选择") }}</option>{% for k,v in choices.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <label>{{ _("核对依据（可选）") }}<textarea name="note" rows="2" maxlength="12000"></textarea></label>
+      <div class="ev-actions"><span role="status" class="small muted"></span><button type="submit" class="secondary">{{ _("保存核对结论") }}</button></div>
+    </form>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}

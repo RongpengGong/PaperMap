@@ -3,6 +3,11 @@
     <h2 id="evidence-dialog-title">{{ _("摘到证据笔记") }}</h2>
     <p class="small muted" id="capture-page"></p>
     <blockquote id="capture-quote"></blockquote>
+    <div id="capture-region-fields" hidden>
+      <canvas id="capture-preview" class="ev-region-preview" aria-label="{{ _("选中的图表区域") }}"></canvas>
+      <label for="capture-region-label">{{ _("图表标记") }}</label>
+      <input id="capture-region-label" type="text" maxlength="200" placeholder="{{ _("例如 Fig. 3B 或 Table 2 第四行") }}">
+    </div>
     <label for="capture-question">{{ _("研究问题") }}</label>
     <select id="capture-question"></select>
     <label for="capture-title" class="ev-new-label">{{ _("新问题") }}</label>

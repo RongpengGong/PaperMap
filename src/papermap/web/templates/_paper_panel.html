@@ -151,6 +151,16 @@
   </div>
   <div class="tab-body" data-body="figures" hidden><div class="fig-grid" data-figures="{{ p.id }}"><p class="muted small">{{ _("读取中…") }}</p></div></div>{% endif %}
   <div class="tab-body" data-body="info" hidden>
+    {% if has_pdf and p.status == 'done' and p.kb_path %}
+    <h3>{{ _("补充材料") }}</h3>
+    {% if supplements %}<ul class="files">{% for item in supplements %}<li><a href="/reader/{{ p.id }}?pv={{ -item.id }}">{{ item.name|keep }}</a></li>{% endfor %}</ul>{% endif %}
+    <form data-supplement-upload action="/paper/{{ p.id }}/supplements" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="file" name="file" required accept=".pdf,application/pdf" aria-label="{{ _('选择补充 PDF') }}">
+      <button class="secondary" type="submit">{{ _("添加并阅读") }}</button>
+      <span role="status" class="muted small" data-upload-status></span>
+    </form>
+    {% endif %}
     <h3>{{ _("文件") }}</h3><ul class="files">{% for f in files %}<li><code>{{ f }}</code></li>{% endfor %}</ul>
     {% if dois %}<h3>DOI</h3><ul>{% for d in dois %}<li><code>{{ d.doi }}</code> ({{ d.kind }})</li>{% endfor %}</ul>{% endif %}
     {% if p.kb_path %}<p class="muted small">{{ _("卡片：") }}<code>{{ p.kb_path }}</code> {{ _("· 模型") }} {{ p.model or '' }} · {{ p.prompt_version or '' }}</p>{% endif %}
