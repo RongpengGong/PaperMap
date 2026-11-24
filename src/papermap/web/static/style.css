@@ -1,7 +1,7 @@
 /* PaperMap — native surfaces, clear content, restrained glass. */
 :root {
   color-scheme:light;
-  --window-rim:clamp(8px,.85vw,13px); --edge-line:#c9d9ed;
+  --window-rim:clamp(5px,.42vw,7px); --card-radius:12px; --edge-line:#c9d9ed;
   --rim-solid:#bed7f0; --rim-tint:rgba(139,191,239,.42); --rim-glint:rgba(244,253,255,.78); --rim-sheen:rgba(244,253,255,.34);
   --rim-wash:linear-gradient(155deg,rgba(245,252,255,.35) 8%,rgba(129,196,238,.19) 46%,rgba(82,143,217,.28) 78%,rgba(177,230,243,.34));
   --control-sheen:linear-gradient(164deg,rgba(255,255,255,.13),transparent 55%,rgba(16,53,125,.13));
@@ -116,7 +116,9 @@ body.app {
 .cost-line { font-size:11px !important; color:var(--muted) !important; font-variant-numeric:tabular-nums; }
 .badge { margin-left:auto; min-width:18px; padding:0 5px; border-radius:6px; background:var(--warn); color:var(--card); font-size:10px; font-weight:650; text-align:center; line-height:17px; }
 .content { flex:1; min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; padding:28px 32px 56px; background:var(--bg); }
-.app > .content { margin:0; border:0; border-end-end-radius:var(--window-rim); box-shadow:1px 1px 0 var(--rim-glint); }
+.app > .content { margin:0; border:0; border-end-end-radius:var(--card-radius);
+  box-shadow:1px 0 0 color-mix(in srgb, var(--line) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--line) 70%, transparent), 0 2px 10px rgba(15,23,42,.05); }
+.app > .ai-drawer { border-end-end-radius:var(--card-radius); }
 .app > .sidebar { box-shadow:0 1px 0 var(--rim-glint); }
 .content > h2:first-child,.content > p:first-child + h2 { margin-top:0; margin-bottom:18px; }
 .content.split-content { padding:0; overflow:hidden; display:flex; flex-direction:column; }
