@@ -773,6 +773,11 @@ def maybe_digest(config, registry: Registry, send=None, force: bool = False) -> 
     top = items[0]
     body = (f"{len(items)} 篇值得一读，最相关：{top['title'][:90]}" if config.output_language != "en"
             else f"{len(items)} papers worth reading; top: {top['title'][:90]}")
+    if send is None:
+        from . import digest
+
+        if digest.weekly_owns_notifications(config):
+            send = lambda *_: None  # noqa: E731 - folded into the weekly review's single notification
     (send or notify.send)("PaperMap · 本周新文献" if config.output_language != "en" else "PaperMap · New this week", body)
     registry.log("info", f"Weekly new-literature digest: {len(items)} paper(s)")
     return info
@@ -812,6 +817,13 @@ def run_scheduler(pipeline, stop: threading.Event | None = None, interval_s: flo
             clips.maybe_auto_digest(pipeline)
         except Exception as exc:  # noqa: BLE001
             log.warning("weekly clippings digest failed: %s", exc)
+        try:
+            from . import digest
+
+            digest.maybe_auto(pipeline)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("periodic review failed: %s", exc)
+            pipeline.registry.log("warning", f"Periodic review failed: {str(exc)[:200]}")
         stop.wait(interval_s)
 
 

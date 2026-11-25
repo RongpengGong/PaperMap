@@ -195,7 +195,10 @@
       if (tab.dataset.tab === "translation") translationPosition?.show();
     };
     panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { showTab(tab.dataset.tab); pref("pm_side_tab", tab.dataset.tab); }));
-    showTab(pref("pm_side_tab") || "card");
+    // a link such as /?id=3&tab=notes (from the review page) opens that paper on the named tab
+    const urlArgs = new URLSearchParams(location.search);
+    const asked = urlArgs.get("id") === String(id) ? urlArgs.get("tab") : null;
+    showTab((asked && panel.querySelector(`.tab[data-tab="${CSS.escape(asked)}"]`) ? asked : null) || pref("pm_side_tab") || "card");
     if (window.pmChatInit) window.pmChatInit(panel);
     const figBox = panel.querySelector("[data-figures]");
     if (figBox && pref("pm_side_tab") === "figures") loadFigures(figBox);

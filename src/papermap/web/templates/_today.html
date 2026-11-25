@@ -6,3 +6,11 @@
 </section>
 <script>(function(){try{var k="pm_today_hidden",d=new Date().toDateString(),b=document.getElementById("today_box");if(localStorage.getItem(k)===d)b.hidden=true;document.getElementById("today_hide").onclick=function(){localStorage.setItem(k,d);b.hidden=true;};}catch(e){}})();</script>
 {% endif %}
+{% if today_done %}{% set dc = today_done.counts %}
+<section class="today today-done" id="today_done" aria-labelledby="today_done_h">
+  <div class="today-head"><h2 id="today_done_h">✓ {{ _("今天做了什么") }}</h2><span class="grow"></span><a class="small" href="/digest">{{ _("本周回顾") }} ›</a></div>
+  <p class="today-sum">{% if dc.read %}{{ _("读了 {n} 篇", n=dc.read) }} {% endif %}{% if dc.excerpts %}{{ _("摘录 {n} 条", n=dc.excerpts) }} {% endif %}{% if dc.notes %}{{ _("{n} 篇写了笔记", n=dc.notes) }} {% endif %}{% if dc.clips %}{{ _("收藏 {n} 条", n=dc.clips) }} {% endif %}{% if dc.added %}{{ _("新入库 {n} 篇", n=dc.added) }}{% endif %}</p>
+  <ul>{% for x in today_done["items"] %}<li><a href="{{ x.url }}" title="{{ x.text }}"><span class="today-t"><i class="today-kind">{{ {'excerpt': _('摘录'), 'read': _('阅读'), 'note': _('笔记'), 'added': _('入库'), 'clip': _('收藏')}[x.kind] }}</i>{{ x.text }}</span>{% if x.extra %}<small>{{ x.extra }}</small>{% endif %}</a></li>{% endfor %}</ul>
+  {% if today_done.questions %}<p class="today-q small">{{ _("你今天在笔记里问过：") }}{% for q in today_done.questions %}<span>{{ q }}</span>{% endfor %}</p>{% endif %}
+</section>
+{% endif %}

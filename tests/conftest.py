@@ -155,6 +155,10 @@ class FakeCompletions:
         elif "You organise a researcher's clippings notebook" in system:
             ids = re.findall(r"^\[(C\d+)\]", kwargs["messages"][-1]["content"], re.M)
             content = "## 成纤维细胞\n\n- 位于边缘 " + "".join(f"[{i}]" for i in ids) + " [C9999]\n\n## 值得追问\n\n- 为什么？"
+        elif "short periodic review of a researcher's own reading records" in system:
+            self.digest_calls = getattr(self, "digest_calls", 0) + 1
+            ids = re.findall(r"^\[([ECP]\d+)\]", kwargs["messages"][-1]["content"], re.M)
+            content = "- 这周集中在成纤维细胞 " + "".join(f"[{i}]" for i in ids[:3]) + " [E99999]"
         elif "evidence gap into search terms" in system:
             self.gap_calls = getattr(self, "gap_calls", 0) + 1
             content = json.dumps({"terms": ["Visium", "spatial transcriptomics", "fibroblast", "study"]})

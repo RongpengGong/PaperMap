@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .. import evidence, evidence_links, i18n, versions
+from ..registry import now_iso
 from .. import gaps as gapmod
 from .. import questions as qmod
 from .. import updates as upd
@@ -72,8 +73,9 @@ def mount_evidence(app, config, registry, render, csrf_token, reader_pdf):
             return problem("当前判断最多可输入 12000 个字符。")
         value = value.strip()
         saved = registry.execute(
-            "UPDATE evidence_questions SET judgment=? WHERE id=? AND status='active' AND judgment IN (?,?)",
-            (value, qid, previous, value))
+            "UPDATE evidence_questions SET judgment_at=CASE WHEN judgment=? THEN judgment_at ELSE ? END, judgment=? "
+            "WHERE id=? AND status='active' AND judgment IN (?,?)",
+            (value, now_iso(), value, qid, previous, value))
         if not saved.rowcount:
             return problem("这个问题已在别处更新，请保留你的草稿，刷新后再保存。", 409)
         return {"ok": True, "judgment": value}

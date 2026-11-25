@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}{{ _("回顾 - PaperMap") }}{% endblock %}
+{% macro stance(s) %}<span class="dg-stance {{ s }}">{{ _("支持") if s == 'supports' else (_("相反") if s == 'opposes' else _("待核对")) }}</span>{% endmacro %}
+{% block content %}
+{% set d = v.data %}
+{% set rep = v.report %}
+<div class="digest-page" id="digest" data-kind="{{ v.kind }}" data-period="{{ v.period }}" data-report="{{ rep.id if rep else '' }}">
+  <div class="tr-head">
+    <h1>{{ _("回顾") }}</h1>
+    <span class="grow"></span>
+    {% if rep and rep.kb_path %}<a class="ghost-btn" href="/digest/{{ rep.id }}.md">{{ _("下载 Markdown") }}</a>{% endif %}
+    <button type="button" id="dg_save">{{ _("更新这份报告") if rep else _("保存这份报告") }}</button>
+  </div>
+  <p class="muted small">{{ _("回顾只用你自己的记录：阅读进度、证据摘录、笔记、收藏、缺口和更新卡。「值得追问」每条都写明为什么推给你，并链回原文；你点「已解决」「不相关」后，同类推送会减少。每周、每月结束后自动写一份，存进知识库的 digests 文件夹，只发一条通知。") }}</p>
+
+  <nav class="tr-tabs" aria-label="{{ _("选择时间段") }}">
+    {% for k, p, label in tabs %}<a class="tr-tab {{ 'on' if k == v.kind and p == v.period }}" href="/digest?kind={{ k }}&amp;period={{ p }}">{{ label }}</a>{% endfor %}
+    {% if history %}<select id="dg_history" class="dg-history" aria-label="{{ _("以前的报告") }}">
+      <option value="">{{ _("以前的报告…") }}</option>
+      {% for h in history %}<option value="/digest?kind={{ h.kind }}&amp;period={{ h.period }}" {{ 'selected' if h.kind == v.kind and h.period == v.period }}>{{ h.period }} · {{ _("周报") if h.kind == 'week' else _("月报") }}{% if h.status == 'empty' %} · {{ _("无记录") }}{% endif %}</option>{% endfor %}
+    </select>{% endif %}
+  </nav>
+
+  <h2 class="dg-title">{{ _("周报") if v.kind == 'week' else _("月报") }} · {{ period_label }}
+    <span class="muted small">{% if v.live %}{{ _("进行中：内容随你的记录更新") }}{% endif %}{% if rep %}{% if v.live %} · {% endif %}{{ _("已保存") }} {{ rep.updated_at[:16]|replace('T', ' ') }} UTC · <code>knowledge/{{ rep.kb_path }}</code>{% endif %}</span></h2>
+
+  {% if d.empty %}<div class="notice">{{ _("这段时间没有新的阅读记录，也没有足够依据推送；这次跳过。") }}</div>{% endif %}
+
+  {% set c = d.counts %}
+  <div class="dg-stats">
+    <div><b>{{ c.read }}</b><span>{{ _("篇在读或读过") }}</span></div>
+    <div><b>{{ c.added }}</b><span>{{ _("篇新入库") }}</span></div>
+    <div><b>{{ c.excerpts }}</b><span>{{ _("条新摘录") }}{% if c.excerpts %} <small>{{ _("支持") }} {{ c.supports }} · {{ _("相反") }} {{ c.opposes }}</small>{% endif %}</span></div>
+    <div><b>{{ c.clips + c.annotations }}</b><span>{{ _("条收藏与标注") }}</span></div>
+    <div><b>{{ c.notes }}</b><span>{{ _("篇写了笔记") }}</span></div>
+    <div><b>{{ c.gaps_closed }}</b><span>{{ _("个缺口补上") }}</span></div>
+  </div>
+
+  <section class="dg-sec" aria-labelledby="dg_sum_h">
+    <h3 id="dg_sum_h">{{ _("AI 小结") }} <span class="muted small">{{ _("只根据本期记录，每条都链回来源") }}</span></h3>
+    {% if v.summary_html %}<div class="md dg-summary">{{ v.summary_html|safe }}</div>
+    {% elif not model_ready %}<p class="muted small">{{ _("还没有连接模型；回顾的其他部分不需要模型。") }}</p>
+    {% elif v.estimate.calls %}<p class="muted small">{{ _("没有小结。") }}</p>
+    {% else %}<p class="muted small">{{ _("记录太少，不写小结。") }}</p>{% endif %}
+    {% if model_ready and v.estimate.calls %}<button type="button" class="ghost-btn" id="dg_summary">{{ _("重新写小结") if v.summary_html else _("写 AI 小结") }}
+      <span class="muted">· {% if v.estimate.subscription %}{{ _("1 次调用，计入订阅用量") }}{% else %}{{ _("1 次调用，约") }} ${{ "%.4f"|format(v.estimate.cost) }}{% endif %}</span></button>{% endif %}
+  </section>
+
+  <section class="dg-sec" aria-labelledby="dg_push_h">
+    <h3 id="dg_push_h">{{ _("值得追问") }} <span class="muted small">{{ _("每周最多 3 条，每月 1 条；依据不足就不推") }}</span></h3>
+    {% for p in d.pushes %}
+    <article class="dg-push" data-key="{{ p.key }}" data-sig="{{ p.signature }}">
+      <div class="dg-push-head"><span class="dg-kind {{ p.kind }}">{{ push_kinds[p.kind] }}</span>{% if p.followed %}<span class="muted small">{{ _("你上次选了继续追问") }}</span>{% endif %}</div>
+      <p class="dg-why">{{ _(p.why, **p.args) }}</p>
+      {% if p.quotes %}<ul class="dg-quotes">{% for q in p.quotes %}<li>{{ stance(q.stance) }} {{ q.text }}</li>{% endfor %}</ul>{% endif %}
+      <p class="dg-links">{% for l in p.links %}<a href="{{ l.url }}">{% if l.label %}{{ _(l.label) }}{% endif %}{% if l.label and l.text %} · {% endif %}{{ l.text }}</a>{% endfor %}</p>
+      <div class="seg dg-actions" role="group" aria-label="{{ _("处理这条推送") }}">{% for a, label in actions.items() %}<button type="button" data-act="{{ a }}" class="{{ 'on' if p.state == a }}" aria-pressed="{{ 'true' if p.state == a else 'false' }}">{{ label }}</button>{% endfor %}</div>
+      {% if p.kind == 'gap' %}<p class="muted small dg-hint">{{ _("「已解决」会把这个缺口标为已补上。") }}</p>{% endif %}
+    </article>
+    {% else %}<p class="muted small">{{ _("这次没有足够依据的推送。") }}</p>{% endfor %}
+  </section>
+
+  {% if v.kind == 'month' %}
+  {% if d.revisits %}<section class="dg-sec">
+    <h3>{{ _("旧判断回访") }} <span class="muted small">{{ _("你几周前确认的判断，之后又进来了新证据") }}</span></h3>
+    <ul class="dg-list">{% for r in d.revisits %}<li><a href="/evidence?question={{ r.id }}&amp;view=compare">{{ r.title }}</a>
+      <span class="muted small">{{ _("{since} 确认的判断之后新增 {n} 条摘录", since=r.since, n=r.new) }}{% if r.opposes %} · <b class="dg-opp">{{ _("{o} 条相反", o=r.opposes) }}</b>{% endif %}</span>
+      <blockquote class="dg-judgment">{{ r.judgment[:300] }}</blockquote></li>{% endfor %}</ul>
+  </section>{% endif %}
+  {% if d.questions %}<section class="dg-sec">
+    <h3>{{ _("研究问题进展") }}</h3>
+    <ul class="dg-list">{% for q in d.questions %}<li><a href="/evidence?question={{ q.id }}">{{ q.title }}</a>
+      <span class="muted small">{{ _("支持") }} {{ q.supports }} · {{ _("相反") }} {{ q.opposes }} · {{ _("待核对") }} {{ q.pending }}{% if q.gaps_closed %} · {{ _("补上缺口 {n} 个", n=q.gaps_closed|length) }}{% endif %}{% if q.gaps_added %} · {{ _("新缺口 {n} 个", n=q.gaps_added|length) }}{% endif %}{% if q.judgment is not none %} · {{ _("判断已更新") }}{% endif %}</span>
+      {% for u in q.updates %}<div class="small">↳ {{ u.label }}：{{ u.text }}</div>{% endfor %}</li>{% endfor %}</ul>
+  </section>{% endif %}
+  {% if d.ready %}<section class="dg-sec">
+    <h3>{{ _("可以写成段落了") }} <span class="muted small">{{ _("至少 3 篇有已核对的摘录，且两边都有或有 4 篇以上") }}</span></h3>
+    <ul class="dg-list">{% for r in d.ready %}<li>{{ r.title }} <span class="muted small">{{ _("{n} 篇", n=r.papers|length) }}{% if r.both %} · {{ _("支持和相反都有") }}{% endif %}</span> <a class="ghost-btn" href="{{ r.url }}">{{ _("带这些论文去写作") }}</a></li>{% endfor %}</ul>
+  </section>{% endif %}
+  {% endif %}
+
+  {% if d.excerpts %}<section class="dg-sec">
+    <h3>{{ _("新摘录") }}</h3>
+    {% for g in d.excerpts %}<div class="dg-q"><a class="dg-q-title" href="/evidence?question={{ g.id }}">{{ g.title }}</a>
+      <ul class="dg-list">{% for x in g["items"] %}<li>{{ stance(x.stance) }} <a href="{{ x.url }}">{{ x.label }} · p.{{ x.page }}</a>{% if x.region %} <span class="muted small">{{ _("图表") }}{% if x.region_label %} {{ x.region_label }}{% endif %}</span>{% endif %}
+        <div class="dg-quote">{{ x.quote }}</div>{% if x.note %}<div class="muted small">{{ x.note }}</div>{% endif %}</li>{% endfor %}</ul></div>{% endfor %}
+  </section>{% endif %}
+
+  {% if d.read or d.added %}<section class="dg-sec">
+    <h3>{{ _("读了什么") }}</h3>
+    <ul class="dg-list">{% for p in d.read %}<li><a href="/?id={{ p.id }}">{{ p.title }}</a> <span class="muted small">{{ p.label }}{% if p.finished %} · {{ _("读完") }}{% endif %}</span></li>{% endfor %}
+      {% for p in d.added %}{% if p.id not in d.read|map(attribute='id')|list %}<li><a href="/?id={{ p.id }}">{{ p.title }}</a> <span class="muted small">{{ p.label }} · {{ _("新入库") }}</span></li>{% endif %}{% endfor %}</ul>
+  </section>{% endif %}
+
+  {% if d.backlog or d.missed %}<section class="dg-sec">
+    <h3>{{ _("阅读积压") }} <span class="muted small">{{ _("按和你的缺口、研究问题的关系排序，不按入库时间") }}</span></h3>
+    <ol class="dg-list">{% for b in d.backlog %}<li><a href="/?id={{ b.id }}">{{ b.title }}</a> <span class="muted small">{{ b.label }} · {% for r in b.reasons %}{{ _(r) }}{% if not loop.last %}、{% endif %}{% endfor %}</span></li>{% endfor %}</ol>
+    {% if d.missed %}<p class="small"><b>{{ _("可能漏读") }}</b> <span class="muted">{{ _("库里多篇论文都引用、你还没收") }}</span></p>
+    <ul class="dg-list">{% for m in d.missed %}<li>{{ m.title }} <span class="muted small">{{ m.year or '' }} · {{ _("{n} 篇引用", n=m.n) }}{% if m.doi %} · <a href="https://doi.org/{{ m.doi }}" target="_blank" rel="noopener">{{ m.doi }}</a>{% endif %}</span></li>{% endfor %}</ul>{% endif %}
+  </section>{% endif %}
+
+  {% if d.tracking or d.clip_digests %}<section class="dg-sec">
+    <h3>{{ _("新文献与收藏整理") }}</h3>
+    {% if d.tracking %}<ul class="dg-list">{% for x in d.tracking %}<li><a href="/tracking#cand-{{ x.id }}">{{ x.title }}</a>{% if x.model_reason %} <span class="muted small">{{ x.model_reason }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+    {% for cd in d.clip_digests %}<p class="small"><a href="/clips">{{ _("收藏整理") }} · {{ cd.created_at[:10] }}</a> <code>knowledge/{{ cd.kb_path }}</code></p>{% endfor %}
+  </section>{% endif %}
+
+  {% set t = d.todo %}{% if t.update_cards or t.version_checks or t.gap_hits %}<section class="dg-sec">
+    <h3>{{ _("等你核对") }}</h3>
+    <ul class="dg-list">
+      {% if t.update_cards %}<li><a href="/review">{{ _("{n} 张更新卡待核对", n=t.update_cards) }}</a></li>{% endif %}
+      {% if t.version_checks %}<li><a href="/review">{{ _("{n} 篇出了新版本，有摘录要核对", n=t.version_checks) }}</a></li>{% endif %}
+      {% if t.gap_hits %}<li><a href="/review">{{ _("{n} 条「可能回答了缺口」的提醒", n=t.gap_hits) }}</a></li>{% endif %}
+    </ul>
+  </section>{% endif %}
+
+  {% if v.kind == 'week' %}
+  {% if d.goals %}<section class="dg-sec">
+    <h3>{{ _("这周打算的进展") }}</h3>
+    <ul class="dg-list">{% for g in d.goals %}<li class="dg-goal" data-goal="{{ g.id }}"><label><input type="checkbox" data-goal-done {{ 'checked' if g.status == 'done' }}> {{ g.text }}</label>
+      <span class="muted small">{% if g.n %}{{ _("相关记录 {n} 条", n=g.n) }}{% else %}{{ _("这段时间没有相关记录") }}{% endif %}</span>
+      {% for m in g.matched %}<div class="small">↳ <a href="{{ m.url }}">{{ m.label }}</a></div>{% endfor %}</li>{% endfor %}</ul>
+  </section>{% endif %}
+  <section class="dg-sec">
+    <h3>{{ _("下周打算") }} <span class="muted small">{{ _("可以不写；写了的话，下一份周报会对照你的记录看进展") }}</span></h3>
+    <ul class="dg-list">{% for g in v.next_goals %}<li class="dg-goal" data-goal="{{ g.id }}">{{ g.text }} <button type="button" class="icon-btn" data-goal-del title="{{ _("删除") }}">×</button></li>{% endfor %}</ul>
+    {% if v.next_goals|length < 3 %}<form class="row dg-goal-form" id="dg_goal_form" data-period="{{ d.next_period }}"><input type="text" name="text" maxlength="300" placeholder="{{ _("想弄清的一件事，例如：比较两篇 Visium 研究的样本来源") }}" class="grow"><button type="submit">{{ _("记下") }}</button></form>{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="dg-sec" aria-labelledby="dg_outline_h">
+    <h3 id="dg_outline_h">{{ _("组会大纲") }} <span class="muted small">{{ _("一页一节、用 --- 分隔；只放你确认过的摘录和判断，未核对的会标出；备注里带原句、页码和 DOI。不调用模型。") }}</span></h3>
+    {% if v.outline %}
+    <textarea id="dg_outline" class="dg-outline" spellcheck="false" aria-label="{{ _("组会大纲") }}">{{ v.outline }}</textarea>
+    <div class="row"><button type="button" id="dg_outline_save">{{ _("保存修改") }}</button>
+      <a class="ghost-btn" href="/digest/{{ rep.id }}/outline.md">{{ _("下载") }}</a>
+      <span class="grow"></span><span class="muted small"><code>knowledge/{{ rep.outline_path }}</code></span>
+      <button type="button" class="ghost-btn" id="dg_outline_make" data-overwrite="1">{{ _("重新生成") }}</button></div>
+    {% else %}<button type="button" id="dg_outline_make">{{ _("生成组会大纲") }}</button>{% endif %}
+  </section>
+
+  <details class="dg-sec dg-settings">
+    <summary>{{ _("回顾设置") }}</summary>
+    <label class="inline"><input type="checkbox" data-st="daily" {{ 'checked' if st.daily }}> {{ _("首页显示「今天做了什么」（不调用模型）") }}</label>
+    <label class="inline"><input type="checkbox" data-st="weekly" {{ 'checked' if st.weekly }}> {{ _("每周结束后自动写周报") }}</label>
+    <label class="inline"><input type="checkbox" data-st="monthly" {{ 'checked' if st.monthly }}> {{ _("每月结束后自动写月报") }}</label>
+    <label class="inline"><input type="checkbox" data-st="notify" {{ 'checked' if st.notify }}> {{ _("写好后发一条系统通知（周报会合并本周新文献简报的通知）") }}</label>
+    <label class="inline"><input type="checkbox" data-st="ai_summary" {{ 'checked' if st.ai_summary }}> {{ _("自动写报告时附上 AI 小结（每份 1 次模型调用）") }}</label>
+  </details>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const root = document.getElementById("digest");
+  const csrf = document.body.dataset.csrf;
+  const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrf, ...b }) }).then(r => r.json()).catch(() => ({ ok: false }));
+  const toast = m => window.pmToast ? window.pmToast(m) : alert(m);
+  const kind = root.dataset.kind, period = root.dataset.period;
+  async function generate(model, btn) {
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = model ? t("正在写小结…") : t("正在保存…"); }
+    const r = await post("/api/digest/generate", { kind, period, model });
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label; }
+    if (!r.ok) { toast(r.message || t("保存失败")); return null; }
+    return r;
+  }
+  const save = document.getElementById("dg_save");
+  save.addEventListener("click", async () => { if (await generate(false, save)) location.reload(); });
+  const sum = document.getElementById("dg_summary");
+  sum && sum.addEventListener("click", async () => { if (await generate(true, sum)) location.reload(); });
+  const hist = document.getElementById("dg_history");
+  hist && hist.addEventListener("change", () => { if (hist.value) location.href = hist.value; });
+  root.addEventListener("click", async e => {
+    const b = e.target.closest(".dg-actions [data-act]");
+    if (b) {
+      const art = b.closest("[data-key]");
+      const action = b.classList.contains("on") ? "clear" : b.dataset.act;
+      const r = await post("/api/digest/feedback", { key: art.dataset.key, action, signature: art.dataset.sig });
+      if (!r.ok) { toast(r.message || t("操作失败")); return; }
+      art.querySelectorAll("[data-act]").forEach(x => { const on = x.dataset.act === r.action; x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
+      art.classList.toggle("dg-done", r.action === "resolved" || r.action === "irrelevant");
+      return;
+    }
+    const del = e.target.closest("[data-goal-del]");
+    if (del) {
+      const li = del.closest("[data-goal]");
+      if ((await post(`/api/digest/goals/${li.dataset.goal}`, { delete: true })).ok) location.reload();
+      return;
+    }
+    const mk = e.target.closest("#dg_outline_make");
+    if (mk) {
+      if (mk.dataset.overwrite && !confirm(t("重新生成会覆盖你对大纲的修改，继续吗？"))) return;
+      mk.disabled = true;
+      let rid = root.dataset.report;
+      if (!rid) { const r = await generate(false, null); if (!r) { mk.disabled = false; return; } rid = r.id; }
+      const r = await post(`/api/digest/${rid}/outline`, {});
+      mk.disabled = false;
+      if (r.ok) location.reload(); else toast(r.message || t("生成失败"));
+    }
+  });
+  root.addEventListener("change", async e => {
+    const g = e.target.closest("[data-goal-done]");
+    if (g) { await post(`/api/digest/goals/${g.closest("[data-goal]").dataset.goal}`, { status: g.checked ? "done" : "open" }); return; }
+    const s = e.target.closest("[data-st]");
+    if (s) { const r = await post("/api/digest/settings", { [s.dataset.st]: s.checked }); if (!r.ok) toast(t("保存失败")); }
+  });
+  const form = document.getElementById("dg_goal_form");
+  form && form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const r = await post("/api/digest/goals", { period: form.dataset.period, text: form.text.value });
+    if (r.ok) location.reload(); else toast(r.message || t("保存失败"));
+  });
+  const ol = document.getElementById("dg_outline_save");
+  ol && ol.addEventListener("click", async () => {
+    const r = await post(`/api/digest/${root.dataset.report}/outline`, { text: document.getElementById("dg_outline").value });
+    toast(r.ok ? t("已保存") : (r.message || t("保存失败")));
+  });
+})();
+</script>
+{% endblock %}

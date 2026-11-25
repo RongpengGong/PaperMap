@@ -271,7 +271,8 @@ MIGRATIONS = {
                "read_status": "TEXT NOT NULL DEFAULT 'unread'", "starred": "INTEGER NOT NULL DEFAULT 0",
                "tags_json": "TEXT", "zotero_key": "TEXT",
                "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER",
-               "card_override": "TEXT", "trash_path": "TEXT", "deleted_status": "TEXT"},  # the user's own edit of the card body (kept over regeneration)
+               "card_override": "TEXT", "trash_path": "TEXT", "deleted_status": "TEXT",
+               "read_at": "TEXT"},  # when the user last marked the paper read (periodic reviews)  # the user's own edit of the card body (kept over regeneration)
     "annotations": {"pdf_file": "INTEGER",  # which version of the PDF (files.id) when a paper has several
                     "uid": "TEXT",  # stable ID shared with a paired phone
                     "style": "TEXT NOT NULL DEFAULT 'highlight'"},  # highlight / underline
@@ -281,7 +282,7 @@ MIGRATIONS = {
     "evidence_questions": {"status": "TEXT NOT NULL DEFAULT 'active'",  # active / suggested / dismissed
                            "origin": "TEXT NOT NULL DEFAULT 'user'",  # user / suggested
                            "rationale": "TEXT", "source_json": "TEXT",
-                           "judgment": "TEXT NOT NULL DEFAULT ''"},
+                           "judgment": "TEXT NOT NULL DEFAULT ''", "judgment_at": "TEXT"},
     "evidence_entries": {"dimension": "TEXT NOT NULL DEFAULT 'general'", "region_label": "TEXT NOT NULL DEFAULT ''"},
 }
 

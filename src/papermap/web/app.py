@@ -376,6 +376,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                                       for key, item in export_templates(config).items()],
                       purposes_menu=_purposes.all_tags(registry),
                       today=app.state.today_items() if not (q or status or c) else [],
+                      today_done=app.state.today_done() if not (q or status or c) else None,
                       trash_expiring=__import__("papermap.trash", fromlist=["expiring"]).expiring(config, registry),
                       current_collection=(registry.one("SELECT * FROM collections WHERE id=?", (int(c),))
                                           if c.isdigit() else None),
@@ -552,6 +553,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         cols = {}
         if body.get("read_status") in ("unread", "reading", "read"):
             cols["read_status"] = body["read_status"]
+            if body["read_status"] == "read":
+                cols["read_at"] = now_iso()
         if "starred" in body:
             cols["starred"] = 1 if body["starred"] else 0
         if cols:
@@ -2405,6 +2408,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .writing_routes import mount_writing
 
     mount_writing(app, config, registry, pipeline, render, json_body, md_html, _gettext, _check_csrf, csrf_token, _flat_tree)
+    from .digest_routes import mount_digest
+
+    mount_digest(app, config, registry, pipeline, render, json_body, md_html, _gettext)
     from .chat_routes import mount_chat
 
     mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path, _gettext)
