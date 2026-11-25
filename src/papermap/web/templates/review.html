@@ -12,6 +12,10 @@
 {% for c in version_checks %}{{ vcheck(c, true) }}{% endfor %}
 {% endif %}
 
+{% if squad_runs %}
+<h3>{{ _("智能体小队的提议") }}</h3>
+<ul class="squad-review">{% for r in squad_runs %}<li><a href="/squad/{{ r.id }}#proposals">{{ r.title }}</a> <span class="muted small">{{ _("{n} 条待确认", n=r.pending) }}</span></li>{% endfor %}</ul>
+{% endif %}
 {% if gap_hits %}
 {% from "_gap_hits.html" import ghit %}
 <h3>{{ _("可能回答你问题的论文（") }}{{ gap_hits|length }}）</h3>

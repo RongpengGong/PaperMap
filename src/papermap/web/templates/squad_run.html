@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ run.title }} - {{ _("智能体小队") }}{% endblock %}
+{% block content %}
+<div class="squad-run" id="squad" data-id="{{ run.id }}" data-remote="{{ 1 if request.state.remote else 0 }}">
+  <p class="muted small"><a href="/squads">← {{ _("智能体小队") }}</a> · {{ template_label }}</p>
+  <h2>{{ run.title }}</h2>
+  {% if run.goal %}<p class="squad-goal">{{ run.goal }}</p>{% endif %}
+  <div class="row squad-bar">
+    <span class="chip" id="sq_status"></span>
+    <span class="small" id="sq_money"></span>
+    <span class="muted small" id="sq_msg"></span>
+    <span class="grow"></span>
+    {% if not request.state.remote %}
+    <label class="small">{{ _("费用上限") }} $<input type="number" id="sq_cap" min="0" max="50" step="0.1" value="{{ run.cap_usd }}" style="width:5em"></label>
+    <button type="button" class="secondary" id="sq_stop">{{ _("停止") }}</button>
+    {% endif %}
+  </div>
+
+  <section class="squad-board" aria-label="{{ _("任务板") }}">
+    {% for col, label in [('queued', _('排队中')), ('running', _('进行中')), ('done', _('已完成'))] %}
+    <div class="squad-col" data-col="{{ col }}"><h4>{{ label }} <i class="n"></i></h4><div class="squad-cards"></div></div>
+    {% endfor %}
+  </section>
+
+  {% if not request.state.remote %}
+  <section class="squad-follow card">
+    <div class="row">
+      <label class="small">{{ _("发给") }} <select id="sq_to"><option value="lead">{{ member_labels.lead }}</option></select></label>
+      <input type="text" id="sq_text" maxlength="2000" placeholder="{{ _("追加指令，例如：多看人类样本的研究；跳过综述类论文") }}" class="grow">
+      <button type="button" id="sq_send">{{ _("发送") }}</button>
+    </div>
+    <p class="muted small">{{ _("运行中的成员在下一步收到；已结束的小队会重新开始，由队长决定怎么做。") }}</p>
+  </section>
+  {% endif %}
+
+  <section id="proposals" class="squad-proposals">
+    <h3>{{ _("提议") }} <i class="n" id="sq_pn"></i></h3>
+    <p class="muted small">{{ _("小队不会自己改动文献库。接受后才写入证据笔记、研究问题或新文献。") }}</p>
+    <div id="sq_props"></div>
+  </section>
+
+  <section class="squad-result" id="sq_result_box" hidden>
+    <h3>{{ _("结果") }} <a class="small" id="sq_result_path"></a></h3>
+    <div class="md card" id="sq_result"></div>
+  </section>
+
+  <section class="squad-log">
+    <h3>{{ _("过程") }}</h3>
+    <div class="row small"><label>{{ _("只看") }} <select id="sq_filter"><option value="">{{ _("全部成员") }}</option></select></label></div>
+    <ol id="sq_events" class="squad-events"></ol>
+  </section>
+</div>
+<script type="application/json" id="sq_labels">{{ {"members": member_labels, "status": status_labels, "kinds": proposal_kinds,
+  "stances": stances, "dimensions": dimensions}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/squad.js?v={{ static_v }}"></script>
+{% endblock %}

@@ -16,9 +16,9 @@ from .registry import Registry, now_iso
 log = logging.getLogger(__name__)
 
 
-def _worker_lock(db: Path):
+def _worker_lock(db: Path, name: str = "jobs"):
     # Keep this file in place. The OS drops ownership when the handle/process closes.
-    handle = db.with_suffix(db.suffix + ".jobs.lock").open("a+b")
+    handle = db.with_suffix(db.suffix + f".{name}.lock").open("a+b")
     try:
         if os.name == "nt":
             import msvcrt

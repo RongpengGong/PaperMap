@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, SIGN_IN_PROVIDERS, Config, ConfigError, normalize_reasoning_effort
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
+from ..squad import runtime as _squad_runtime, store as _squad_store
 from .. import backup as backup_mod
 from .. import kb_git, library, reading_progress, supplements
 from .. import ocr
@@ -1598,6 +1599,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       threshold=pipeline.new_field_threshold,
                       builds={r["id"]: field_tasks.establishment_state(r["id"]) for r, _ in pending},
                       all_fields=registry.active_fields(), error=error,
+                      squad_runs=[r for r in _squad_store.runs(registry) if r["pending"]],
                       accept=float(config.classification.get("accept_confidence", 0.6)))
 
     @app.post("/review/label")
@@ -2305,6 +2307,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         pipeline.llm._client = None
         report = await run_in_threadpool(backup_mod.check_library, config, registry)
         await run_in_threadpool(pipeline.jobs.recover)
+        await run_in_threadpool(_squad_runtime.squad_runner(pipeline).recover)
         return {"ok": True, **res, "report": report}
 
     @app.post("/api/backup/mirror")
@@ -2425,6 +2428,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     from .digest_routes import mount_digest
 
     mount_digest(app, config, registry, pipeline, render, json_body, md_html, _gettext)
+    from .squad_routes import mount_squads
+
+    mount_squads(app, config, registry, pipeline, render, json_body, md_html, _gettext)
     from .chat_routes import mount_chat
 
     mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, background, _kb_notes_path, _gettext)
@@ -2522,7 +2528,10 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
 
     from ..versions import open_count
 
-    return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry) + open_count(registry)
+    from ..squad.store import pending_count as squad_pending
+
+    return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry) + open_count(registry) \
+        + squad_pending(registry)
 
 
 def _safe(fn):

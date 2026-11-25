@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ _("智能体小队 - PaperMap") }}{% endblock %}
+{% block content %}
+<div class="squads">
+  <h2>{{ _("智能体小队") }}</h2>
+  <p class="muted small">{{ _("队长把任务拆开、写上任务板，成员并行完成；你可以随时追加指令或停止。成员只读你的文献库，所有改动（摘录、判断、缺口、收录）都作为提议交给你确认。论文文字会发送到你配置的模型服务。") }}</p>
+
+  {% if not request.state.remote %}
+  <section class="card squad-start">
+    <div class="squad-types" role="radiogroup" aria-label="{{ _("小队类型") }}">
+      {% for t in squad_templates %}
+      <label class="squad-type">
+        <input type="radio" name="squad_template" value="{{ t.key }}" {% if loop.first %}checked{% endif %}>
+        <b>{{ t.label }}</b>
+        <span class="muted small">{{ t.description }}</span>
+        <span class="squad-members small">{% for m in t.members %}<i>{{ m }}</i>{% endfor %}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="squad-form" data-for="review">
+      <label>{{ _("综述题目") }}<textarea id="sq_goal_review" rows="2" placeholder="{{ _("例如：肝癌中癌症相关成纤维细胞的空间分布与功能") }}"></textarea></label>
+      <div class="row">
+        <label>{{ _("最多精读几篇") }} <input type="number" id="sq_max_review" min="2" max="12" value="8" style="width:5em"></label>
+        <label><input type="checkbox" id="sq_external" checked> {{ _("也检索库外文献（OpenAlex）") }}</label>
+      </div>
+    </div>
+    <div class="squad-form" data-for="check" hidden>
+      {% if questions %}
+      <fieldset class="squad-questions"><legend>{{ _("研究问题（最多 5 个）") }}</legend>
+        {% for q in questions %}<label><input type="checkbox" name="sq_q" value="{{ q.id }}"> {{ q.title }} <span class="muted small">{{ _("{n} 条摘录", n=q.total) }}</span></label>{% endfor %}
+      </fieldset>
+      <div class="row"><label>{{ _("每个问题最多精读几篇") }} <input type="number" id="sq_max_check" min="2" max="10" value="6" style="width:5em"></label></div>
+      <label>{{ _("补充说明（可选）") }}<textarea id="sq_goal_check" rows="2" placeholder="{{ _("例如：重点看人类样本，小鼠研究只作参考") }}"></textarea></label>
+      {% else %}
+      <p class="muted">{{ _("还没有研究问题。先在「证据笔记」里建一个问题。") }}</p>
+      {% endif %}
+    </div>
+    <div class="squad-form" data-for="triage" hidden>
+      <p class="small">{{ _("现在有 {n} 篇待看的新文献候选。", n=candidates) }}</p>
+      <div class="row"><label>{{ _("这次最多看几篇") }} <input type="number" id="sq_limit" min="5" max="60" value="30" style="width:5em"></label></div>
+      <label>{{ _("补充说明（可选）") }}<textarea id="sq_goal_triage" rows="2" placeholder="{{ _("例如：这周只关心空间组学方法") }}"></textarea></label>
+    </div>
+
+    <div class="row squad-cost">
+      <label>{{ _("同时工作的成员") }} <input type="number" id="sq_parallel" min="1" max="4" value="4" style="width:4em"></label>
+      <label>{{ _("这次费用上限（美元，0 = 不限）") }} <input type="number" id="sq_cap" min="0" max="50" step="0.1" value="0.5" style="width:6em"></label>
+      <span id="sq_estimate" class="muted small"></span>
+      <span class="grow"></span>
+      <button type="button" id="sq_start">{{ _("开始") }}</button>
+    </div>
+    <p id="sq_error" class="error small" hidden></p>
+  </section>
+  {% endif %}
+
+  <h3>{{ _("运行记录") }}</h3>
+  {% if runs %}
+  <table class="squad-runs">
+    <thead><tr><th>{{ _("小队") }}</th><th>{{ _("目标") }}</th><th>{{ _("状态") }}</th><th>{{ _("任务") }}</th><th>{{ _("费用") }}</th><th>{{ _("待确认") }}</th><th>{{ _("时间") }}</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+    <tr><td>{{ r.template_label }}</td><td><a href="/squad/{{ r.id }}">{{ r.title }}</a></td>
+      <td><span class="chip sq-{{ r.status }}">{{ r.status_label }}</span></td>
+      <td>{{ r.n_done }}/{{ r.n_tasks }}</td><td>${{ '%.3f'|format(r.spent_usd) }}</td>
+      <td>{% if r.pending %}<b>{{ r.pending }}</b>{% endif %}</td><td class="muted small">{{ r.created_at[:16]|replace('T', ' ') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">{{ _("还没有运行过小队。") }}</p>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const csrf = document.body.dataset.csrf, $ = id => document.getElementById(id);
+  if (!$("sq_start")) return;
+  const pick = () => document.querySelector('input[name="squad_template"]:checked').value;
+  function body() {
+    const k = pick(), b = { csrf, template: k, parallel: +$("sq_parallel").value, cap_usd: $("sq_cap").value };
+    if (k === "review") Object.assign(b, { goal: $("sq_goal_review").value, max_papers: +$("sq_max_review").value, external: $("sq_external").checked });
+    if (k === "check") Object.assign(b, { goal: ($("sq_goal_check") || {}).value || "", max_papers: +(($("sq_max_check") || {}).value || 6),
+      question_ids: [...document.querySelectorAll('input[name="sq_q"]:checked')].map(x => +x.value) });
+    if (k === "triage") Object.assign(b, { goal: $("sq_goal_triage").value, limit: +$("sq_limit").value });
+    return b;
+  }
+  async function post(url, b) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+    return r.json().catch(() => ({ ok: false, message: t("请求失败") }));
+  }
+  let timer = null;
+  async function estimate() {
+    const r = await post("/api/squads/estimate", body());
+    if (!r.ok) { $("sq_estimate").textContent = ""; return; }
+    $("sq_estimate").textContent = r.subscription ? t("订阅模型：约 {n} 次调用，计入订阅额度").replace("{n}", r.calls)
+      : t("预计约 {n} 次调用，约 ${usd}").replace("{n}", r.calls).replace("{usd}", r.usd.toFixed(3));
+  }
+  const later = () => { clearTimeout(timer); timer = setTimeout(estimate, 300); };
+  document.querySelectorAll('input[name="squad_template"]').forEach(x => x.addEventListener("change", () => {
+    document.querySelectorAll(".squad-form").forEach(f => f.hidden = f.dataset.for !== pick());
+    later();
+  }));
+  document.querySelector(".squad-start").addEventListener("input", later);
+  later();
+  $("sq_start").addEventListener("click", async () => {
+    $("sq_start").disabled = true; $("sq_error").hidden = true;
+    const r = await post("/api/squads/start", body());
+    if (r.ok) { location.href = r.url; return; }
+    $("sq_error").textContent = r.message || r.detail || t("请求失败"); $("sq_error").hidden = false; $("sq_start").disabled = false;
+  });
+})();
+</script>
+{% endblock %}

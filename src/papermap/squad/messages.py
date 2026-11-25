@@ -1,0 +1,11 @@
+"""Status lines the squad runtime stores in Chinese (the UI source language); the web layer translates
+them when showing them, so these constants are also i18n keys."""
+STARTED = "小队开始工作。"
+PLANNED = "已完成规划。"
+DONE = "完成。"
+STOPPED = "已停止"
+STOPPED_NOTE = "已停止。发送一条追加指令即可继续。"
+CAPPED = "已达到这次的费用上限"
+CAPPED_NOTE = "已达到这次的费用上限，已停止。提高上限后发送追加指令即可继续。"
+FOLLOW_UP_LEN = "追加指令需要 1–2000 个字符。"
+NO_RUN = "没有这次小队运行。"

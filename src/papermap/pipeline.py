@@ -934,6 +934,12 @@ class Pipeline:
         from . import citations, mobile_work
 
         self.jobs.recover()
+        try:
+            from .squad import squad_runner
+
+            squad_runner(self).recover()
+        except Exception as exc:  # noqa: BLE001 - squads must not block startup
+            log.warning("squad recovery failed: %s", exc)
         mobile_work.reap_uploads(self)
         self.reindex_all()
         try:
