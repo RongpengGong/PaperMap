@@ -519,41 +519,110 @@
 
   // ------------------------------------------------------------ figures + lightbox
   const lb = document.getElementById("lightbox");
-  let lbFig = null;
-  function openFigure(f) {
-    if (!lb) return;
-    lbFig = f;
+  const lbAsk = document.getElementById("lb_ask"), lbChat = document.getElementById("lb_chat");
+  const lbExplain = document.getElementById("lb_explain"), lbClose = document.getElementById("lb_close");
+  let lbFig = null, lbOpener = null, detailsRequest = null, verifiedFigure = null;
+  const hasRevision = f => typeof f.revision === "string" && /^[a-f0-9]{64}$/i.test(f.revision);
+  const figureImage = (f, scale) => `/api/figure/${f.id}.png?scale=${scale}`
+    + (hasRevision(f) ? "&revision=" + encodeURIComponent(f.revision) : "");
+  function paintFigure(f) {
     document.getElementById("lb_title").textContent = f.label + (f.paper ? " · " + f.paper : "");
-    document.getElementById("lb_img").src = `/api/figure/${f.id}.png?scale=2`;
+    const image = document.getElementById("lb_img");
+    image.alt = f.label;
+    image.src = figureImage(f, 2);
     document.getElementById("lb_legend").textContent = f.legend || "";
     document.getElementById("lb_expl").innerHTML = f.explanation_html || "";
     document.getElementById("lb_notes").hidden = !f.explanation_html;
     document.getElementById("lb_page").href = `/reader/${f.paper_id}?page=${f.page + 1}`;
-    lb.hidden = false;
+  }
+  // The gallery carries lightweight thumbnail records. Resolve the PDF revision
+  // and any existing explanation from the owning paper before attaching the image.
+  function fullFigure(f) {
+    if (f === verifiedFigure) return Promise.resolve(f);
+    if (detailsRequest) return detailsRequest;
+    const request = fetch(`/api/figures/${f.paper_id}`).then(async response => {
+      if (!response.ok) throw new Error(t("网络错误"));
+      const figures = await response.json();
+      const found = figures.find(item => item.id === f.id && item.label === f.label && item.page === f.page);
+      if (!found || !hasRevision(found) || (hasRevision(f) && f.revision !== found.revision))
+        throw new Error(t("图表已更新，请刷新页面后重新打开。"));
+      if (f === lbFig) { Object.assign(f, found); verifiedFigure = f; paintFigure(f); }
+      return f;
+    }).finally(() => { if (detailsRequest === request) detailsRequest = null; });
+    detailsRequest = request;
+    return request;
+  }
+  function figureChat(show) {
+    lbAsk.setAttribute("aria-expanded", String(show));
+    lbChat.hidden = !show;
+    document.getElementById("lb_detail").hidden = show;
+    lbChat.parentElement.classList.toggle("has-chat", show);
+    window.pmFigureChat?.(show ? lbFig : null);
+  }
+  async function askFigure() {
+    const f = lbFig;
+    if (!f) return;
+    lbAsk.disabled = true;
+    try {
+      await fullFigure(f);
+      if (f === lbFig) figureChat(true);
+    } catch (err) { if (f === lbFig) toast(err.message || t("网络错误")); }
+    finally { if (f === lbFig) lbAsk.disabled = false; }
+  }
+  function openFigure(f) {
+    if (!lb) return;
+    const continueChat = !lb.hidden && !lbChat.hidden;
+    if (lb.hidden) lbOpener = document.activeElement;
+    figureChat(false);
+    lbFig = { ...f }; detailsRequest = verifiedFigure = null;
+    lbAsk.disabled = lbExplain.disabled = false;
+    paintFigure(lbFig); lb.hidden = false;
+    if (continueChat) askFigure();
+    else { lbAsk.focus({ preventScroll: true }); fullFigure(lbFig).catch(() => {}); }
   }
   window.pmOpenFigure = openFigure;
-  const lbClose = document.getElementById("lb_close");
-  if (lbClose) lbClose.onclick = () => { if (lb) lb.hidden = true; };
-  lb?.addEventListener("click", e => { if (e.target === lb) lb.hidden = true; });
-  document.addEventListener("keydown", e => { if (lb && e.key === "Escape") lb.hidden = true; });
-  const lbExplain = document.getElementById("lb_explain");
-  if (lbExplain) lbExplain.onclick = async ev => {
-    const b = ev.target; b.disabled = true;
-    document.getElementById("lb_expl").innerHTML = `<p class="job-line"><span class="spinner"></span>${t("模型正在看图…")}</p>`;
-    const j = await api(`/api/figure/${lbFig.id}/explain`, {});
-    b.disabled = false;
-    document.getElementById("lb_expl").innerHTML = j.ok ? j.html : "";
-    if (j.ok) { lbFig.explanation_html = j.html; document.getElementById("lb_notes").hidden = false; }
+  function closeFigure() {
+    if (!lb || lb.hidden) return;
+    figureChat(false);
+    lbFig = detailsRequest = verifiedFigure = null; lb.hidden = true;
+    if (lbOpener?.isConnected) lbOpener.focus({ preventScroll: true });
+    lbOpener = null;
+  }
+  if (lbAsk) lbAsk.onclick = () => { if (lbChat.hidden) askFigure(); else figureChat(false); };
+  if (lbClose) lbClose.onclick = closeFigure;
+  lb?.addEventListener("click", e => { if (e.target === lb) closeFigure(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeFigure(); });
+  if (lbExplain) lbExplain.onclick = async () => {
+    const f = lbFig;
+    if (!f) return;
+    figureChat(false); lbExplain.disabled = true;
+    try {
+      await fullFigure(f);
+      if (f !== lbFig) return;
+      document.getElementById("lb_expl").innerHTML = `<p class="job-line"><span class="spinner"></span>${t("模型正在看图…")}</p>`;
+      const j = await api(`/api/figure/${f.id}/explain`, { revision: f.revision });
+      if (f !== lbFig) return;
+      if (j.ok) f.explanation_html = j.html;
+    } catch (err) { if (f === lbFig) toast(err.message || t("网络错误")); }
+    finally {
+      if (f === lbFig) { lbExplain.disabled = false; paintFigure(f); }
+    }
   };
   const lbNotes = document.getElementById("lb_notes");
   if (lbNotes) lbNotes.onclick = async () => {
-    if ((await api(`/api/figure/${lbFig.id}/to-notes`, {})).ok) toast(t("已加到这篇论文的「我的笔记」"));
+    const f = lbFig;
+    if (!f) return;
+    try {
+      await fullFigure(f);
+      if (f === lbFig && (await api(`/api/figure/${f.id}/to-notes`, { revision: f.revision })).ok)
+        toast(t("已加到这篇论文的「我的笔记」"));
+    } catch (err) { if (f === lbFig) toast(err.message || t("网络错误")); }
   };
   async function loadFigures(box) {
     if (box.dataset.loaded) return; box.dataset.loaded = "1";
     const pid = box.dataset.figures;
     const figs = await (await fetch(`/api/figures/${pid}`)).json();
-    box.innerHTML = figs.length ? figs.map((f, i) => `<a href="#" class="fig-card" data-i="${i}"><img loading="lazy" src="/api/figure/${f.id}.png?scale=1" alt=""><span>${f.label}${f.explanation_html ? " · 已讲解" : ""}</span></a>`).join("")
+    box.innerHTML = figs.length ? figs.map((f, i) => `<a href="#" class="fig-card" data-i="${i}"><img loading="lazy" src="${figureImage(f, 1)}" alt=""><span>${f.label}${f.explanation_html ? " · 已讲解" : ""}</span></a>`).join("")
       : `<p class="muted small">${t("没有找到带图注的图（扫描版或排版特殊的 PDF 可能识别不到）。")}</p>`;
     box.addEventListener("click", e => { const a = e.target.closest(".fig-card"); if (!a) return; e.preventDefault(); openFigure({ ...figs[+a.dataset.i], paper_id: +pid }); });
   }

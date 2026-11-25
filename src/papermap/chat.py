@@ -16,8 +16,9 @@ from pathlib import Path
 
 import pymupdf
 
-from . import ocr
+from . import figures, ocr
 from .config import PRESETS, PROVIDERS, SIGN_IN_PROVIDERS, Config
+from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient
 from .registry import Registry
@@ -28,7 +29,7 @@ MAX_MESSAGE_CHARS = 8000
 MAX_QUOTE_CHARS = 4000
 MAX_PAGE_CHARS = 40000
 _LOCK = threading.Lock()
-_TEXT_CACHE: dict[tuple[str, float], str] = {}
+_TEXT_CACHE: dict[tuple[str, str, int], str] = {}
 
 
 # ------------------------------------------------------------------ models
@@ -256,7 +257,7 @@ def clear(store: Path) -> None:
 def paper_text(pdf: Path, data_dir: Path, limit: int = MAX_PAPER_CHARS) -> str:
     """Full text with ``[p.N]`` page markers so answers can cite pages."""
     try:
-        key = (str(pdf), pdf.stat().st_mtime)
+        key = (str(pdf), document_revision(pdf), limit)
     except OSError:
         return ""
     if key in _TEXT_CACHE:
@@ -287,14 +288,17 @@ def _language(config: Config) -> str:
         config.output_language, "Simplified Chinese (keep gene, software and technical terms in English)")
 
 
-def _system(config: Config, row, card_text: str, notes: str, text: str) -> str:
+def _system(config: Config, row, card_text: str, notes: str, text: str, *, with_figure: bool = False) -> str:
     return "\n".join([
         "You are a research colleague discussing ONE paper with its reader inside PaperMap, a local literature app.",
         f"Answer in {_language(config)}. Be concise and specific; use Markdown.",
         "Ground statements about the paper in its text below and cite the page like [p.5] (page markers are "
         "given in the text). If the paper does not say something, say so plainly. When you add background "
         "knowledge that is not from the paper, mark it as background (背景知识) so the reader can tell it apart.",
-        "Figures are not visible to you; only their legends are in the text.",
+        ("The current user message includes a cropped figure from this PDF. Read its actual panels, labels, axes "
+         "and legend to answer the question. Previous figure explanations are model-generated context. Say which "
+         "details are unreadable and identify any inference. Only the figure attached to this turn is visible."
+         if with_figure else "Figures are not visible to you; only their legends are in the text."),
         "",
         f"Title: {row['title']}",
         f"Journal: {row['journal'] or ''} ({row['year'] or ''})   DOI: {row['doi'] or 'none'}",
@@ -305,11 +309,15 @@ def _system(config: Config, row, card_text: str, notes: str, text: str) -> str:
 
 
 def _user_content(msg: dict) -> str:
+    parts = []
+    figure = msg.get("figure")
+    if isinstance(figure, dict) and figure.get("label") and figure.get("page"):
+        parts.append(f"Figure discussed: {figure['label']} [p.{figure['page']}]")
     if msg.get("quote"):
         where = f" (p.{msg['page']})" if msg.get("page") else ""
         quoted = "\n".join("> " + ln for ln in msg["quote"].splitlines())
-        return f"About this passage{where}:\n{quoted}\n\n{msg['content']}"
-    return msg["content"]
+        parts.append(f"About this passage{where}:\n{quoted}")
+    return "\n\n".join([*parts, msg["content"]])
 
 
 def _now() -> str:
@@ -318,7 +326,8 @@ def _now() -> str:
 
 # ------------------------------------------------------------------ actions
 def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str, key: str = "main",
-             quote: str = "", page: int | None = None, paper_id: int | None = None, effort: str = "") -> dict:
+             quote: str = "", page: int | None = None, paper_id: int | None = None, effort: str = "",
+             *, attachment: tuple[dict, bytes] | None = None) -> dict:
     """One turn: earlier turns from ``store`` go with the new message; both are saved after the answer."""
     text = (text or "").strip()[:MAX_MESSAGE_CHARS]
     quote = (quote or "").strip()[:MAX_QUOTE_CHARS]
@@ -338,8 +347,27 @@ def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str
         msg["quote"] = quote
         if page:
             msg["page"] = int(page)
-    res = llm.chat_text(system, _user_content(msg), purpose="chat", paper_id=paper_id, max_tokens=4096,
-                        eff=eff, history=history)
+    image_options = {}
+    if attachment:
+        figure, png = attachment
+        msg["figure"] = {k: figure[k] for k in ("id", "label", "page", "revision")}
+        image_options["images"] = [png]
+    user_prompt = _user_content(msg)
+    if attachment:
+        user_prompt = (f"Figure legend:\n{figure['legend'] or '(unavailable)'}\n\n"
+                       f"Previously generated explanation:\n{(figure['explanation'] or '')[:12000] or '(none)'}"
+                       f"\n\n{user_prompt}")
+    try:
+        res = llm.chat_text(system, user_prompt, purpose="chat", paper_id=paper_id, max_tokens=4096,
+                            eff=eff, history=history, **image_options)
+    except Exception as exc:
+        if attachment:
+            status = getattr(exc, "status_code", None)
+            reason = str(exc)[:1000].lower()
+            refers_to_image = any(word in reason for word in ("image", "vision", "multimodal", "图片", "图像"))
+            if status == 415 or (status in (400, 422) and (refers_to_image or ("content" in reason and "string" in reason))):
+                raise ValueError("模型服务未接受这次带图请求，请选择支持图片的模型或重新尝试。") from exc
+        raise
     reply = {"role": "assistant", "content": res.raw.strip(), "at": _now(),
              "model": res.model + (f" · {effort}" if effort else "")}
     with _LOCK:
@@ -353,11 +381,21 @@ def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str
 
 def send(config: Config, registry: Registry, llm: LLMClient, paper_id: int, card: Path, pdf: Path | None,
          notes: str, card_text: str, text: str, key: str = "main", quote: str = "", page: int | None = None,
-         effort: str = "") -> dict:
+         effort: str = "", *, figure_id: int | None = None, figure_revision: str | None = None) -> dict:
+    attachment = None
+    if figure_id is not None or figure_revision is not None:
+        if (type(figure_id) is not int or not 0 < figure_id < 2**63
+                or not isinstance(figure_revision, str) or not re.fullmatch(r"[0-9a-f]{64}", figure_revision)):
+            raise ValueError("图表信息不完整，请重新打开图表。")
+        attachment = figures.chat_attachment(registry, paper_id, pdf, figure_id, figure_revision,
+                                             config.data_dir / "cache" / "figures")
     row = registry.get_paper(paper_id)
     paper = paper_text(pdf, config.data_dir) if pdf else ""
-    return converse(config, llm, chat_path(card), _system(config, row, card_text, notes, paper), text, key,
-                    quote, page, paper_id, effort)
+    if attachment and (pdf is None or document_revision(pdf) != figure_revision):
+        raise ValueError(figures.STALE_FIGURE)
+    system = _system(config, row, card_text, notes, paper, with_figure=attachment is not None)
+    return converse(config, llm, chat_path(card), system, text, key, quote, page, paper_id, effort,
+                    attachment=attachment)
 
 
 def library_overview(registry: Registry, limit_chars: int = 30000) -> str:

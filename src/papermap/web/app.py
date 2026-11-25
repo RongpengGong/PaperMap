@@ -751,14 +751,23 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return {"ok": True, "html": md_html(text), "saved": rel, "cost": cost}
 
     # ---------------------------------------------------------------- figures
-    def figure_row(fid: int):
+    def figure_row(fid: int, revision: str | None = None):
         from .. import figures as figmod
+        from ..evidence import document_revision
 
         figmod.ensure_schema(registry)
-        f = registry.one("SELECT * FROM figures WHERE id=?", (fid,))
+        f = registry.one(figmod.FIGURE_ROWS + " WHERE f.id=?", (fid,))
         if f is None:
+            if revision is not None:
+                raise ValueError(figmod.STALE_FIGURE)
             raise HTTPException(404)
-        return f
+        pdf = pipeline.pdf_for(f["paper_id"])
+        if pdf is not None and f["revision"] != document_revision(pdf):
+            figmod.sync(registry, f["paper_id"], pdf)
+            f = registry.one(figmod.FIGURE_ROWS + " WHERE f.id=? AND f.paper_id=?", (fid, f["paper_id"]))
+        if not f or (revision is not None and revision != f["revision"]):
+            raise ValueError(figmod.STALE_FIGURE)
+        return f, pdf
 
     @app.get("/api/figures/{paper_id}")
     def figures_list(paper_id: int):
@@ -767,41 +776,53 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         pdf = pipeline.pdf_for(paper_id)
         if pdf is not None:
             figmod.sync(registry, paper_id, pdf)
-        figmod.ensure_schema(registry)
+        else:
+            figmod.ensure_schema(registry)
         return [{"id": f["id"], "label": f["label"], "page": f["page"], "legend": f["legend"],
+                 "revision": f["revision"] if pdf is not None else "",
                  "explanation_html": md_html(f["explanation"]) if f["explanation"] else ""}
-                for f in registry.query("SELECT * FROM figures WHERE paper_id=? ORDER BY id", (paper_id,))]
+                for f in registry.query(figmod.FIGURE_ROWS + " WHERE f.paper_id=? ORDER BY f.id", (paper_id,))]
 
     @app.get("/api/figure/{fid}.png")
-    def figure_png(fid: int, scale: float = 2.0):
+    def figure_png(fid: int, scale: float = 2.0, revision: str | None = None):
         from .. import figures as figmod
 
-        f = figure_row(fid)
-        pdf = pipeline.pdf_for(f["paper_id"])
-        if pdf is None:
-            raise HTTPException(404)
-        scale = min((1.0, 2.0, 3.0), key=lambda s: abs(s - scale))
-        return FileResponse(figmod.image(pdf, f, config.data_dir / "cache" / "figures", scale), media_type="image/png",
-                            headers={"Cache-Control": "max-age=86400"})
+        try:
+            f, pdf = figure_row(fid, revision)
+            if pdf is None:
+                raise HTTPException(404)
+            scale = min((1.0, 2.0, 3.0), key=lambda s: abs(s - scale))
+            png = figmod.image(pdf, f, config.data_dir / "cache" / "figures", scale)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return FileResponse(png, media_type="image/png",
+                            headers={"Cache-Control": "max-age=86400" if revision else "no-cache"})
 
     @app.post("/api/figure/{fid}/explain")
     async def figure_explain(fid: int, request: Request):
         from .. import figures as figmod
 
-        await json_body(request)
-        f = figure_row(fid)
-        pdf = pipeline.pdf_for(f["paper_id"])
-        png = figmod.image(pdf, f, config.data_dir / "cache" / "figures", 2.0).read_bytes()
+        body = await json_body(request)
         try:
-            text = await run_in_threadpool(figmod.explain, config, registry, pipeline.llm, f, png)
+            f, pdf = await run_in_threadpool(figure_row, fid, body.get("revision"))
+            if pdf is None:
+                return {"ok": False, "message": _gettext("找不到 PDF")}
+            path = await run_in_threadpool(figmod.image, pdf, f, config.data_dir / "cache" / "figures")
+        except ValueError as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
+        try:
+            text = await run_in_threadpool(figmod.explain, config, registry, pipeline.llm, f, path.read_bytes())
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:240]}（当前模型可能不支持看图）"}
         return {"ok": True, "html": md_html(text)}
 
     @app.post("/api/figure/{fid}/to-notes")
     async def figure_to_notes(fid: int, request: Request):
-        await json_body(request)
-        f = figure_row(fid)
+        body = await json_body(request)
+        try:
+            f, _ = await run_in_threadpool(figure_row, fid, body.get("revision"))
+        except ValueError as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
         row = registry.get_paper(f["paper_id"])
         if not f["explanation"] or not row["kb_path"] or row["kb_path"].count("/") < 2:
             return {"ok": False, "message": "还没有讲解"}

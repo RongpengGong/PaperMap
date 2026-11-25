@@ -9,6 +9,64 @@ from .test_reader import client as reader_client
 from .test_web import _token
 
 
+def test_figure_chat_uses_current_pixels_and_tracks_each_turn(config, registry, tmp_path, monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+
+    from papermap.llm import LLMHTTPError
+    from papermap.web.app import create_app
+    from .test_figures import figure_pdf
+    from .test_pipeline import make_pipeline
+
+    pipe, completions = make_pipeline(config, registry)
+    pipe.handle_path(figure_pdf(tmp_path / "figure.pdf"))
+    client = TestClient(create_app(config, registry, pipe), base_url="http://127.0.0.1:8765")
+    fig = client.get("/api/figures/1").json()[0]
+    revision = document_revision(pipe.pdf_for(1))
+    assert fig["revision"] == revision
+    registry.execute("UPDATE figures SET explanation=? WHERE id=?", ("Existing explanation of panel B.", fig["id"]))
+    route = "/api/paper/1/chat"
+    basic = {"csrf": _token(client), "text": "Why are the panel B values different?"}
+    bound = {**basic, "figure_id": fig["id"], "figure_revision": revision}
+    first = client.post(route, json={**bound, "legend": "untrusted replacement", "page": 999}).json()
+    assert first["ok"]
+    ref = first["user"]["figure"]
+    assert ref == {"id": fig["id"], "label": fig["label"], "page": fig["page"] + 1, "revision": revision}
+    assert "Figures are not visible" not in completions.last_system
+    content, image = completions.last_messages[-1]["content"]
+    assert fig["legend"] in content["text"] and "Existing explanation of panel B." in content["text"]
+    assert "untrusted replacement" not in content["text"] and "[p.1]" in content["text"]
+    gallery_png = client.get(f"/api/figure/{fig['id']}.png", params={"revision": revision}).content
+    assert gallery_png.startswith(b"\x89PNG") and base64.b64decode(image["image_url"]["url"].split(",")[1]) == gallery_png
+
+    again = client.post(route, json={**bound, "text": "What do these axes mean?"}).json()
+    assert again["ok"] and again["user"]["figure"] == ref
+    assert all(isinstance(m["content"], str) for m in completions.last_messages[:-1])
+    assert "Figure discussed: Fig. 1 [p.1]" in completions.last_messages[1]["content"]
+    regular = client.post(route, json=basic).json()
+    assert regular["ok"] and not regular["user"].get("figure") and isinstance(completions.last_messages[-1]["content"], str)
+    assert "Figures are not visible" in completions.last_system
+    assert [m.get("figure") for m in client.get(route).json()["messages"] if m["role"] == "user"] == [ref, ref, None]
+    card = config.knowledge_dir / registry.get_paper(1)["kb_path"]
+    assert "data:image/" not in chat.chat_path(card).read_text()
+    count = completions.chat_calls
+    other = registry.execute("INSERT INTO figures (paper_id,label,page) VALUES (123,'Fig. 9',0)").lastrowid
+    for invalid in ({"figure_id": other}, {"figure_revision": "0" * 64}, {"figure_id": True}, {"figure_revision": None}):
+        assert not client.post(route, json={**bound, **invalid}).json()["ok"]
+    assert completions.chat_calls == count
+
+    def no_images(**kwargs):
+        raise LLMHTTPError(400, "image inputs not supported")
+    with monkeypatch.context() as patch:
+        patch.setattr(completions, "create", no_images)
+        failed = client.post(route, json=bound).json()
+        assert not failed["ok"] and "图片" in failed["message"]
+    assert len(client.get(route).json()["messages"]) == 6
+    assert client.post(route + "/summary", json={"csrf": basic["csrf"]}).json()["ok"]
+    assert "Figure discussed: Fig. 1 [p.1]" in completions.last_messages[-1]["content"]
+    assert client.get(route).json()["archive"][0]["messages"][0]["figure"] == ref
+
+
 def test_chat_send_summary_and_notes(config, registry, pdfs):
     c, pipe, completions = reader_client(config, registry, pdfs)
     pid = registry.paper_by_doi(OWN_DOI)["id"]

@@ -9,7 +9,9 @@ from pathlib import Path
 import pymupdf
 
 from .config import Config
+from .evidence import document_revision
 from .llm import LLMClient
+from .pdf_import import staged_file
 from .registry import Registry, now_iso
 
 LEGEND_RE = re.compile(r"^\s*((?:Extended Data |Supplementary )?Fig(?:ure)?\.?\s*(\d+)[a-z]?)\s*(?:\||:|\.|\s{2,}|\s[A-Z])", re.I)
@@ -20,6 +22,10 @@ CREATE TABLE IF NOT EXISTS figures (
     UNIQUE (paper_id, label)
 );
 CREATE TABLE IF NOT EXISTS figures_state (paper_id INTEGER PRIMARY KEY, signature TEXT);
+CREATE TABLE IF NOT EXISTS figure_history (
+    id INTEGER PRIMARY KEY, paper_id INTEGER NOT NULL, revision TEXT NOT NULL, label TEXT NOT NULL,
+    explanation TEXT, model TEXT, UNIQUE(paper_id, revision, label)
+);
 """
 
 
@@ -92,39 +98,89 @@ def find(pdf: Path) -> list[dict]:
     return sorted(out, key=order)
 
 
+FIGURE_ROWS = "SELECT f.*, s.signature AS revision FROM figures f JOIN figures_state s ON s.paper_id=f.paper_id"
+STALE_FIGURE = "图表已更新，请刷新页面后重新打开。"
+
+
 def sync(registry: Registry, paper_id: int, pdf: Path) -> int:
     ensure_schema(registry)
-    sig = f"{pdf.stat().st_size}:{pdf.stat().st_mtime}"
-    st = registry.one("SELECT signature FROM figures_state WHERE paper_id=?", (paper_id,))
-    if st and st["signature"] == sig:
+    revision = document_revision(pdf)
+    state = registry.one("SELECT signature FROM figures_state WHERE paper_id=?", (paper_id,))
+    if state and state["signature"] == revision:
         return 0
+
+    # Older libraries stored size and mtime. Upgrade a matching index in place so
+    # its figure IDs and saved explanations survive the first visit after updating.
+    stat = pdf.stat()
+    if state and state["signature"] == f"{stat.st_size}:{stat.st_mtime}":
+        sources = registry.query("SELECT sha256 FROM files WHERE paper_id=? AND size=? AND mtime=?",
+                                 (paper_id, stat.st_size, stat.st_mtime))
+        if not sources or any(row["sha256"] == revision for row in sources):
+            updated = registry.execute("UPDATE figures_state SET signature=? WHERE paper_id=? AND signature=?",
+                                       (revision, paper_id, state["signature"]))
+            if updated.rowcount:
+                return 0
+
     figs = find(pdf)
-    keep = {r["label"]: r for r in registry.query("SELECT * FROM figures WHERE paper_id=?", (paper_id,))}
-    with registry._lock:  # noqa: SLF001
-        registry.conn.execute("DELETE FROM figures WHERE paper_id=?", (paper_id,))
+    with registry.transaction() as db:
+        if document_revision(pdf) != revision:
+            raise ValueError(STALE_FIGURE)
+        if db.execute("SELECT 1 FROM figures_state WHERE paper_id=? AND signature=?", (paper_id, revision)).fetchone():
+            return 0
+        # A paper can switch between PDFs. Keep its IDs and explanations tied
+        # to the version that produced them, including when the reader switches back.
+        db.execute("INSERT OR REPLACE INTO figure_history(id,paper_id,revision,label,explanation,model) "
+                   "SELECT f.id,f.paper_id,s.signature,f.label,f.explanation,f.model FROM figures f "
+                   "JOIN figures_state s ON s.paper_id=f.paper_id WHERE f.paper_id=?", (paper_id,))
+        last_id = db.execute("SELECT MAX(COALESCE((SELECT MAX(id) FROM figures),0), "
+                             "COALESCE((SELECT MAX(id) FROM figure_history),0))").fetchone()[0]
+        previous = {r["label"]: r for r in db.execute("SELECT * FROM figure_history WHERE paper_id=? AND revision=?",
+                                                      (paper_id, revision))}
+        db.execute("DELETE FROM figures WHERE paper_id=?", (paper_id,))
         for f in figs:
-            old = keep.get(f["label"])
-            registry.conn.execute(
-                "INSERT INTO figures(paper_id, label, page, x0, y0, x1, y1, legend, explanation, model, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (paper_id, f["label"], f["page"], *f["rect"], f["legend"],
-                 old["explanation"] if old else None, old["model"] if old else None, now_iso()))
-        registry.conn.execute("INSERT OR REPLACE INTO figures_state VALUES (?,?)", (paper_id, sig))
-        registry.conn.commit()
+            old = previous.get(f["label"])
+            if old is None:
+                last_id += 1
+            db.execute("INSERT INTO figures(id,paper_id,label,page,x0,y0,x1,y1,legend,explanation,model,created_at) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (old["id"] if old else last_id, paper_id, f["label"], f["page"], *f["rect"], f["legend"],
+                        old["explanation"] if old else None, old["model"] if old else None, now_iso()))
+        db.execute("INSERT OR REPLACE INTO figures_state VALUES (?,?)", (paper_id, revision))
     return len(figs)
 
 
 def image(pdf: Path, fig, cache_dir: Path, scale: float = 2.0) -> Path:
-    out = cache_dir / str(fig["paper_id"]) / f"{fig['id']}-{scale}.png"
+    revision = fig["revision"]
+    if document_revision(pdf) != revision:
+        raise ValueError(STALE_FIGURE)
+    out = cache_dir / str(fig["paper_id"]) / revision / f"{fig['id']}-{scale}.png"
     if out.exists():
         return out
     with pymupdf.open(pdf) as doc:
         pix = doc[fig["page"]].get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False,
                                          clip=pymupdf.Rect(fig["x0"], fig["y0"], fig["x1"], fig["y1"]))
         data = pix.tobytes("png")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(data)
+    if document_revision(pdf) != revision:
+        raise ValueError(STALE_FIGURE)
+    with staged_file(out.parent) as tmp:
+        tmp.write_bytes(data)
+        tmp.replace(out)
     return out
+
+
+def chat_attachment(registry: Registry, paper_id: int, pdf: Path | None, figure_id: int, revision: str,
+                    cache_dir: Path) -> tuple[dict, bytes]:
+    """Use the displayed revision of this paper for both pixels and interpretation."""
+    if pdf is None or not pdf.is_file():
+        raise ValueError("找不到 PDF")
+    ensure_schema(registry)
+    fig = registry.one(FIGURE_ROWS + " WHERE f.id=? AND f.paper_id=? AND s.signature=?",
+                       (figure_id, paper_id, revision))
+    if fig is None:
+        raise ValueError(STALE_FIGURE)
+    png = image(pdf, fig, cache_dir).read_bytes()
+    return {"id": fig["id"], "label": fig["label"], "page": fig["page"] + 1, "revision": revision,
+            "legend": fig["legend"] or "", "explanation": fig["explanation"] or ""}, png
 
 
 EXPLAIN = """You are helping a biomedical researcher read one figure from a paper.
@@ -139,5 +195,9 @@ def explain(config: Config, registry: Registry, llm: LLMClient, fig, png: bytes)
     p = registry.get_paper(fig["paper_id"])
     user = f"Paper: {p['title']}\nFigure: {fig['label']}\nLegend: {fig['legend']}"
     res = llm.chat_text(EXPLAIN, user, purpose="figure", paper_id=fig["paper_id"], max_tokens=2500, images=[png])
-    registry.execute("UPDATE figures SET explanation=?, model=? WHERE id=?", (res.raw, res.model, fig["id"]))
+    updated = registry.execute("UPDATE figures SET explanation=?, model=? WHERE id=? AND paper_id=? AND "
+                               "EXISTS (SELECT 1 FROM figures_state WHERE paper_id=? AND signature=?)",
+                               (res.raw, res.model, fig["id"], fig["paper_id"], fig["paper_id"], fig["revision"]))
+    if not updated.rowcount:
+        raise ValueError(STALE_FIGURE)
     return res.raw

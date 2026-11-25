@@ -7,6 +7,8 @@
     .then(r => r.json()).catch(() => ({ ok: false, message: t("网络错误") }));
   const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const MODEL_PREF = "pm_chat_model";
+  const figureLabel = f => t("附图：{figure}").replace("{figure}", f.label) + ` · p.${f.page}`;
+  const figureTag = f => f ? `<div class="chat-figure">${esc(figureLabel(f))}</div>` : "";
 
   function init(panel) {
     const box = panel.querySelector("[data-chat]");
@@ -39,7 +41,11 @@
     const input = box.querySelector("[data-chat-text]"), sendBtn = box.querySelector("[data-chat-send]");
     const quoteBox = box.querySelector("[data-chat-quote]"), quoteText = box.querySelector("[data-chat-quote-text]");
     const sumBox = box.querySelector("[data-chat-summary]"), sumText = box.querySelector("[data-chat-summary-text]");
-    let quote = null, loaded = false, loading, count = 0;
+    const figureNote = box.querySelector("[data-chat-figure]");
+    const privacy = box.querySelector(".chat-privacy"), paperPrivacy = privacy.title;
+    const drafts = new Map();
+    const draftKey = f => f ? `${f.id}:${f.revision}` : "";
+    let quote = null, figure = null, loaded = false, loading, count = 0;
     if (isPage) {
       const pv = box.querySelector(".chat-privacy");
       if (pv) pv.title = t("当前页面的文字（必要时加上文献库概况）会发给所选模型的服务商；费用计入费用页。");
@@ -59,7 +65,7 @@
         return el;
       }
       if (m.role === "user") {
-        el.innerHTML = (m.squad_to ? `<div class="chat-squad-tag small">${esc(t("交给小队"))}</div>` : "") + (m.quote ?`<blockquote class="chat-q">${m.page ? `<a href="#" class="chat-page" data-page="${+m.page}">p.${+m.page}</a> ` : ""}${esc(m.quote)}</blockquote>` : "")
+        el.innerHTML = figureTag(m.figure) + (m.squad_to ? `<div class="chat-squad-tag small">${esc(t("交给小队"))}</div>` : "") + (m.quote ?`<blockquote class="chat-q">${m.page ? `<a href="#" class="chat-page" data-page="${+m.page}">p.${+m.page}</a> ` : ""}${esc(m.quote)}</blockquote>` : "")
           + `<div>${esc(m.content).replace(/\n/g, "<br>")}</div>`;
       } else if (m.role === "assistant") {
         el.innerHTML = `<div class="md">${m.html}</div><div class="chat-meta muted small">${esc(m.model || "")}</div>`;
@@ -103,19 +109,28 @@
     effSel.addEventListener("change", () => { try { localStorage.setItem(MODEL_PREF + "_effort", effSel.value); } catch (e) { /* private mode */ } });
 
     async function send() {
+      const attachment = figure, text = input.value.trim();
+      if (!text && !quote && !attachment) return;
       if (!loaded && !(await load())) return;
-      const text = input.value.trim();
-      if ((!text && !quote) || box.classList.contains("chat-busy")) return;
+      if (attachment !== figure || text !== input.value.trim() || box.classList.contains("chat-busy")) return;
       if (squadOn()) { squadAsk(text); return; }
       if (!count && log.querySelector(".chat-empty")) log.innerHTML = "";
-      const u = bubble({ role: "user", content: text || t("请解释这段。"), quote: quote && quote.text, page: quote && quote.page });
+      const question = text || (attachment ? t("请解释这张图。") : t("请解释这段。"));
+      const u = bubble({ role: "user", content: question, figure: attachment, quote: quote && quote.text, page: quote && quote.page });
       const wait = document.createElement("div"); wait.className = "chat-msg assistant pending"; wait.innerHTML = `<span class="chat-dots"><i></i><i></i><i></i></span>`;
       log.appendChild(wait); scroll();
-      const body = { text, model: sel.value, quote: quote ? quote.text : "", page: quote ? quote.page : null, effort: effort(), ...extra() };
+      const body = { text: attachment ? question : text, model: sel.value, quote: quote ? quote.text : "", page: quote ? quote.page : null, effort: effort(), ...extra() };
+      if (attachment) { body.figure_id = attachment.id; body.figure_revision = attachment.revision; }
       input.value = ""; setQuote(null); busy(true);
       const j = await post(base, body);
       busy(false); wait.remove();
-      if (!j.ok) { u.remove(); input.value = text; if (body.quote) setQuote({ text: body.quote, page: body.page }); bubble({ role: "error", content: j.message || t("发送失败") }); scroll(); return; }
+      if (!j.ok) {
+        u.remove();
+        const savedQuote = body.quote ? { text: body.quote, page: body.page } : null;
+        if (draftKey(attachment) === draftKey(figure) && !input.value) { input.value = text; setQuote(savedQuote); }
+        else if (!drafts.get(draftKey(attachment))?.text) drafts.set(draftKey(attachment), { text, quote: savedQuote });
+        bubble({ role: "error", content: j.message || t("发送失败") }); scroll(); return;
+      }
       const r = bubble(j.reply);
       if (isPage && squadBtn && !squadBtn.hidden && BIG.test(text)) {
         const tip = document.createElement("div");
@@ -189,6 +204,7 @@
     const enterMode = () => { try { return localStorage.getItem("pm_chat_enter") || "enter"; } catch (e) { return "enter"; } };
     const hint = () => {
       const cmd = enterMode() === "cmd";
+      if (figure) { input.placeholder = t("想问这张图的哪个部分？"); return; }
       if (isPage && box.classList.contains("squad-mode")) { input.placeholder = t("把一个大问题交给小队，例如：比较这些研究对成纤维细胞作用的结论"); return; }
       input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
                                  : t("输入问题，或选中卡片、原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
@@ -247,7 +263,7 @@
       box.querySelector("[data-chat-history-n]").textContent = list.length || "";
       arch.innerHTML = list.map(a => `<details class="chat-old"><summary><b>${esc(a.ended_at.slice(0, 16).replace("T", " "))}</b> · ${esc(a.first)} <span class="muted">（${a.n} ${esc(t("个问题"))}）</span></summary>`
         + (a.summary_html ? `<div class="chat-old-sum md">${a.summary_html}</div>` : "")
-        + a.messages.map(m => m.role === "user" ? `<div class="chat-msg user"><div>${esc(m.content).replace(/\n/g, "<br>")}</div></div>`
+        + a.messages.map(m => m.role === "user" ? `<div class="chat-msg user">${figureTag(m.figure)}<div>${esc(m.content).replace(/\n/g, "<br>")}</div></div>`
                                                 : `<div class="chat-msg assistant"><div class="md">${m.html}</div></div>`).join("") + "</details>").join("");
     }
     async function reloadArchive() {
@@ -284,9 +300,25 @@
     // [p.N] citations jump the PDF next to the panel
     box.addEventListener("click", e => {
       const a = e.target.closest(".chat-page"); if (!a) return;
-      e.preventDefault(); goto(box.closest(".panel") || panel, +a.dataset.page);
+      e.preventDefault();
+      if (figure) { location.href = `/reader/${pid}?page=${+a.dataset.page}`; return; }
+      goto(box.closest(".panel") || panel, +a.dataset.page);
     });
 
+    box._pmFigure = f => {
+      const next = f ? { id: Number(f.id), revision: f.revision, label: f.label, page: Number(f.page) + 1 } : null;
+      if (draftKey(next) === draftKey(figure)) return;
+      const key = draftKey(figure);
+      if (input.value || quote) drafts.set(key, { text: input.value, quote });
+      else drafts.delete(key);
+      figure = next;
+      const draft = drafts.get(draftKey(figure));
+      input.value = draft?.text || ""; setQuote(draft?.quote);
+      figureNote.hidden = !figure;
+      figureNote.textContent = figure ? figureLabel(figure) : "";
+      privacy.title = figure ? t("提问时会把当前图片、图注和已有讲解，连同论文正文、卡片和笔记发给所选模型。") : paperPrivacy;
+      hint();
+    };
     box._pmAsk = q => { setQuote(q); input.focus({ preventScroll: true }); };
     box._pmLoad = load;
     if (!box.closest("[hidden]")) load();
@@ -310,8 +342,8 @@
     toggle.setAttribute("aria-expanded", String(on));
     if (on) {
       init(panel);
-      drawer.querySelector("[data-chat]")._pmLoad();
-      if (focus) drawer.querySelector("[data-chat-text]").focus({ preventScroll: true });
+      drawer.querySelector("[data-chat]")?._pmLoad();
+      if (focus) drawer.querySelector("[data-chat-text]")?.focus({ preventScroll: true });
     } else if (focus) toggle.focus({ preventScroll: true });
     return true;
   }
@@ -330,6 +362,43 @@
     if (!panel || panel.dataset.paper !== String(paperId) || !showPaperChat(panel, true)) return false;
     panel.querySelector("[data-chat]")._pmAsk({ text, page });
     return true;
+  };
+
+  // Use the actual paper chat when available so questions, drafts and in-flight
+  // replies stay in one place. The gallery mounts the same composer for its paper.
+  const figureHost = document.getElementById("lb_chat");
+  const galleryBoxes = new Map();
+  let mounted = null;
+  window.pmFigureChat = f => {
+    if (!figureHost) return;
+    if (mounted && (!f || mounted.box.dataset.chat !== String(f.paper_id))) {
+      mounted.box._pmFigure(null);
+      if (mounted.home) mounted.home.append(mounted.box);
+      else mounted.box.remove();
+      mounted = null;
+    }
+    if (!f) return;
+    if (!mounted) {
+      const panel = document.querySelector(`.panel[data-paper="${Number(f.paper_id)}"]`);
+      let box = panel?.querySelector("[data-paper-chat-drawer] [data-chat]");
+      const home = box?.parentNode;
+      if (box) init(panel);
+      else {
+        const pid = String(f.paper_id);
+        box = galleryBoxes.get(pid);
+        if (!box) {
+          box = document.getElementById("lb_chat_template").content.firstElementChild.cloneNode(true);
+          box.dataset.chat = pid;
+          galleryBoxes.set(pid, box);
+        }
+      }
+      figureHost.append(box);
+      if (!home) init(figureHost);
+      mounted = { box, home };
+    }
+    mounted.box._pmFigure(f);
+    mounted.box._pmLoad();
+    mounted.box.querySelector("[data-chat-text]").focus({ preventScroll: true });
   };
 
   // The right-hand drawer on every other page (evidence notes, Q&A, map, fields, handbooks…)

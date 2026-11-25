@@ -26,6 +26,8 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
 
     def render(m: dict) -> dict:
         out = {k: m.get(k) for k in ("role", "content", "model", "at", "quote", "page", "run_id", "squad_to")}
+        if m.get("figure"):
+            out["figure"] = m["figure"]
         out["html"] = chat.page_links(md_html(m["content"])) if m["role"] == "assistant" else ""
         return out
 
@@ -63,7 +65,8 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
             r = await run_in_threadpool(
                 chat.send, config, registry, pipeline.llm, paper_id, card, pdf_file(row), notes, card_text,
                 str(body.get("text", "")), str(body.get("model") or "main"), str(body.get("quote") or ""),
-                int(page) if str(page or "").isdigit() else None, str(body.get("effort") or ""))
+                int(page) if str(page or "").isdigit() else None, str(body.get("effort") or ""),
+                figure_id=body.get("figure_id"), figure_revision=body.get("figure_revision"))
         except Exception as exc:  # noqa: BLE001 - shown in the chat, never crashes the app
             return error(exc)
         return {"ok": True, "user": render(r["user"]), "reply": render(r["reply"])}
