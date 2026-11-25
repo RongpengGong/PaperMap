@@ -1,4 +1,12 @@
 // The paper and page drawers share a composer and retain their own conversation histories.
+// "ChatGPT 订阅 · gpt-6.2-sol 约 20 次 · DeepSeek … 约 6 次（$0.01）": subscriptions use quota, paid models money
+window.pmSquadCost = j => {
+  const t = s => (window.t ? window.t(s) : s);
+  const rows = (j.by_model || []).map(r => r.billing === "subscription"
+    ? t("{m} 约 {n} 次").replace("{m}", r.label).replace("{n}", r.calls)
+    : t("{m} 约 {n} 次（${usd}）").replace("{m}", r.label).replace("{n}", r.calls).replace("{usd}", r.usd.toFixed(3)));
+  return t("预计") + "：" + rows.join(" · ") + (j.usd > 0 ? " · " + t("合计约 ${usd}").replace("{usd}", j.usd.toFixed(3)) : "");
+};
 (() => {
   const csrf = document.body.dataset.csrf;
   const t = s => (window.t ? window.t(s) : s);
@@ -175,10 +183,12 @@
       sqPending = text;
       const scope = j.questions.length ? `${esc(t("研究问题"))}：${j.questions.map(esc).join("；")}`
         : j.field ? `${esc(t("学科"))}：${esc(j.field)}` : "";
-      const cost = j.subscription ? t("订阅模型：约 {n} 次调用，计入订阅额度").replace("{n}", j.calls)
-        : t("预计约 {n} 次调用，约 ${usd}").replace("{n}", j.calls).replace("{usd}", j.usd.toFixed(3));
-      sqPlan.innerHTML = `<b>${esc(j.label)}</b> · ${j.members.map(esc).join(" · ")}<br>${esc(j.description)}`
+      const cost = window.pmSquadCost(j);
+      const simple = text.length < 24 && !BIG.test(text) && !DEEP.test(text);
+      sqPlan.innerHTML = (simple ? `<div class="chat-squad-simple">${esc(t("这个问题可能普通回答就够了，不一定需要小队。"))}</div>` : "")
+        + `<b>${esc(j.label)}</b> · ${j.members.map(esc).join(" · ")}<br>${esc(j.description)}`
         + (scope ? `<br>${scope}` : "") + `<br><span class="muted">${esc(cost)}</span>`;
+      if (j.cap_usd !== undefined) sqCap.value = j.cap_usd;
       sqBar.hidden = false; scroll();
     }
     const MARK = { queued: "○", running: "◔", done: "●", error: "✕", cancelled: "–" };

@@ -2,7 +2,7 @@
 {% block title %}{{ _("智能体小队 - PaperMap") }}{% endblock %}
 {% block content %}
 <div class="squads">
-  <h2>{{ _("智能体小队") }}</h2>
+  <div class="row squad-head"><h2>{{ _("智能体小队") }}</h2><span class="grow"></span><a class="ghost-btn" href="/squads/settings">{{ _("小队设置") }}</a></div>
   <p class="muted small">{{ _("队长把任务拆开、写上任务板，成员并行完成；你可以随时追加指令或停止。成员只读你的文献库，所有改动（摘录、判断、缺口、收录）都作为提议交给你确认。论文文字会发送到你配置的模型服务。") }}</p>
 
   {% if not request.state.remote %}
@@ -22,7 +22,7 @@
       <label>{{ _("综述题目") }}<textarea id="sq_goal_review" rows="2" placeholder="{{ _("例如：肝癌中癌症相关成纤维细胞的空间分布与功能") }}"></textarea></label>
       <div class="row">
         <label>{{ _("最多精读几篇") }} <input type="number" id="sq_max_review" min="2" max="12" value="8" style="width:5em"></label>
-        <label><input type="checkbox" id="sq_external" checked> {{ _("也检索库外文献（OpenAlex）") }}</label>
+        <label><input type="checkbox" id="sq_external" {{ 'checked' if squad_defaults.external }}> {{ _("也检索库外文献（OpenAlex）") }}</label>
       </div>
     </div>
     <div class="squad-form" data-for="check" hidden>
@@ -43,8 +43,8 @@
     </div>
 
     <div class="row squad-cost">
-      <label>{{ _("同时工作的成员") }} <input type="number" id="sq_parallel" min="1" max="4" value="4" style="width:4em"></label>
-      <label>{{ _("这次费用上限（美元，0 = 不限）") }} <input type="number" id="sq_cap" min="0" max="50" step="0.1" value="0.5" style="width:6em"></label>
+      <label>{{ _("同时工作的成员") }} <input type="number" id="sq_parallel" min="1" max="4" value="{{ squad_defaults.parallel }}" style="width:4em"></label>
+      <label>{{ _("这次费用上限（美元，0 = 不限）") }} <input type="number" id="sq_cap" min="0" max="50" step="0.1" value="{{ squad_defaults.default_cap_usd }}" style="width:6em"></label>
       <span id="sq_estimate" class="muted small"></span>
       <span class="grow"></span>
       <button type="button" id="sq_start">{{ _("开始") }}</button>
@@ -93,8 +93,7 @@
   async function estimate() {
     const r = await post("/api/squads/estimate", body());
     if (!r.ok) { $("sq_estimate").textContent = ""; return; }
-    $("sq_estimate").textContent = r.subscription ? t("订阅模型：约 {n} 次调用，计入订阅额度").replace("{n}", r.calls)
-      : t("预计约 {n} 次调用，约 ${usd}").replace("{n}", r.calls).replace("{usd}", r.usd.toFixed(3));
+    $("sq_estimate").textContent = window.pmSquadCost(r);
   }
   const later = () => { clearTimeout(timer); timer = setTimeout(estimate, 300); };
   document.querySelectorAll('input[name="squad_template"]').forEach(x => x.addEventListener("change", () => {

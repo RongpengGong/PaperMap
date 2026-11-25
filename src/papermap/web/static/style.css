@@ -1241,3 +1241,21 @@ body.remote-touch .md, body.remote-touch .card-view { font-size:15px; }
 .chat-squad-tasks .sq-t-error span { color:var(--warn); }
 .chat-squad-foot { margin-top:6px; }
 .chat-squad-hint { margin-top:6px; padding-top:6px; border-top:1px dashed var(--line); color:var(--muted); }
+/* squad settings */
+.squad-head { display:flex; align-items:center; gap:10px; }
+.squad-settings { max-width:1100px; }
+.sqs-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.sqs-table th,.sqs-table td { text-align:left; padding:5px 7px; border-bottom:1px solid var(--line); vertical-align:top; }
+.sqs-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px 18px; }
+.sqs-grid input[type=number] { width:6em; }
+.sqs-role { padding:12px 15px; margin:0 0 10px; }
+.sqs-role header { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-bottom:6px; }
+.chip.tier-complex { color:var(--warn); border-color:var(--warn); } .chip.tier-simple { color:var(--ok); border-color:var(--ok); }
+.chip.tier-medium { color:var(--accent); border-color:var(--accent); }
+.sqs-cands { margin:4px 0; padding-left:20px; }
+.sqs-cands li { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:3px 0; }
+.sqs-cands select[data-model] { max-width:460px; }
+.sqs-role-more { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:flex-end; margin-top:6px; }
+.sqs-role-more label:first-child { flex:1 1 380px; } .sqs-role-more textarea { width:100%; }
+.sqs-save { position:sticky; bottom:0; background:var(--bg, var(--card)); padding:8px 0; display:flex; align-items:center; gap:10px; }
+.chat-squad-simple { color:var(--warn); margin-bottom:4px; }

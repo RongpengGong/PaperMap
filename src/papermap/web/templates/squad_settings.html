@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ _("小队设置") }} - {{ _("智能体小队") }}{% endblock %}
+{% block content %}
+<div class="squad-settings" id="sqs" data-remote="{{ 1 if request.state.remote else 0 }}">
+  <p class="muted small"><a href="/squads">← {{ _("智能体小队") }}</a></p>
+  <h2>{{ _("小队设置") }}</h2>
+  <p class="muted small">{{ _("每个角色按顺序列几个模型：前一个不可用（下架、额度用完、未登录）时自动换下一个，最后总会退回主模型。复杂角色适合评分最高的模型；简单角色能胜任就行，用便宜的按量计费模型，把订阅额度留给难的活。") }}</p>
+
+  <section class="card sqs-roster">
+    <div class="row"><h3>{{ _("模型名册") }}</h3><span class="grow"></span>
+      {% if not request.state.remote %}<button type="button" class="ghost-btn" id="sqs_refresh">{{ _("重新检查订阅") }}</button>{% endif %}</div>
+    <p class="muted small">{{ _("你所有已登录的订阅和已填密钥的接口。「研发方」是模型出自哪家公司，和从哪个订阅用到它无关。") }}</p>
+    <table class="sqs-table">
+      <thead><tr><th>{{ _("研发方") }}</th><th>{{ _("渠道") }}</th><th>{{ _("模型") }}</th><th>{{ _("计费") }}</th><th>{{ _("推理强度") }}</th></tr></thead>
+      <tbody>{% for m in roster %}<tr><td>{{ m.vendor }}</td><td>{{ m.channel }}</td><td>{{ m.model }}{% if m.main %} <span class="chip">{{ _("主模型") }}</span>{% endif %}</td>
+        <td>{% if m.billing == 'subscription' %}{{ _("订阅额度") }}{% else %}${{ '%.2f'|format(m.price_in) }} / ${{ '%.2f'|format(m.price_out) }} {{ _("每百万 token（入 / 出）") }}{% endif %}</td>
+        <td class="small">{{ m.efforts|join(' · ') or '—' }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+
+  {% if warning %}<p class="notice">⚠️ {{ warning }}</p>{% endif %}
+
+  <section class="card sqs-general">
+    <h3>{{ _("通用") }}</h3>
+    <div class="sqs-grid">
+      <label>{{ _("预算偏好") }} <select id="sqs_budget">{% for k, v in budgets.items() %}<option value="{{ k }}" {{ 'selected' if s.budget == k }}>{{ v }}</option>{% endfor %}</select></label>
+      <label>{{ _("同时工作的成员") }} <input type="number" id="sqs_parallel" min="1" max="4" value="{{ s.parallel }}"></label>
+      <label>{{ _("默认费用上限（美元，0 = 不限）") }} <input type="number" id="sqs_cap" min="0" max="50" step="0.1" value="{{ s.default_cap_usd }}"></label>
+      <label>{{ _("每次最多调用次数") }} <input type="number" id="sqs_calls" min="10" max="1000" value="{{ s.max_calls }}"></label>
+      <label><input type="checkbox" id="sqs_external" {{ 'checked' if s.external }}> {{ _("综述时检索库外文献（OpenAlex）") }}</label>
+      <label><input type="checkbox" id="sqs_handoff" {{ 'checked' if s.handoff_quotes }}> {{ _("交接时附上原句（后面的成员看到前面成员摘出的原文，不经压缩）") }}</label>
+    </div>
+  </section>
+
+  <section class="sqs-roles">
+    <div class="row"><h3>{{ _("角色") }}</h3><span class="grow"></span>
+      {% if not request.state.remote %}<button type="button" class="ghost-btn" id="sqs_recommend" title="{{ _("按预算偏好：简单角色用最便宜的按量计费模型，复杂角色用主模型的高推理强度，质疑员换一家") }}">{{ _("推荐搭配") }}</button>
+      <button type="button" class="ghost-btn" id="sqs_reset">{{ _("恢复默认") }}</button>{% endif %}</div>
+    {% for role in role_order %}{% set r = s.roles[role] %}
+    <article class="card sqs-role" data-role="{{ role }}">
+      <header><b>{{ role_labels[role] }}</b> <span class="chip tier-{{ role_tiers[role] }}">{{ tiers[role_tiers[role]] }}</span>
+        <span class="muted small">{{ _("用在") }}：{{ role_uses.get(role, [])|join('、') }}</span></header>
+      <ol class="sqs-cands" data-cands>
+        {% for c in r.candidates %}<li data-cand data-model="{{ c.model }}" data-effort="{{ c.effort }}"></li>{% endfor %}
+      </ol>
+      {% if not request.state.remote %}<button type="button" class="link small" data-add-cand>{{ _("＋ 加一个备选模型") }}</button>{% endif %}
+      <div class="sqs-role-more">
+        <label class="small">{{ _("额外要求（加在内置指令之后；内置的出处规则不会被改掉）") }}
+          <textarea rows="2" data-extra maxlength="2000" placeholder="{{ _("例如：特别注意样本量和混杂因素") }}">{{ r.extra|keep }}</textarea></label>
+        <label class="small">{{ _("最多几步（留空 = 默认）") }} <input type="number" min="2" max="15" data-steps value="{{ r.max_steps or '' }}" style="width:5em"></label>
+        {% if role in optional %}<span class="small">{{ _("在这些小队中启用") }}：
+          {% for t in templates if role in t.members %}<label><input type="checkbox" data-enable="{{ t.key }}" {{ '' if role in s.disabled.get(t.key, []) else 'checked' }}> {{ t.label }}</label>{% endfor %}</span>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+
+  {% if not request.state.remote %}
+  <div class="row sqs-save"><span id="sqs_msg" class="small"></span><span class="grow"></span><button type="button" id="sqs_save">{{ _("保存") }}</button></div>
+  {% endif %}
+
+  <section class="card">
+    <h3>{{ _("按当前设置，一次运行大约") }}</h3>
+    <table class="sqs-table"><tbody>{% for e in estimates %}<tr><td>{{ e.label }}</td><td class="small" data-estimate='{{ e|tojson }}'></td></tr>{% endfor %}</tbody></table>
+  </section>
+
+  <section class="card">
+    <h3>{{ _("最近两周的成绩单") }}</h3>
+    <p class="muted small">{{ _("原句被退回：摘录在 PDF 里找不到原文；删去的句子：报告里没有出处被删掉；提议：你接受 / 拒绝的条数。数字差的角色，可以换模型或补一条额外要求。") }}</p>
+    {% if scorecards %}
+    <table class="sqs-table">
+      <thead><tr><th>{{ _("角色") }}</th><th>{{ _("模型") }}</th><th>{{ _("任务") }}</th><th>{{ _("步数") }}</th><th>{{ _("费用") }}</th><th>{{ _("出错") }}</th><th>{{ _("原句被退回") }}</th><th>{{ _("删去的句子") }}</th><th>{{ _("提议 接受 / 拒绝") }}</th></tr></thead>
+      <tbody>{% for c in scorecards %}<tr><td>{{ c.role_label }}</td><td class="small">{{ c.model }}</td><td>{{ c.tasks }}</td><td>{{ c.steps }}</td><td>${{ '%.3f'|format(c.usd) }}</td>
+        <td>{{ c.errors or '' }}</td><td>{{ c.refused or '' }}</td><td>{{ c.dropped or '' }}</td><td>{{ c.accepted }} / {{ c.rejected }}{% if c.pending %} <span class="muted small">（{{ _("{n} 条待定", n=c.pending) }}）</span>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<p class="muted small">{{ _("最近两周还没有运行过小队。") }}</p>{% endif %}
+  </section>
+</div>
+<script type="application/json" id="sqs_roster">{{ roster|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/squad-settings.js?v={{ static_v }}"></script>
+{% endblock %}

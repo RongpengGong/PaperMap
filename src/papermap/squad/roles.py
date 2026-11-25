@@ -195,3 +195,28 @@ PAPER_ONLY = {"deep"}
 
 def roster(t: Template) -> str:
     return "\n".join(f"- {m.key}: {m.brief[:220]}" for m in t.members.values())
+
+
+def configured(key: str, s: dict) -> Template:
+    """The squad as the researcher set it up: optional roles switched off, their extra instructions
+    appended (the built-in rules stay), and their step limits."""
+    import dataclasses
+
+    base = TEMPLATES[key]
+    off = set((s.get("disabled") or {}).get(key) or [])
+    members = {}
+    for k, m in base.members.items():
+        if k in off and k != base.final_member:
+            continue
+        r = (s.get("roles") or {}).get(k) or {}
+        brief = m.brief + (f"\n\nTHE RESEARCHER'S EXTRA INSTRUCTIONS FOR THIS ROLE:\n{r['extra']}" if r.get("extra") else "")
+        members[k] = dataclasses.replace(m, brief=brief, max_steps=r.get("max_steps") or m.max_steps)
+    lead = ((s.get("roles") or {}).get("lead") or {}).get("extra")
+    brief = base.lead_brief + (f"\n\nTHE RESEARCHER'S EXTRA INSTRUCTIONS FOR THE LEAD:\n{lead}" if lead else "")
+    if off:
+        brief += "\n\n(The researcher switched off these roles for this squad: " + ", ".join(sorted(off)) + ".)"
+    return dataclasses.replace(base, members=members, lead_brief=brief.replace("{", "{{").replace("}", "}}")
+                               .replace("{{max_papers}}", "{max_papers}").replace("{{external}}", "{external}")
+                               .replace("{{scope}}", "{scope}").replace("{{questions}}", "{questions}")
+                               .replace("{{limit}}", "{limit}").replace("{{available}}", "{available}")
+                               .replace("{{paper}}", "{paper}"))

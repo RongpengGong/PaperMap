@@ -92,9 +92,10 @@ def _efforts(config: Config, pid: str, model: str) -> list[str]:
     return []
 
 
-def model_choices(config: Config) -> list[dict]:
+def model_choices(config: Config, probe_all: bool = False) -> list[dict]:
     """Models the user has already set up (key or sign-in present). ``main`` = the main model.
-    Signed-in providers also list their reasoning-effort levels."""
+    Signed-in providers also list their reasoning-effort levels. ``probe_all`` also asks sign-in
+    providers that were never chosen in PaperMap (the squad model roster wants every subscription)."""
     llm = config.llm
     main = config.effective_llm()
     mp = main.get("provider", "")
@@ -118,7 +119,7 @@ def model_choices(config: Config) -> list[dict]:
     for pid, pre in PRESETS.items():
         st = states.get(pid) or {}
         if pid in SIGN_IN_PROVIDERS:
-            if pid not in states and mp != pid:
+            if pid not in states and mp != pid and not probe_all:
                 continue  # never set up: do not probe sign-in state
             ready = out[0]["ready"] if pid == mp else _subscription_ready(config, pid)
             if not ready:
@@ -156,10 +157,14 @@ def model_choices(config: Config) -> list[dict]:
     return out
 
 
-def resolve(config: Config, key: str, effort: str = "") -> dict:
+def resolve(config: Config, key: str, effort: str = "", choices: list[dict] | None = None) -> dict:
     """Connection settings for one of :func:`model_choices` (anything else is refused).
-    ``effort`` must be one of that model's levels; empty keeps the configured default."""
-    choices = {c["key"]: c for c in model_choices(config)} if (key not in ("", "main") or effort) else {}
+    ``effort`` must be one of that model's levels; empty keeps the configured default.
+    ``choices`` lets a caller reuse a list it already has (probing sign-in providers is slow)."""
+    if choices is not None:
+        choices = {c["key"]: c for c in choices}
+    else:
+        choices = {c["key"]: c for c in model_choices(config)} if (key not in ("", "main") or effort) else {}
     if not key or key == "main":
         eff = config.effective_llm()
         key = "main"

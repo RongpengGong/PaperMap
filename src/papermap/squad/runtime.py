@@ -20,6 +20,7 @@ from ..llm import BudgetExceeded, LLMError, LLMNotConfigured, compute_cost
 from ..registry import now_iso
 from . import cite, roles, store, tools
 from . import messages as M
+from . import models
 
 log = logging.getLogger(__name__)
 
@@ -93,22 +94,46 @@ def _lang(config) -> str:
 
 
 # ------------------------------------------------------------------ cost estimate
-def estimate(config, template: str, params: dict, available: int = 0) -> dict:
-    t = roles.TEMPLATES[template]
-    lead_calls = 3
+def role_calls(template: str, params: dict, available: int = 0) -> dict[str, int]:
+    """Rough number of model calls per role for one run (lead included)."""
     if template == "review":
-        calls = 6 + params.get("max_papers", 8) * 4 + 5 + 3
+        calls = {"searcher": 6, "reader": params.get("max_papers", 8) * 4, "critic": 5, "writer": 3}
     elif template == "check":
-        calls = len(params.get("question_ids") or [1]) * (5 + params.get("max_papers", 6) * 5 + 5) + 4
+        q = len(params.get("question_ids") or [1])
+        calls = {"searcher": 5 * q, "reader": params.get("max_papers", 6) * 5 * q, "critic": 5 * q, "writer": 4}
     elif template == "deep":
-        calls = 7 + 7 + 6 + 8 + 4
+        calls = {"reader": 14, "critic": 6, "connector": 8, "writer": 4}
     else:
         n = min(params.get("limit", 30), available) if available else params.get("limit", 30)
-        calls = math.ceil(max(n, 1) / 10) * 4 + 2
-    eff = config.effective_llm()
-    usd = lead_calls * compute_cost(eff, 5000, 900) + calls * compute_cost(eff, 9000, 900)
-    return {"calls": lead_calls + calls, "usd": round(usd, 4), "subscription": eff.get("billing") == "subscription",
-            "model": eff.get("model", ""), "template": t.key}
+        calls = {"screener": math.ceil(max(n, 1) / 10) * 4, "writer": 2}
+    return {"lead": 3, **calls}
+
+
+def estimate(config, template: str, params: dict, available: int = 0) -> dict:
+    """Calls and money per model: paid models in dollars, subscriptions in calls (their quota)."""
+    s = models.settings(config)
+    t = roles.configured(template, s)
+    picker = models.RoleModels(config, s)
+    by: dict[str, dict] = {}
+    usd = 0.0
+    total = 0
+    for role, n in role_calls(template, params, available).items():
+        if role != "lead" and role not in t.members:
+            continue
+        pick = picker.pick(role)
+        eff = pick["eff"] or config.effective_llm()
+        ch = models.vendor_channel(pick, config)
+        cost = n * compute_cost(eff, 5000 if role == "lead" else 9000, 900)
+        row = by.setdefault(ch["label"], {"label": ch["label"], "calls": 0, "usd": 0.0, "billing": ch["billing"], "roles": []})
+        row["calls"] += n
+        row["usd"] = round(row["usd"] + cost, 4)
+        row["roles"].append(role)
+        usd += cost
+        total += n
+    rows = sorted(by.values(), key=lambda r: -r["calls"])
+    return {"calls": total, "usd": round(usd, 4), "by_model": rows,
+            "subscription": all(r["billing"] == "subscription" for r in rows),
+            "model": config.effective_llm().get("model", ""), "template": template}
 
 
 # ------------------------------------------------------------------ the worker
@@ -199,8 +224,11 @@ class Squad:
         self.llm = pipeline.llm
         self.run_id = run_id
         self.info = store.get_run(self.reg, run_id)
-        self.t = roles.TEMPLATES[self.info["template"]]
+        self.s = models.settings(self.config)
+        self.t = roles.configured(self.info["template"], self.s)
         self.params = {**self.t.params, **self.info["params"]}
+        self.models = models.RoleModels(self.config, self.s)
+        self.clients: dict[str, object] = {}
         self.abort: Exception | None = None
 
     # -- guards
@@ -212,14 +240,41 @@ class Squad:
             raise Stopped()
         if run["cap_usd"] > 0 and run["spent_usd"] >= run["cap_usd"]:
             raise CapReached()
-        if run["calls"] >= MAX_CALLS:
+        if run["calls"] >= min(MAX_CALLS * 5, int(self.s.get("max_calls") or MAX_CALLS)):
             raise CapReached()
 
-    def ask(self, system: str, user: str, validate, purpose: str, key: str):
-        self.guard()
-        res = self.llm.chat_json(system, user, validate, purpose=purpose, max_tokens=4000)
-        store.add_cost(self.reg, self.run_id, key, res.cost_usd)
-        return res
+    def _client(self, pick: dict):
+        if pick["eff"] is None:
+            return None
+        if pick["key"] not in self.clients:
+            from ..llm import make_client
+
+            self.clients[pick["key"]] = make_client(pick["eff"], float(self.config.llm.get("timeout_s", 180)))
+        return self.clients[pick["key"]]
+
+    def ask(self, system: str, user: str, validate, purpose: str, key: str, role: str = "lead"):
+        """One model call for ``role``. If its model fails (signed out, quota, removed, unusable
+        replies), the next candidate takes over for the rest of the run, ending with the main model."""
+        while True:
+            self.guard()
+            pick = self.models.pick(role)
+            try:
+                with self.models.gate(pick["provider"]):
+                    res = self.llm.chat_json(system, user, validate, purpose=purpose, max_tokens=4000,
+                                             eff=pick["eff"], client=self._client(pick))
+            except (BudgetExceeded, Stopped, CapReached):
+                raise
+            except Exception as exc:  # noqa: BLE001 - try the next model of this role
+                if pick["key"] == "main" and pick["eff"] is None:
+                    raise
+                self.models.fail(pick["key"])
+                nxt = self.models.pick(role)
+                store.log(self.reg, self.run_id, role, "fallback", f"{pick['label'] or pick['key']} → "
+                          f"{nxt['label'] or M.MAIN_MODEL}", key, {"error": f"{type(exc).__name__}: {exc}"[:300]})
+                continue
+            channel = models.vendor_channel(pick, self.config)
+            store.add_cost(self.reg, self.run_id, key, res.cost_usd, channel)
+            return res
 
     # -- main loop
     def run(self) -> None:
@@ -227,7 +282,7 @@ class Squad:
         if not store.tasks(reg, self.run_id):
             store.log(reg, self.run_id, "system", "note", M.STARTED)
             self.lead_turn()
-        parallel = int(self.params.get("parallel") or DEFAULT_PARALLEL)
+        parallel = int(self.params.get("parallel") or self.s.get("parallel") or DEFAULT_PARALLEL)
         running: dict[Future, str] = {}
         with ThreadPoolExecutor(max_workers=parallel, thread_name_prefix="squad-member") as pool:
             while True:
@@ -367,7 +422,7 @@ class Squad:
         ])
         system = LEAD_SYSTEM.format(final=self.t.final_member, max_tasks=MAX_TASKS, lang=_lang(self.config),
                                     roster=roles.roster(self.t), brief=self._brief())
-        res = self.ask(system, user, validate, "squad_lead", "")
+        res = self.ask(system, user, validate, "squad_lead", "", "lead")
         d = res.data
         for x in d["add_tasks"]:
             store.add_task(reg, self.run_id, x["key"], x["member"], x["title"], x["instructions"], x["blocked_by"], x["final"])
@@ -393,10 +448,18 @@ class Squad:
                                       lang=_lang(self.config))
         board = {t["key"]: t for t in store.tasks(reg, self.run_id)}
         inputs = []
+        full = bool(self.s.get("handoff_quotes", True))
         for dep in task["blocked_by"]:
             t = board.get(dep)
             if t and t["result"] and t["result"].get("summary"):
-                inputs.append(f"### {dep} ({t['member']}): {t['title']}\n{t['result']['summary'][:6000]}")
+                block = f"### {dep} ({t['member']}): {t['title']}\n{t['result']['summary'][:15000 if full else 4000]}"
+                if full:  # the verbatim quotes this teammate filed travel unabridged
+                    quotes = [p["payload"] for p in store.proposals(reg, self.run_id) if p["task_key"] == dep
+                              and p["kind"] == "evidence"]
+                    if quotes:
+                        block += "\nVERBATIM QUOTES THIS TEAMMATE FILED:\n" + "\n".join(
+                            f"- [P{q['paper_id']}] p.{q['page'] + 1}: \"{q['quote']}\"" for q in quotes[:20])
+                inputs.append(block)
         history: list[tuple[str, str]] = []
         notes: list[str] = []
 
@@ -420,7 +483,7 @@ class Squad:
             notes += store.take_messages(reg, self.run_id, task["key"])
             last = step == member.max_steps - 1
             user = self._member_prompt(task, inputs, notes, history, step, member.max_steps, last)
-            res = self.ask(system, user, validate, f"squad_{member.key}", task["key"])
+            res = self.ask(system, user, validate, f"squad_{member.key}", task["key"], member.key)
             store.set_task(reg, self.run_id, task["key"], steps=step + 1)
             d = res.data
             if d.get("done"):

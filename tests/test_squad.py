@@ -457,3 +457,119 @@ def test_deep_reading_squad_from_the_paper_chat(lib, registry, config):
     assert got["messages"][1]["run_id"] == rid
     # the squads page does not offer it as a type of its own (it needs a paper)
     assert "单篇深读" not in web.get("/squads").text.split("运行记录")[0]
+
+
+def _with_custom_model(config):
+    config.raw["llm"]["api_key"] = "test-only"
+    config.raw["llm"]["custom"] = {"base_url": "http://127.0.0.1:9/v1", "model": "deepseek-v4.1-flash", "api_key": "x",
+                                   "protocol": "openai", "price_input_per_1m": 0.01, "price_output_per_1m": 0.02}
+    from papermap.squad import models
+
+    models.forget()
+    return "custom|deepseek-v4.1-flash"
+
+
+def test_roster_settings_and_recommendation(lib, registry, config):
+    web, pipe, pid, qid = lib
+    from papermap.squad import models
+
+    key = _with_custom_model(config)
+    roster = {m["key"]: m for m in models.roster(config)}
+    assert roster[key]["vendor"] == "DeepSeek" and roster[key]["billing"] == "token" and roster["main"]["main"]
+    rec = models.recommend(config, "balanced")
+    assert rec["searcher"][0]["model"] == key and rec["screener"][0]["model"] == key  # simple: cheapest paid
+    assert rec["writer"][0]["model"] == "main" and rec["reader"][0]["model"] == "main"
+    assert models.recommend(config, "economy")["reader"][0]["model"] == key
+    assert models.recommend(config, "quality")["searcher"][0]["model"] == "main"
+    with pytest.raises(ValueError):
+        models.validate(config, {"roles": {"reader": {"candidates": [{"model": "nope|x"}]}}})
+    clean = models.validate(config, {"budget": "economy", "parallel": 9, "roles": {
+        "searcher": {"candidates": [{"model": key, "effort": "bogus"}, {"model": key, "effort": ""}], "extra": "只搜英文", "max_steps": "3"}},
+        "disabled": {"deep": ["connector", "writer"]}})
+    assert clean["parallel"] == 4 and clean["roles"]["searcher"]["candidates"] == [{"model": key, "effort": ""}]
+    assert clean["roles"]["searcher"]["max_steps"] == 3 and clean["disabled"] == {"deep": ["connector"]}
+
+    tok = _token(web)
+    page = web.get("/squads/settings").text
+    assert "模型名册" in page and "deepseek-v4.1-flash" in page and "DeepSeek" in page
+    assert web.post("/api/squads/settings", json={"csrf": tok, **clean}).json()["ok"]
+    assert config.raw["squad"]["roles"]["searcher"]["extra"] == "只搜英文"
+    from papermap import remote_web
+
+    assert web.post("/api/squads/settings", json={"csrf": tok, **clean},
+                    headers={remote_web.HEADER: remote_web.SECRET}).status_code == 403
+    est = runtime.estimate(config, "check", {"question_ids": [qid], "max_papers": 2})
+    by = {r["label"]: r for r in est["by_model"]}
+    paid = next(r for r in by.values() if "deepseek-v4.1-flash" in r["label"])
+    assert paid["roles"] == ["searcher"] and paid["usd"] > 0 and paid["billing"] == "token"
+
+
+def test_roles_use_their_own_models_and_fall_back(lib, registry, config, monkeypatch):
+    web, pipe, pid, qid = lib
+    from papermap import llm as llm_mod
+    from papermap.squad import models
+
+    key = _with_custom_model(config)
+    config.raw["squad"] = models.validate(config, {"roles": {
+        "searcher": {"candidates": [{"model": key}], "extra": "只用英文检索词"},
+        "critic": {"candidates": [{"model": key}]}}, "disabled": {"check": ["critic"]}})
+    script = check_script(pid, qid)
+    use(pipe, script)
+    side = Script([], {"searcher": lambda task, step, user, s: (
+        {"actions": [{"tool": "search_library", "args": {"query": "fibroblast"}}]} if step == 0
+        else {"done": True, "result": {"summary": f"相关：[P{pid}] p.1"}})})
+    seen_system = []
+
+    def make_client(eff, timeout):
+        assert eff["model"] == "deepseek-v4.1-flash"
+
+        def create(**kw):
+            seen_system.append(kw["messages"][0]["content"])
+            return side.create(**kw)
+        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    monkeypatch.setattr(llm_mod, "make_client", make_client)
+    rid = store.create_run(registry, "check", "核对", "", {"question_ids": [qid]}, 0, 0)
+    runtime.SquadRunner(pipe).execute(rid)
+    run = store.get_run(registry, rid)
+    assert run["status"] == "done", run["message"]
+    assert [r for r, _ in side.calls] == ["searcher", "searcher"]  # the searcher ran on its own model
+    assert "searcher" not in [r for r, _ in script.calls]
+    assert "只用英文检索词" in seen_system[0]
+    assert any(u for r, u in script.calls if r == "lead")
+    assert set(run["usage"]) >= {"自定义接口 · deepseek-v4.1-flash"}
+    tasks = {t["key"]: t for t in store.tasks(registry, rid)}
+    assert tasks["s1"]["model"] == "自定义接口 · deepseek-v4.1-flash"
+
+    # the paid model breaks: the searcher falls back to the main model and says so
+    def broken(eff, timeout):
+        def create(**kw):
+            raise RuntimeError("quota used up")
+        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    monkeypatch.setattr(llm_mod, "make_client", broken)
+    script2 = check_script(pid, qid)
+    use(pipe, script2)
+    rid2 = store.create_run(registry, "check", "核对", "", {"question_ids": [qid]}, 0, 0)
+    runtime.SquadRunner(pipe).execute(rid2)
+    assert store.get_run(registry, rid2)["status"] == "done"
+    assert "searcher" in [r for r, _ in script2.calls]
+    falls = [e for e in store.events(registry, rid2) if e["kind"] == "fallback"]
+    assert falls and "quota used up" in falls[0]["data_json"]
+
+
+def test_disabled_role_leaves_the_roster_and_scorecards_count(lib, registry, config):
+    web, pipe, pid, qid = lib
+    from papermap.squad import models, roles
+
+    s = models.validate(config, {"disabled": {"deep": ["critic"]}, "roles": {"writer": {"extra": "800 字以内"}}})
+    t = roles.configured("deep", s)
+    assert "critic" not in t.members and "800 字以内" in t.members["writer"].brief
+    assert "{paper}" in t.lead_brief
+    script = check_script(pid, qid)
+    use(pipe, script)
+    rid = store.create_run(registry, "check", "核对", "", {"question_ids": [qid]}, 0, 0)
+    runtime.SquadRunner(pipe).execute(rid)
+    cards = {c["role"]: c for c in store.scorecards(registry)}
+    assert cards["reader"]["refused"] == 2  # both readers first copied a sentence that is not in the PDF
+    assert cards["writer"]["dropped"] >= 1 and cards["reader"]["pending"] >= 1

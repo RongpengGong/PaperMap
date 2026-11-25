@@ -137,10 +137,13 @@ class LLMClient:
         purpose: str,
         paper_id: int | None = None,
         max_tokens: int = 4096,
+        eff: dict | None = None,
+        client: Any = None,
     ) -> LLMResult:
-        """Ask for a JSON object; on invalid JSON/schema, retry once with feedback."""
-        eff = self.config.effective_llm()
-        client = self._get_client(eff)
+        """Ask for a JSON object; on invalid JSON/schema, retry once with feedback.
+        ``eff``/``client`` select another configured model (e.g. one squad role's model)."""
+        eff = eff or self.config.effective_llm()
+        client = client or self._get_client(eff)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         last_raw, last_err = "", ""
         for attempt in range(2):

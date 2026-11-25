@@ -52,9 +52,19 @@ CREATE TABLE IF NOT EXISTS squad_works (
 ACTIVE = ("queued", "running", "stopping")
 
 
+MIGRATIONS = {"squad_runs": {"usage_json": "TEXT NOT NULL DEFAULT '{}'"},
+              "squad_tasks": {"model": "TEXT NOT NULL DEFAULT ''"}}
+
+
 def ensure_schema(registry: Registry) -> None:
     with registry._lock:  # noqa: SLF001
         registry.conn.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            have = {r[1] for r in registry.conn.execute(f"PRAGMA table_info({table})")}
+            for col, decl in cols.items():
+                if col not in have:
+                    registry.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        registry.conn.commit()
 
 
 def create_run(registry: Registry, template: str, title: str, goal: str, params: dict, cap_usd: float,
@@ -75,6 +85,7 @@ def get_run(registry: Registry, run_id: int) -> dict | None:
         return None
     d = dict(r)
     d["params"] = json.loads(d.pop("params_json") or "{}")
+    d["usage"] = json.loads(d.get("usage_json") or "{}")
     return d
 
 
@@ -94,13 +105,22 @@ def set_run(registry: Registry, run_id: int, **cols) -> None:
     registry.execute(f"UPDATE squad_runs SET {sets} WHERE id=?", (*cols.values(), run_id))
 
 
-def add_cost(registry: Registry, run_id: int, task_key: str, cost: float) -> float:
-    """Charge one model call to the run (and the task); returns the run's new total."""
+def add_cost(registry: Registry, run_id: int, task_key: str, cost: float, channel: dict | None = None) -> float:
+    """Charge one model call to the run (and the task); returns the run's new total. ``channel``
+    ({label, billing}) counts the call per model for the run's usage line."""
     with registry.transaction() as db:
         db.execute("UPDATE squad_runs SET spent_usd=spent_usd+?, calls=calls+1, updated_at=? WHERE id=?",
                    (cost, now_iso(), run_id))
+        if channel:
+            row = db.execute("SELECT usage_json FROM squad_runs WHERE id=?", (run_id,)).fetchone()
+            usage = json.loads(row["usage_json"] or "{}")
+            u = usage.setdefault(channel["label"], {"calls": 0, "usd": 0.0, "billing": channel["billing"]})
+            u["calls"] += 1
+            u["usd"] = round(u["usd"] + cost, 6)
+            db.execute("UPDATE squad_runs SET usage_json=? WHERE id=?", (json.dumps(usage, ensure_ascii=False), run_id))
         if task_key:
-            db.execute("UPDATE squad_tasks SET cost_usd=cost_usd+? WHERE run_id=? AND key=?", (cost, run_id, task_key))
+            db.execute("UPDATE squad_tasks SET cost_usd=cost_usd+?, model=? WHERE run_id=? AND key=?",
+                       (cost, (channel or {}).get("label", ""), run_id, task_key))
         return float(db.execute("SELECT spent_usd FROM squad_runs WHERE id=?", (run_id,)).fetchone()[0])
 
 
@@ -218,3 +238,38 @@ def add_work(registry: Registry, run_id: int, rec: dict) -> int:
 def get_work(registry: Registry, run_id: int, wid: int) -> dict | None:
     r = registry.one("SELECT rec_json FROM squad_works WHERE run_id=? AND id=?", (run_id, wid))
     return json.loads(r["rec_json"]) if r else None
+
+
+def scorecards(registry: Registry, days: int = 14) -> list[dict]:
+    """How each role did with each model over the last ``days``: calls, money, quotes the PDF check
+    refused, sentences removed for lacking a source, and the researcher's verdict on its proposals."""
+    ensure_schema(registry)
+    from datetime import datetime, timedelta, timezone
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    rows = registry.query(
+        "SELECT t.run_id, t.key, t.member, t.model, t.steps, t.cost_usd, t.status, t.final, r.dropped "
+        "FROM squad_tasks t JOIN squad_runs r ON r.id=t.run_id WHERE r.created_at>=? AND t.status!='queued'", (since,))
+    refused = {(r["run_id"], r["task_key"]): r["n"] for r in registry.query(
+        "SELECT run_id, task_key, count(*) AS n FROM squad_events WHERE kind='action' AND created_at>=? "
+        "AND data_json LIKE '%not found verbatim%' GROUP BY run_id, task_key", (since,))}
+    verdicts: dict[tuple, dict] = {}
+    for r in registry.query("SELECT run_id, task_key, status, count(*) AS n FROM squad_proposals "
+                            "WHERE created_at>=? GROUP BY run_id, task_key, status", (since,)):
+        verdicts.setdefault((r["run_id"], r["task_key"]), {})[r["status"]] = r["n"]
+    out: dict[tuple, dict] = {}
+    for r in rows:
+        k = (r["member"], r["model"] or "?")
+        c = out.setdefault(k, {"role": r["member"], "model": r["model"] or "?", "tasks": 0, "steps": 0, "usd": 0.0,
+                               "errors": 0, "refused": 0, "dropped": 0, "accepted": 0, "rejected": 0, "pending": 0})
+        c["tasks"] += 1
+        c["steps"] += r["steps"]
+        c["usd"] = round(c["usd"] + r["cost_usd"], 4)
+        c["errors"] += r["status"] == "error"
+        c["refused"] += refused.get((r["run_id"], r["key"]), 0)
+        c["dropped"] += r["dropped"] if r["final"] else 0
+        v = verdicts.get((r["run_id"], r["key"]), {})
+        c["accepted"] += v.get("accepted", 0)
+        c["rejected"] += v.get("rejected", 0)
+        c["pending"] += v.get("pending", 0)
+    return sorted(out.values(), key=lambda c: (c["role"], -c["tasks"]))

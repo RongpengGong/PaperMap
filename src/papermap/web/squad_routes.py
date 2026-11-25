@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import chat, evidence
 from ..registry import now_iso
 from ..squad import proposals as props
-from ..squad import roles, runtime, store
+from ..squad import models, roles, runtime, store
 
 STATUS = {"queued": "排队中", "running": "进行中", "stopping": "正在停止", "stopped": "已停止", "done": "已完成",
           "error": "出错", "cancelled": "已取消"}
@@ -49,12 +49,13 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         goal = str(body.get("goal") or "").strip()
         if len(goal) > 2000:
             raise ValueError("目标太长了（最多 2000 字）。")
-        params: dict = {"parallel": max(1, min(4, int(body.get("parallel") or 4)))}
+        defaults = models.settings(config)
+        params: dict = {"parallel": max(1, min(4, int(body.get("parallel") or defaults["parallel"])))}
         if key == "review":
             if not goal:
                 raise ValueError("请写下综述的题目。")
             params["max_papers"] = max(2, min(12, int(body.get("max_papers") or 8)))
-            params["external"] = bool(body.get("external", True))
+            params["external"] = bool(body.get("external", defaults["external"]))
             title = goal.splitlines()[0][:80]
         elif key == "deep":
             row = registry.get_paper(int(body.get("paper_id") or 0))
@@ -86,7 +87,7 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         for r in rows:
             r["status_label"] = tr(STATUS.get(r["status"], r["status"]))
             r["template_label"] = tr(str(roles.TEMPLATES[r["template"]].label)) if r["template"] in roles.TEMPLATES else r["template"]
-        return render(request, "squads.html", runs=rows, squad_templates=templates_view(),
+        return render(request, "squads.html", runs=rows, squad_templates=templates_view(), squad_defaults=models.settings(config),
                       questions=evidence.questions(registry), candidates=available())
 
     @app.post("/api/squads/estimate")
@@ -104,7 +105,7 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         body = await json_body(request)
         try:
             key, title, goal, params = params_from(body)
-            cap = float(body.get("cap_usd") if body.get("cap_usd") not in (None, "") else 0.5)
+            cap = float(body.get("cap_usd") if body.get("cap_usd") not in (None, "") else models.settings(config)["default_cap_usd"])
             if not 0 <= cap <= 50:
                 raise ValueError("费用上限需要在 0–50 美元之间。")
         except (ValueError, TypeError) as exc:
@@ -276,9 +277,9 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
             return {"ok": True, "preview": True, "template": tkey, "label": tr(str(t.label)),
                     "description": tr(str(t.description)), "questions": questions, "field": params.get("field", ""),
                     "members": [tr(str(roles.LEAD))] + [tr(str(m.label)) for m in t.members.values()], **est,
-                    "cap_usd": 0.5}
+                    "cap_usd": models.settings(config)["default_cap_usd"]}
         try:
-            cap = float(body.get("cap_usd") if body.get("cap_usd") not in (None, "") else 0.5)
+            cap = float(body.get("cap_usd") if body.get("cap_usd") not in (None, "") else models.settings(config)["default_cap_usd"])
             if not 0 <= cap <= 50:
                 raise ValueError
         except (TypeError, ValueError):
@@ -305,3 +306,69 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
                 "spent_usd": run["spent_usd"], "cap_usd": run["cap_usd"], "message": tr(run["message"]) if run["message"] else "",
                 "tasks": tasks, "pending": pending,
                 "result_html": chat.page_links(md_html(run["result_md"])) if run["result_md"] else ""}
+
+    # ---------------------------------------------------------------- squad settings: who uses which model
+    def role_labels() -> dict[str, str]:
+        out = {"lead": tr(str(roles.LEAD))}
+        for t in roles.TEMPLATES.values():
+            for k, m in t.members.items():
+                out.setdefault(k, tr(str(m.label)))
+        return out
+
+    def role_uses() -> dict[str, list[str]]:
+        uses: dict[str, list[str]] = {"lead": [tr(str(t.label)) for t in roles.TEMPLATES.values()]}
+        for t in roles.TEMPLATES.values():
+            for k in t.members:
+                uses.setdefault(k, []).append(tr(str(t.label)))
+        return uses
+
+    @app.get("/squads/settings", response_class=HTMLResponse)
+    async def squad_settings_page(request: Request):
+        roster = await run_in_threadpool(models.roster, config, True)
+        s = models.settings(config)
+        labels = role_labels()
+        warning = models.same_maker_warning(config, s)
+        if warning:
+            known = {m["key"]: m for m in roster}
+            warning = tr(warning, vendor=(known.get(s["roles"]["critic"]["candidates"][0]["model"]) or {}).get("vendor", ""))
+        estimates = []
+        for t in roles.TEMPLATES.values():
+            params = dict(t.params)
+            if t.key == "check":
+                params["question_ids"] = [1]
+            est = await run_in_threadpool(runtime.estimate, config, t.key, params, 30)
+            estimates.append({"label": tr(str(t.label)), **est})
+        cards = store.scorecards(registry)
+        for c in cards:
+            c["role_label"] = labels.get(c["role"], c["role"])
+        return render(request, "squad_settings.html", roster=roster, s=s, role_order=models.ROLE_ORDER,
+                      role_labels=labels, role_uses=role_uses(), tiers={k: tr(str(v)) for k, v in models.TIERS.items()},
+                      role_tiers=models.ROLE_TIERS, budgets={k: tr(str(v)) for k, v in models.BUDGETS.items()},
+                      optional=sorted(models.OPTIONAL), templates=[{"key": t.key, "label": tr(str(t.label)),
+                                                                     "members": list(t.members)} for t in roles.TEMPLATES.values()],
+                      warning=warning, estimates=estimates, scorecards=cards)
+
+    @app.post("/api/squads/settings")
+    async def squad_settings_save(request: Request):
+        local_only(request)
+        body = await json_body(request)
+        try:
+            clean = await run_in_threadpool(models.validate, config, body)
+        except ValueError as exc:
+            return problem(exc)
+        config.raw["squad"] = clean
+        config.save()
+        return {"ok": True}
+
+    @app.post("/api/squads/recommend")
+    async def squad_recommend(request: Request):
+        body = await json_body(request)
+        rec = await run_in_threadpool(models.recommend, config, str(body.get("budget") or ""))
+        return {"ok": True, "roles": rec}
+
+    @app.post("/api/squads/models/refresh")
+    async def squad_models_refresh(request: Request):
+        await json_body(request)
+        models.forget()
+        await run_in_threadpool(models.roster, config, True)
+        return {"ok": True}
