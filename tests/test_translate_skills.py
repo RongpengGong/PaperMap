@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import httpx
+import pymupdf
 import pytest
 
 from papermap import skills_runtime as sr
@@ -19,6 +20,60 @@ def test_paragraphs_drop_references_and_find_headings(pdfs):
     assert "doi:10.1038/s41586-020-0001-1" not in text and "Smith, J. et al." not in text
     assert any(p["kind"] == "heading" for p in paras)
     assert all(len(p["src"]) >= 5 for p in paras)
+
+
+@pytest.mark.parametrize("labels", [("References", "Dataset"), ("Dataset", "References")])
+def test_table_reference_column_does_not_hide_later_pages(tmp_path, labels):
+    path = tmp_path / "table.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        for x, label in zip((50, 210), labels):
+            page.insert_text((x, 70), label)
+        page.insert_text((50, 100), "Smith, J. and Olsen, K. (2020). A study in the table.")
+        page = doc.new_page()
+        page.insert_text((50, 70), "The model improved on Jones et al., 2020 and retained every sample.")
+        page.insert_text((50, 95), "A second paragraph follows the table on the next page.")
+        page = doc.new_page()
+        page.insert_text((50, 70), "References")
+        page.insert_text((50, 100), "Brown, A. and Li, I. (2010). Exclude this bibliography entry.")
+        doc.save(path)
+    paras = tr.paragraphs(path)
+    assert any(p["page"] == 1 and "et al., 2020 and retained every sample" in p["src"] for p in paras)
+    assert any(p["page"] == 1 and "A second paragraph" in p["src"] for p in paras)
+    assert all(p["page"] < 2 for p in paras)
+
+
+@pytest.mark.parametrize("lead", ["Extended Data Fig. 1 | Further measurements",
+                                  "Supplementary Information for the printed study"])
+def test_unnumbered_bibliography_ends_before_appendix(tmp_path, lead):
+    path = tmp_path / "appendix.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        page.insert_text((50, 70), "References")
+        page.insert_text((50, 100), "Anonymous handbook of selected papers. Archive.")
+        page.insert_text((50, 130), lead)
+        page.insert_text((50, 160), "The measurements in this appendix should be retained.")
+        doc.save(path)
+    text = " ".join(p["src"] for p in tr.paragraphs(path))
+    assert "Anonymous handbook" not in text
+    assert lead in text and "measurements in this appendix" in text
+
+
+def test_ocr_reference_section_inside_page_preserves_both_sides(tmp_path, monkeypatch):
+    path = make_pdf(tmp_path / "recognized.pdf", ["placeholder", "placeholder"])
+    recognized = [
+        ["The text before the references is part of the article.", "References"],
+        ["[1] Smith, A. This citation wraps over several lines.", "Methods in the journal title.",
+         "Other bibliography text that should also be hidden.", "Online Methods",
+         "The text after the references is also part of the article."],
+    ]
+    def words(page, *_args, **_kwargs):
+        return [[0, i * 12., 300, i * 12. + 10., t, i] for i, t in enumerate(recognized[page.number])]
+    monkeypatch.setattr(tr.ocr, "page_words", words)
+    paras = tr.paragraphs(path, cache=tmp_path)
+    assert [(p["page"], p["src"]) for p in paras] == [
+        (0, recognized[0][0]), (1, " ".join(recognized[1][-2:])),
+    ]
 
 
 def test_prompt_follows_index_translate_format():

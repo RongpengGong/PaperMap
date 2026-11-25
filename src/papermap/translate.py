@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 import httpx
 import pymupdf
@@ -29,7 +29,7 @@ from .config import Config, OFFICIAL_TRANSLATION_SERVICES, SIGN_IN_PROVIDERS, ef
 from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
-from .pdf_extract import MAX_PAGES_FOR_LLM, _REFERENCE_LINE_RE
+from .pdf_extract import MAX_PAGES_FOR_LLM
 from .registry import Registry
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,27 @@ _AFTER_REFS = re.compile(r"(online )?methods|materials and methods|data availabi
                          r"acknowledg(e)?ments|author contributions|supplementary information|extended data", re.I)
 
 
+_APPENDIX_LEAD = re.compile(r"extended data (?:fig(?:ure)?\.?|table)\s*\d|supplementary information\b", re.I)
+
+
+class _Line(NamedTuple):
+    text: str
+    bold: bool
+    reference_cell: bool = False
+
+
+def _has_horizontal_neighbor(line: dict, siblings: list[dict]) -> bool:
+    """PyMuPDF emits each cell of a table header as a separate line in one block."""
+    x0, y0, x1, y1 = line["bbox"]
+    for other in siblings:
+        left, top, right, bottom = other["bbox"]
+        if right <= x0 or left >= x1:
+            overlap = min(y1, bottom) - max(y0, top)
+            if overlap > 0.7 * min(y1 - y0, bottom - top):
+                return True
+    return False
+
+
 def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool = True) -> list[list[dict]]:
     """Per page: text blocks with their dominant font size and boldness."""
     pages = []
@@ -95,14 +116,15 @@ def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool =
             found = ocr.page_words(page, cache, automatic=auto) if cache else None
             if found:
                 text = ocr.lines(found)
-                pages.append([{"lines": [(line, False) for line in text], "size": 11., "bold": False,
+                pages.append([{"lines": [_Line(line, False) for line in text], "size": 11., "bold": False,
                                "chars": sum(map(len, text))}])
                 continue
             for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES).get("blocks", []):
                 if b.get("type") != 0:
                     continue
                 lines, sizes, bold = [], Counter(), 0
-                for ln in b.get("lines", []):
+                native_lines = b.get("lines", [])
+                for ln in native_lines:
                     text = "".join(sp["text"] for sp in ln.get("spans", []))
                     if not text.strip():
                         continue
@@ -112,7 +134,8 @@ def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool =
                         sizes[round(sp["size"], 1)] += n
                         if sp.get("flags", 0) & 16 or re.search(r"bold|semibold|black|heavy", sp.get("font", ""), re.I):
                             lb += n
-                    lines.append((text, lb >= max(1, len(text.strip())) * 0.6))
+                    reference_cell = bool(_REFS_HEAD.fullmatch(text.strip()) and _has_horizontal_neighbor(ln, native_lines))
+                    lines.append(_Line(text, lb >= max(1, len(text.strip())) * 0.6, reference_cell))
                     bold += lb
                 total = sum(sizes.values())
                 if total:
@@ -120,6 +143,59 @@ def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool =
                                    "bold": bold >= total * 0.6, "chars": total})
             pages.append(blocks)
     return pages
+
+
+# A plain/OCR heading needs bibliographic evidence. These are entry prefixes,
+# not patterns for deleting individual lines of prose containing citations.
+_ENTRY_START = re.compile(
+    r"^(?:(?:\[\d+\]|\d+[.)])\s*[^\W\d_]|"
+    r"[^\W\d_][\w’'.-]*(?:[ -][^\W\d_][\w’'.-]*){0,3},\s*[A-Z](?:\.|[, ])|"
+    r"[^\W\d_][\w’'.-]+\s+[A-Z]{1,4}(?:,|\.\s)|"
+    r"[^\W\d_][\w’'.-]+(?: et al\.| and [^\W\d_][\w’'.-]+)?[, ]+\((?:19|20)\d{2}[a-z]?\))"
+)
+
+
+def _article_blocks(pages: list[list[dict]], body: float) -> list[list[dict]]:
+    """Exclude confirmed bibliographies while keeping tables and post-reference sections."""
+    blocks = [(page_no, block) for page_no, page in enumerate(pages) for block in page if block["lines"]]
+    article: list[list[dict]] = [[] for _ in pages]
+    in_refs = False
+    for index, (page_no, block) in enumerate(blocks):
+        lines = block["lines"]
+        if _END_RE.match(lines[0].text.strip()):
+            break
+        start = 0
+        for i, line in enumerate(lines):
+            text = line.text.strip()
+            if in_refs:
+                section = _AFTER_REFS.match(text)
+                if not section:
+                    continue
+                tail = text[section.end():].strip()
+                standalone = not tail or tail[:1] in (":", ".", "–", "—", "|")
+                styled_lead = line.bold or block["size"] > body + 0.8
+                if standalone or (i == 0 and (styled_lead or _APPENDIX_LEAD.match(text))):
+                    in_refs = False
+                    start = i
+                continue
+            if line.reference_cell or not _REFS_HEAD.fullmatch(text):
+                continue
+            # A table may have a References column at any position. An isolated
+            # section heading or a following citation identifies the actual list.
+            isolated_heading = len(lines) == 1
+            if i + 1 < len(lines):
+                following = lines[i + 1].text
+            elif index + 1 < len(blocks):
+                following = blocks[index + 1][1]["lines"][0].text
+            else:
+                following = ""
+            if isolated_heading or _ENTRY_START.match(following.strip()):
+                if start < i:
+                    article[page_no].append(dict(block, lines=lines[start:i]))
+                in_refs = True
+        if not in_refs:
+            article[page_no].append(dict(block, lines=lines[start:]))
+    return article
 
 
 def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool = True) -> list[dict]:
@@ -141,40 +217,23 @@ def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: boo
         return re.sub(r"\d+", "#", t.strip().lower())[:120]
 
     # running headers/footers: short lines repeated on many pages (page numbers normalised)
-    counts = Counter(k for page in pages for k in {key(t) for b in page for t, _ in b["lines"] if len(t) < 200})
+    counts = Counter(k for page in pages for k in {key(line.text) for b in page for line in b["lines"] if len(line.text) < 200})
     limit = max(3, int(len(pages) * 0.3))
-    repeated = {k for k, n in counts.items() if n >= limit} if len(pages) >= 4 else set()
+    repeated = {k for k, n in counts.items() if n >= limit and not _REFS_HEAD.fullmatch(k)
+                and not _AFTER_REFS.fullmatch(k)} if len(pages) >= 4 else set()
+    if repeated:
+        for page in pages:
+            for block in page:
+                block["lines"] = [line for line in block["lines"] if key(line.text) not in repeated]
     out: list[dict] = []
-    in_refs = False
-    stop = False
-    for page_number, page in enumerate(pages):
-        if stop:
-            break
+    for page_number, page in enumerate(_article_blocks(pages, body)):
         for b in page:
-            b = dict(b, lines=[(t, bd) for t, bd in b["lines"] if key(t) not in repeated])
-            if not b["lines"]:
-                continue
-            raw = "\n".join(t for t, _ in b["lines"])
-            first = b["lines"][0][0].strip()
-            if _END_RE.match(first):
-                stop = True  # journal reporting-summary forms are not article text
-                break
+            raw = "\n".join(line.text for line in b["lines"])
+            first = b["lines"][0].text.strip()
             legend = bool(_LEGEND_RE.match(first))
             if not legend and b["size"] < body - 1.4:
                 continue  # text inside figures, footnotes, small print
             heading_like = (b["bold"] or b["size"] > body + 0.8) and len(raw) < 160 and not raw.rstrip().endswith(".")
-            if _REFS_HEAD.fullmatch(first):
-                in_refs = True  # Nature puts Methods after the references: skip until the next main section
-                rest = [ln for ln in b["lines"][1:] if not _REFERENCE_LINE_RE.search(ln[0].strip())]
-                if not rest:
-                    continue
-                b = dict(b, lines=rest)
-                raw = "\n".join(t for t, _ in rest)
-                first = rest[0][0].strip()
-            if in_refs and _AFTER_REFS.match(first):
-                in_refs = False
-            if in_refs:
-                continue
             if heading_like and not legend:
                 t = _clean(raw)
                 if 6 <= len(t) <= 160 and re.search(r"[A-Za-z]{3,}", t):  # not panel letters like "d e"
@@ -182,22 +241,11 @@ def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: boo
                 continue
             lines = list(b["lines"])
             head = []  # bold first line(s) of a body block = inline subsection heading
-            while lines and lines[0][1] and not legend and len(lines) > 1 and len(lines[0][0]) < 120:
-                head.append(lines.pop(0)[0])
+            while lines and lines[0].bold and not legend and len(lines) > 1 and len(lines[0].text) < 120:
+                head.append(lines.pop(0).text)
             if head and re.search(r"[A-Za-z]{3,}", " ".join(head)):
                 out.append({"kind": "heading", "src": _clean("\n".join(head)), "page": page_number, "endPage": page_number})
-            kept: list[str] = []
-            for t, _ in lines:
-                st = t.strip()
-                if _REFS_HEAD.fullmatch(st):
-                    in_refs = True
-                    continue
-                if in_refs and _AFTER_REFS.fullmatch(st):
-                    in_refs = False
-                if in_refs or _REFERENCE_LINE_RE.search(st):
-                    continue
-                kept.append(t)
-            for piece in re.split(r"\n\s*\n", "\n".join(kept)):
+            for piece in re.split(r"\n\s*\n", "\n".join(line.text for line in lines)):
                 t = _clean(piece)
                 if len(t) >= 25:
                     out.append({"kind": "para", "src": t, "page": page_number, "endPage": page_number})
