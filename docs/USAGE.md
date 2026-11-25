@@ -42,6 +42,7 @@ papermap                                  # 首次运行会自动创建配置并
 1. **连接模型**：打开「设置 → AI 服务 → 模型与账号」，选择一种方式：
    - **ChatGPT 订阅**：点击「Continue with ChatGPT」，在系统浏览器里授权 PaperMap 使用套餐。返回设置页，选择账号可用的模型，再选「推理强度」并保存。档位随模型变化，也可以保留「模型默认」。适用资格和额度见 [OpenAI 说明](https://developers.openai.com/siwc/quickstart)。换电脑时重新授权。
    - **Claude 订阅**需要先安装本机 Claude Code。在设置中点「用官方 Claude Code 登录」，终端会启动 Claude Code 并打开浏览器。完成登录并回到设置后，PaperMap 会自动刷新账号状态。选择模型和推理强度，点「测试连接」发送一条简短的测试消息，收到回复后保存。用量以本机 Claude Code 账号为准。按量使用 Claude API 可单独选择「Anthropic Claude API」并填写 API Key。[Claude Code 安装指南](https://code.claude.com/docs/en/setup)
+   - **Antigravity 订阅**使用本机的 Google Antigravity CLI（`agy`）。选择这项后，点「用 Google 账号登录」。返回设置，选择 CLI 提供的模型和推理强度，或者沿用 CLI 当前模型。点「测试连接」收到回复后保存。问答、卡片以及选用主模型的翻译都会使用这个选择。[官方 CLI 安装说明](https://antigravity.google/docs/getting-started?tab=cli)
    - 选 **DeepSeek 官方**：只要粘贴 Key（在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建），选模型即可。
    - 或选 **自定义**：填 Base URL、API Key、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API）和模型名。点「获取模型列表」可以直接选。适合中转服务、其他厂商或本地模型。
    - 点「**测试连接**」，看到 ✓ 再保存。
@@ -77,7 +78,7 @@ papermap                                  # 首次运行会自动创建配置并
 
 **左侧栏**：常用的几项一直显示，其余按「阅读与笔记 / 写作 / 知识整理 / 资料 / 更多」折叠，展开状态会记住。按 **⌘K**（Windows：Ctrl+K）可以跳到任意页面、论文、学科或研究问题。论文列表顶部的「今天读什么」汇总最值得读的几篇。
 
-**边读边用 AI。** 点论文标题旁的「问 AI」可以展开或收起右侧对话。读 PDF 时可选中文字提问。在「译文对照」里也可以选中原文或译文，右键点「问 AI」，再输入问题并发送。对话里可以切换已配置的模型，ChatGPT 和 Claude 订阅还可选推理强度。点回答里的页码可跳回 PDF。「结束讨论」会把对话收进「以前的讨论」，你可以修改总结后写入笔记。
+**边读边用 AI。** 点论文标题旁的「问 AI」可以展开或收起右侧对话。读 PDF 时可选中文字提问。在「译文对照」里也可以选中原文或译文，右键点「问 AI」，再输入问题并发送。对话里可以切换已配置的模型，订阅模型支持时还可选推理强度。点回答里的页码可跳回 PDF。「结束讨论」会把对话收进「以前的讨论」，你可以修改总结后写入笔记。
 
 在同一窗口切换卡片、笔记、其他论文或页面后，回到译文会接着上次的段落读。打开对话栏或调整窗口大小时也会保留阅读位置。
 

@@ -12,6 +12,7 @@ import yaml
 
 DEFAULT_DATA_DIR = "~/PaperMap"
 CONFIG_ENV = "PAPERMAP_CONFIG"
+SIGN_IN_PROVIDERS = ("chatgpt_plan", "claude_cli", "antigravity_acp")
 
 PROTOCOLS = {
     "openai": "OpenAI Chat Completions",
@@ -45,8 +46,8 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 
 
 # One-click presets for other providers (checked against each provider's docs,
-# 2026-11-23). "subscription" = flat-rate plan whose API key may be used by
-# third-party apps; calls are logged with tokens but cost $0. Coding plans that
+# 2026-11-23). "subscription" calls are logged with tokens and $0 estimated
+# per-call API cost. Coding plans that
 # forbid use outside their listed coding tools (GLM Coding Plan, Alibaba Cloud
 # Coding Plan) or point app integrations to the pay-as-you-go platform (Kimi
 # Code) are offered through those providers' pay-as-you-go APIs instead.
@@ -67,6 +68,13 @@ PRESETS: dict[str, dict[str, Any]] = {
         "docs_url": "https://code.claude.com/docs/en/authentication",
         "models": {}, "default_model": "sonnet", "json_mode": False, "no_temperature": True,
         "note": "使用本机官方 Claude Code 登录的订阅账号。实际用量以 Claude 账号记录为准。",
+    },
+    "antigravity_acp": {
+        "label": "Antigravity 订阅", "group": "subscription",
+        "base_url": "", "protocol": "antigravity_acp",
+        "docs_url": "https://antigravity.google/docs/cli/acp/",
+        "models": {}, "default_model": "auto", "json_mode": False, "no_temperature": True,
+        "note": "通过本机 Antigravity CLI 登录 Google 账号，可选模型和推理强度以该账号为准。",
     },
     "minimax_mplan": {
         "label": "MiniMax M Plan", "group": "subscription",
@@ -221,7 +229,7 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None,
             "data_dir": str(data_dir or _expand(DEFAULT_DATA_DIR)),
             "provider": provider, "preset_label": pre["label"], "base_url": pre["base_url"],
             "protocol": pre["protocol"], "model": model,
-            "api_key": "" if provider in ("chatgpt_plan", "claude_cli") else (st.get("api_key") or "").strip(),
+            "api_key": "" if provider in SIGN_IN_PROVIDERS else (st.get("api_key") or "").strip(),
             "api_key_env": "", "key_from_env": False,
             "extra_body": pre.get("extra_body") or {},
             "price_input_per_1m": p_in,
@@ -231,7 +239,7 @@ def effective_llm(llm: dict[str, Any], *, data_dir: Path | None = None,
             "billing": "subscription" if sub else "token",
             "json_mode": pre.get("json_mode", True), "no_temperature": pre.get("no_temperature", False),
             "min_max_tokens": int(pre.get("min_max_tokens") or 0),
-            "reasoning_effort": normalize_reasoning_effort(st.get("reasoning_effort")) if provider in ("chatgpt_plan", "claude_cli") else "",
+            "reasoning_effort": normalize_reasoning_effort(st.get("reasoning_effort")) if provider in SIGN_IN_PROVIDERS else "",
         }
     if provider.startswith("ext."):
         # A disabled, removed or changed plugin must never reuse custom credentials.
@@ -449,6 +457,10 @@ class Config:
             return bool(eff["model"] and get_auth(self.data_dir).status()["ready"])
         if eff["provider"] == "claude_cli":
             from .claude_cli import get_cli
+
+            return bool(get_cli(self.data_dir).status()["ready"])
+        if eff["provider"] == "antigravity_acp":
+            from .antigravity_cli import get_cli
 
             return bool(get_cli(self.data_dir).status()["ready"])
         return bool(eff["api_key"])

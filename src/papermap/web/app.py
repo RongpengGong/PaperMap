@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, Config, ConfigError, normalize_reasoning_effort
+from ..config import OFFICIAL_TRANSLATION_SERVICES, PROTOCOLS, PROVIDERS, SIGN_IN_PROVIDERS, Config, ConfigError, normalize_reasoning_effort
 from ..plugin_contributions import export_templates, export_text, translation_services
 from ..plugins import render_snapshot
 from .. import backup as backup_mod
@@ -109,6 +109,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     # cache-busting for static assets (app updates must not show stale CSS/JS)
     static_v = str(int(max(f.stat().st_mtime for f in (HERE / "static").iterdir())))
     templates.env.globals["static_v"] = static_v
+    templates.env.globals["sign_in_providers"] = SIGN_IN_PROVIDERS
     from .. import i18n
 
     def _lang() -> str:
@@ -2016,7 +2017,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         _check_csrf(csrf, csrf_token)
         form = await request.form()
         reasoning_values = {}
-        for pid in ("chatgpt_plan", "claude_cli"):
+        for pid in SIGN_IN_PROVIDERS:
             field = f"p_{pid}_reasoning_effort"
             if field in form:
                 try:
@@ -2066,18 +2067,24 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             except ValueError:
                 raw["trash_days"] = 30
         llm = raw["llm"]
+        previous_provider = llm.get("provider")
         llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") or provider == llm.get("provider") else "deepseek"
         store = llm.setdefault("presets", {})
         for pid in presets:
             st = store.get(pid) or {}
             f = {k: str(form.get(f"p_{pid}_{k}", "")).strip() for k in ("key", "model", "in", "hit", "out", "clear")}
-            if pid in ("chatgpt_plan", "claude_cli"):
+            # The browser posts hidden panes too. An untouched default must not
+            # register an account for later probing by the chat model picker.
+            if (pid == "antigravity_acp" and pid not in store and pid not in (llm["provider"], previous_provider)
+                    and f["model"] in ("", "auto") and not reasoning_values.get(pid)):
+                continue
+            if pid in SIGN_IN_PROVIDERS:
                 st.pop("api_key", None)
             elif f["clear"]:
                 st.pop("api_key", None)
             elif f["key"]:
                 st["api_key"] = f["key"]
-            if f["model"] or (pid == "chatgpt_plan" and f"p_{pid}_model" in form):
+            if f["model"] or (pid in ("chatgpt_plan", "antigravity_acp") and f"p_{pid}_model" in form):
                 st["model"] = f["model"]
             if pid in reasoning_values:
                 st["reasoning_effort"] = reasoning_values[pid]
@@ -2154,14 +2161,14 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         llm["provider"] = provider if provider in (*PROVIDERS, *presets, "custom") else "deepseek"
         if llm["provider"] in presets:
             st = llm.setdefault("presets", {}).setdefault(llm["provider"], {})
-            if str(body.get("model", "")).strip() or (llm["provider"] == "chatgpt_plan" and "model" in body):
+            if str(body.get("model", "")).strip() or (llm["provider"] in ("chatgpt_plan", "antigravity_acp") and "model" in body):
                 st["model"] = str(body["model"]).strip()
-            if llm["provider"] in ("chatgpt_plan", "claude_cli") and "reasoning_effort" in body:
+            if llm["provider"] in SIGN_IN_PROVIDERS and "reasoning_effort" in body:
                 try:
                     st["reasoning_effort"] = normalize_reasoning_effort(body["reasoning_effort"])
                 except ConfigError as exc:
                     raise HTTPException(422, str(exc)) from exc
-            if llm["provider"] in ("chatgpt_plan", "claude_cli"):
+            if llm["provider"] in SIGN_IN_PROVIDERS:
                 st.pop("api_key", None)
             elif str(body.get("api_key", "")).strip():
                 st["api_key"] = str(body["api_key"]).strip()
@@ -2182,16 +2189,18 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     async def _account_action(request: Request, provider: str, action: str):
         body = await request.json()
         _check_csrf(str(body.get("csrf", "")), csrf_token)
-        if provider not in ("chatgpt_plan", "claude_cli"):
+        if provider not in SIGN_IN_PROVIDERS:
             raise HTTPException(404)
-        if action == "cancel" and provider != "chatgpt_plan":
+        if (action == "cancel" and provider != "chatgpt_plan") or (action == "logout" and provider == "antigravity_acp"):
             raise HTTPException(404)
         try:
             client = _account_client(provider, config.data_dir)
             method = "start" if action == "login" and provider == "chatgpt_plan" else action
             if method == "start":
                 data = await run_in_threadpool(client.start, consent=bool(body.get("consent")))
-            elif method == "status" and provider == "claude_cli" and body.get("refresh"):
+            elif method == "login" and provider == "antigravity_acp":
+                data = await run_in_threadpool(client.start_login)
+            elif method == "status" and provider in ("claude_cli", "antigravity_acp") and body.get("refresh"):
                 data = await run_in_threadpool(client.status, refresh=True)
             else:
                 data = await run_in_threadpool(getattr(client, method))
@@ -2202,7 +2211,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                        "subscription_type", "billing", "models", "url", "expires_at", "pending",
                        "connected", "email", "error", "error_code", "needs_consent")
             result = {k: data[k] for k in allowed if k in data}
-            if provider == "claude_cli" and isinstance(result.get("message"), str):
+            if provider in ("claude_cli", "antigravity_acp") and isinstance(result.get("message"), str):
                 result["message"] = _gettext(result["message"])
             result["ok"] = bool(data.get("ok", True))
             if provider == "chatgpt_plan" and data.get("error_code") in ("scope_missing", "access_denied"):
@@ -2339,8 +2348,13 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.post("/api/llm/models")
     async def api_models(request: Request):
-        eff = _form_llm(await request.json())
+        body = await request.json()
+        eff = _form_llm(body)
         try:
+            if eff["provider"] == "antigravity_acp":
+                client = _account_client("antigravity_acp", config.data_dir)
+                options = await run_in_threadpool(client.model_options, refresh=body.get("refresh") is True)
+                return {"ok": True, "models": [o["id"] for o in options], "model_options": options}
             if eff["provider"] == "chatgpt_plan":
                 options = await run_in_threadpool(list_chatgpt_model_options, eff)
                 return {"ok": True, "models": [o["id"] for o in options], "model_options": options}
@@ -2354,12 +2368,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 return {"ok": True, "models": models, "model_options": options}
             return {"ok": True, "models": models}
         except Exception as exc:  # noqa: BLE001
+            if eff["provider"] == "antigravity_acp":
+                return {"ok": False, "message": _gettext(str(exc)[:300])}
             return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:300]}"}
 
     @app.post("/api/llm/test")
     async def api_test(request: Request):
         eff = _form_llm(await request.json())
         result = await run_in_threadpool(check_connection, eff)
+        if eff.get("provider") == "antigravity_acp" and not result["ok"]:
+            result["message"] = _gettext(result["message"])
         if eff.get("provider") == "claude_cli" and not result["ok"]:
             if result.get("reset_time") and result.get("reset_zone"):
                 result["message"] = _gettext("Claude Code 订阅额度已用完，重置时间 {reset}（{zone}）。",
@@ -2435,6 +2453,10 @@ def _account_client(provider: str, data_dir: Path):
         from ..chatgpt_auth import get_auth
 
         return get_auth(data_dir)
+    if provider == "antigravity_acp":
+        from ..antigravity_cli import get_cli
+
+        return get_cli(data_dir)
     from ..claude_cli import get_cli
 
     return get_cli(data_dir)

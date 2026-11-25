@@ -25,7 +25,7 @@ import pymupdf
 import yaml
 
 from . import __version__, ocr
-from .config import Config, OFFICIAL_TRANSLATION_SERVICES, effective_llm
+from .config import Config, OFFICIAL_TRANSLATION_SERVICES, SIGN_IN_PROVIDERS, effective_llm
 from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
@@ -494,7 +494,7 @@ class Translator:
                 fallback_ready = enabled and self.config.model_ready()
             elif "main" in self.options:
                 self.main_eff = _restore_model(self.config, self.options["main"])
-                fallback_ready = self.main_eff["api_key"] or self.main_eff["provider"] in ("chatgpt_plan", "claude_cli")
+                fallback_ready = self.main_eff["api_key"] or self.main_eff["provider"] in SIGN_IN_PROVIDERS
             else:
                 fallback_ready = False
             if fallback_ready:

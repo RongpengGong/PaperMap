@@ -590,3 +590,11 @@ mobile_lan.py 负责网络身份及勾选范围，mobile_sync.py 负责将页码
 - **高亮双向同步**（`mobile_marks.py`）：桌面 `annotations` 增加 `uid`（与手机共用的稳定编号）和 `style`（highlight / underline），删除写入 `annotation_tombstones`。手机在 `/changes` 里发送未同步的页坐标标注和删除，电脑在回复里给出该修订的全部标注和墓碑；两边都有的标注以电脑为准，删除不会被另一端传回。矩形为显示页左上角起的 PDF 点，与桌面阅读器一致；阅读器把手机的下划线画成红线。目录列表不带标注，只在下载快照和 `/changes` 回复里给，版本判断在事务外完成。
 - **手机论文备份**（`mobile_backup.py`）：`/v1/backups` 接收手机自己导入的论文，分块续传，SHA-256 与修订一致才保留，存在 `<data>/phone_backup/<修订>/`（`paper.pdf` + `meta.json`：摘录、标注、手写、AI 讨论、手机生成的卡片和译文）。不进文献库、不生成卡片、不发给模型；总量上限 5 GB。手机可列出并恢复。设置页「手机」显示备份数量和位置。
 - 测试：`tests/test_mobile_sync.py::test_highlights_sync_both_ways_and_deletions_do_not_come_back`、`tests/test_mobile_lan.py::test_phone_backups_are_kept_beside_the_library_and_restored`。全量 455 项通过。安装包由 `16f1f5c` 构建并替换 `/Applications/PaperMap.app`，重启后共享自动恢复（3 篇、允许处理待审核），手机无需重新扫码。
+
+## 桌面主模型接入 Google Antigravity 订阅（2026-11-25）
+
+- 「设置 → AI 服务 → 模型与账号」提供「Antigravity 订阅」。选中具体模型或沿用 Antigravity 当前模型后，设置页和论文问答都按 CLI 返回的能力显示推理强度。主模型用于问答、卡片和选择「主模型」的翻译，翻译任务会保存当次选择供断点续译。
+- PaperMap 通过本机官方 `agy acp` 请求模型，登录使用 `agy acp --login`。Google 凭据由 CLI 管理。每次请求使用独立的临时目录、关闭默认自定义项，拒绝工具权限。PaperMap 将调用记到「订阅」用量，实际额度由账号管理。
+- 使用 macOS 上的官方 CLI 1.5.17 在临时文献库验收。Google AI Pro 账号返回 11 个模型。在真实设置页选 `gemini-4-carbon` 和 `low`，测试连接收到回复，保存并重开设置后仍为所选模型和档位。用虚构的阅读布局研究文本生成的卡片通过正式字段校验，同一主模型完成了一段中译。
+- 协议和界面回归见 `tests/test_antigravity_cli.py`、`tests/test_antigravity_models.py`、`tests/test_subscription_web.py` 和 `tests/test_i18n.py`。覆盖 CLI 缺失、账号状态、模型和档位切换、流式消息、失败清理、订阅计费、设置保存及翻译恢复。
+- 本次全量测试 479 项通过。macOS 打包版通过签名校验，在临时库的设置页实际调用模型并验证保存。已替换本机应用并重启，安装版识别出原有 Google AI Pro 登录和 11 个模型，实库的主模型选择保持原值。

@@ -3,21 +3,9 @@
   const providerPicker = document.getElementById("provider_picker");
   const modelSection = form.querySelector('[data-settings-panel="models"]');
   const result = document.getElementById("test_result");
-  const accountProviders = new Set(["chatgpt_plan", "claude_cli"]);
+  const accountProviders = new Set(["chatgpt_plan", "claude_cli", "antigravity_acp"]);
   let accountPoll = null;
   let accountEpoch = 0;
-  const chatgptPane = form.querySelector('.pane[data-pane="chatgpt_plan"]');
-  const chatgptModel = chatgptPane && chatgptPane.querySelector('[data-role="model"]');
-  const effortSelect = chatgptPane && chatgptPane.querySelector('[data-role="reasoning-effort"]');
-  const effortValue = chatgptPane && chatgptPane.querySelector('[data-role="reasoning-value"]');
-  const effortHint = chatgptPane && chatgptPane.querySelector('[data-reasoning-hint]');
-  let effortModel = chatgptModel ? chatgptModel.value.trim() : "";
-  const effortsByModel = new Map([[effortModel, effortValue ? effortValue.value : ""]]);
-  let chatgptOptions = new Map();
-  let catalogLoaded = false;
-  let catalogSequence = 0;
-  let catalogRequest = null;
-
   function option(value, label, disabled = false) {
     const el = document.createElement("option"); el.value = value; el.textContent = label; el.disabled = disabled;
     return el;
@@ -50,14 +38,6 @@
     select.value = selected;
     value.value = selected;
   }
-  function renderReasoning() {
-    renderEffort(chatgptModel, effortSelect, effortValue, effortHint, effortsByModel, chatgptOptions);
-  }
-  function invalidateChatgptCatalog() {
-    ++catalogSequence; catalogRequest = null; catalogLoaded = false; chatgptOptions = new Map();
-    renderReasoning();
-  }
-
   const claudePane = form.querySelector('.pane[data-pane="claude_cli"]');
   const claudeModel = claudePane && claudePane.querySelector('[data-role="model"]');
   const claudeSelect = claudePane && claudePane.querySelector('[data-role="reasoning-effort"]');
@@ -81,17 +61,36 @@
     claudeSelect.addEventListener("change", () => { claudeChoices.set(claudeModel.value.trim(), claudeSelect.value); renderClaudeReasoning(); });
     renderClaudeReasoning();
   }
-  if (chatgptModel) {
-    chatgptModel.addEventListener("input", renderReasoning);
-    chatgptModel.addEventListener("change", () => {
-      renderReasoning();
-      if (current() === "chatgpt_plan" && !catalogLoaded) loadChatgptModels(true);
+  // These accounts announce their selectable models and effort levels at runtime.
+  const liveCatalogs = new Map();
+  for (const provider of ["chatgpt_plan", "antigravity_acp"]) {
+    const pane = form.querySelector(`.pane[data-pane="${provider}"]`);
+    if (!pane) continue;
+    const model = pane.querySelector('[data-role="model"]');
+    const select = pane.querySelector('[data-role="reasoning-effort"]');
+    const value = pane.querySelector('[data-role="reasoning-value"]');
+    const hint = pane.querySelector('[data-reasoning-hint]');
+    const choices = new Map([[model.value.trim(), value.value]]);
+    const state = { pane, model, hint, options: new Map(), loaded: false, sequence: 0, request: null };
+    state.render = () => renderEffort(model, select, value, hint, choices, state.options);
+    liveCatalogs.set(provider, state);
+    model.addEventListener("input", state.render);
+    model.addEventListener("change", () => {
+      state.render();
+      if (current() === provider && !state.loaded) loadCatalog(provider, true);
     });
-    effortSelect.addEventListener("change", () => {
-      effortsByModel.set(chatgptModel.value.trim(), effortSelect.value);
-      renderReasoning();
+    select.addEventListener("change", () => {
+      choices.set(model.value.trim(), select.value);
+      state.render();
     });
-    renderReasoning();
+    state.render();
+  }
+
+  function invalidateCatalog(provider) {
+    const state = liveCatalogs.get(provider);
+    if (!state) return;
+    ++state.sequence; state.request = null; state.loaded = false; state.options.clear();
+    state.render();
   }
 
   function current() { return providerPicker.value; }
@@ -100,14 +99,15 @@
     form.querySelectorAll(".pane").forEach(el => { el.hidden = el.dataset.pane !== p; });
     result.textContent = ""; result.className = "muted";
     clearTimeout(accountPoll); const epoch = ++accountEpoch;
-    ++catalogSequence; catalogRequest = null; ++claudeSequence; clearTimeout(claudeTimer);
-    if (chatgptPane) {
-      const btn = chatgptPane.querySelector("[data-fetch-models]");
+    ++claudeSequence; clearTimeout(claudeTimer);
+    for (const state of liveCatalogs.values()) {
+      ++state.sequence; state.request = null;
+      const btn = state.pane.querySelector("[data-fetch-models]");
       btn.disabled = false; delete btn.dataset.modelRequest;
     }
     if (modelSection.hidden) return;
     if (accountProviders.has(p)) refreshAccount(p).then(state => {
-      if (state.ready && p === "chatgpt_plan" && epoch === accountEpoch) loadChatgptModels(true);
+      if (state.ready && liveCatalogs.has(p) && epoch === accountEpoch) loadCatalog(p, true);
       if (state.pending && epoch === accountEpoch) accountPoll = setTimeout(() => waitForAccount(p, Date.now() + 180000, epoch), 2500);
     });
     if (p === "claude_cli") { renderClaudeReasoning(); loadClaudeModels(true); }
@@ -137,44 +137,52 @@
   }
   function show(ok, msg) { result.textContent = msg; result.className = ok ? "ok-text" : "err-text"; }
 
-  function loadChatgptModels(quiet = false, force = false) {
-    if (!chatgptPane || current() !== "chatgpt_plan") return Promise.resolve(null);
-    if (catalogRequest && !force) return catalogRequest;
-    if (catalogLoaded && quiet && !force) return Promise.resolve(null);
-    const seq = ++catalogSequence, epoch = accountEpoch;
-    const btn = chatgptPane.querySelector("[data-fetch-models]");
+  function loadCatalog(provider, quiet = false, force = false) {
+    const state = liveCatalogs.get(provider);
+    if (!state || current() !== provider) return Promise.resolve(null);
+    if (state.request && !force) return state.request;
+    if (state.loaded && quiet && !force) return Promise.resolve(null);
+    const seq = ++state.sequence, epoch = accountEpoch;
+    const btn = state.pane.querySelector("[data-fetch-models]");
     btn.disabled = true; btn.dataset.modelRequest = String(seq);
     if (!quiet) { show(true, t("正在获取模型和推理强度…")); result.className = "muted"; }
-    const request = (async () => {
+    state.request = (async () => {
       try {
-        const r = await post("/api/llm/models", payload("chatgpt_plan"));
-        if (seq !== catalogSequence || epoch !== accountEpoch || current() !== "chatgpt_plan") return null;
+        const r = await post("/api/llm/models", { ...payload(provider), refresh: force });
+        if (seq !== state.sequence || epoch !== accountEpoch || current() !== provider) return null;
         if (!r.ok) throw new Error(r.message || t("获取失败"));
         const ids = Array.isArray(r.models) ? r.models.filter(x => typeof x === "string" && x) : [];
-        chatgptOptions = new Map((Array.isArray(r.model_options) ? r.model_options : [])
+        state.options = new Map((Array.isArray(r.model_options) ? r.model_options : [])
           .filter(x => x && typeof x.id === "string" && ids.includes(x.id)).map(x => [x.id, x]));
-        catalogLoaded = true;
-        const dl = chatgptPane.querySelector("datalist"); dl.replaceChildren();
-        ids.forEach(id => { const m = chatgptOptions.get(id); dl.appendChild(option(id, m && m.label || id)); });
-        // Keep a typed/saved model on a temporary catalog difference. The
-        // backend validates availability when the user tests or starts a task.
-        renderReasoning();
+        const items = ids.map(id => option(id, state.options.get(id)?.label || id));
+        if (provider === "antigravity_acp") {
+          const currentModel = [...state.options.values()].find(model => model.is_current === true);
+          if (currentModel) state.options.set("auto", currentModel);
+          const selected = state.model.value || "auto";
+          const options = items.filter(item => item.value !== "auto");
+          if (selected !== "auto" && !ids.includes(selected)) {
+            options.push(option(selected, selected + t("（已保存，待确认）")));
+          }
+          state.model.replaceChildren(option("auto", t("沿用 Antigravity 当前模型")), ...options);
+          state.model.value = selected;
+        } else {
+          state.pane.querySelector("datalist").replaceChildren(...items);
+        }
+        state.loaded = true; state.render();
         if (!quiet) show(true, `${t("✓ 找到")} ${ids.length} ${t("个模型，推理强度会随所选模型更新")}`);
         return r;
       } catch (err) {
-        if (seq !== catalogSequence || epoch !== accountEpoch || current() !== "chatgpt_plan") return null;
-        // A failed refresh keeps the last confirmed choices and saved value.
-        renderReasoning();
-        effortHint.textContent = t("暂时无法获取模型能力，保留当前选择；可点击获取模型列表重试。");
+        if (seq !== state.sequence || epoch !== accountEpoch || current() !== provider) return null;
+        state.render();
+        state.hint.textContent = t("暂时无法获取模型能力，保留当前选择；可点击获取模型列表重试。");
         if (!quiet) show(false, "✗ " + err.message + t("（已保留当前模型和强度）"));
         return null;
       } finally {
         if (btn.dataset.modelRequest === String(seq)) { btn.disabled = false; delete btn.dataset.modelRequest; }
-        if (seq === catalogSequence) catalogRequest = null;
+        if (seq === state.sequence) state.request = null;
       }
     })();
-    catalogRequest = request;
-    return request;
+    return state.request;
   }
 
   async function loadClaudeModels(quiet = false) {
@@ -245,18 +253,22 @@
   // The browser and Terminal take focus during Claude Code sign-in. Recheck
   // the official CLI even if the user returns after the polling window.
   window.addEventListener("focus", () => {
-    if (!modelSection.hidden && current() === "claude_cli") refreshAccount("claude_cli", true);
+    const p = current(), epoch = accountEpoch;
+    if (modelSection.hidden || (p !== "claude_cli" && p !== "antigravity_acp")) return;
+    refreshAccount(p, true, epoch).then(state => {
+      if (epoch === accountEpoch && state.ready && p === "antigravity_acp") loadCatalog(p, true);
+    });
   });
   async function waitForAccount(provider, deadline, epoch) {
     if (current() !== provider || Date.now() > deadline || epoch !== accountEpoch) return;
     const state = await refreshAccount(provider);
-    if (epoch === accountEpoch && state.ready && provider === "chatgpt_plan") loadChatgptModels(true);
-    if (epoch === accountEpoch && !state.ready && state.ok !== false && (provider === "claude_cli" || state.pending)) accountPoll = setTimeout(() => waitForAccount(provider, deadline, epoch), 2500);
+    if (epoch === accountEpoch && state.ready && liveCatalogs.has(provider)) loadCatalog(provider, true);
+    if (epoch === accountEpoch && !state.ready && state.ok !== false && (provider === "claude_cli" || provider === "antigravity_acp" || state.pending)) accountPoll = setTimeout(() => waitForAccount(provider, deadline, epoch), 2500);
   }
   form.querySelectorAll("[data-account-start]").forEach(btn => btn.addEventListener("click", async () => {
     const provider = btn.dataset.accountStart;
     const epoch = ++accountEpoch; clearTimeout(accountPoll);
-    if (provider === "chatgpt_plan") invalidateChatgptCatalog();
+    invalidateCatalog(provider);
     btn.dataset.busy = "1"; btn.disabled = true;
     showAccount(provider, { message: t("正在打开官方登录…") });
     try {
@@ -274,7 +286,7 @@
   }));
   form.querySelectorAll("[data-account-cancel]").forEach(btn => btn.addEventListener("click", async () => {
     clearTimeout(accountPoll); const epoch = ++accountEpoch; btn.disabled = true;
-    if (btn.dataset.accountCancel === "chatgpt_plan") invalidateChatgptCatalog();
+    invalidateCatalog(btn.dataset.accountCancel);
     try { const state = await accountAction(btn.dataset.accountCancel, "cancel"); if (epoch === accountEpoch) showAccount(btn.dataset.accountCancel, state); }
     catch (err) { showAccount(btn.dataset.accountCancel, { ok: false, message: t("取消失败，请刷新连接状态。") }); }
     finally { btn.disabled = false; }
@@ -283,14 +295,14 @@
     btn.disabled = true;
     const epoch = accountEpoch;
     try { const state = await refreshAccount(btn.dataset.accountStatus, true, epoch);
-      if (epoch === accountEpoch && state.ready && btn.dataset.accountStatus === "chatgpt_plan") loadChatgptModels(true, true); }
+      if (epoch === accountEpoch && state.ready && liveCatalogs.has(btn.dataset.accountStatus)) loadCatalog(btn.dataset.accountStatus, true, true); }
     finally { btn.disabled = false; }
   }));
   form.querySelectorAll("[data-account-logout]").forEach(btn => btn.addEventListener("click", async () => {
     const provider = btn.dataset.accountLogout;
     if (provider === "claude_cli" && !await window.pmDialog(t("注销这台电脑上的 Claude Code？其他使用同一登录的 Claude Code 会话也会受影响。"), { okText: t("注销") })) return;
     clearTimeout(accountPoll); const epoch = ++accountEpoch; btn.disabled = true;
-    if (provider === "chatgpt_plan") invalidateChatgptCatalog();
+    invalidateCatalog(provider);
     try {
       const state = await accountAction(provider, "logout");
       if (epoch !== accountEpoch || current() !== provider) return;
@@ -311,13 +323,13 @@
       if (epoch !== accountEpoch || JSON.stringify(payload()) !== JSON.stringify(body)) return;
       show(r.ok, r.ok ? `✓ ${r.message}（${r.latency_ms} ms）` : `✗ ${r.message}`);
     } catch (err) { if (epoch === accountEpoch && JSON.stringify(payload()) === JSON.stringify(body)) show(false, "✗ " + err); }
-    e.target.disabled = false;
+    finally { e.target.disabled = false; }
   });
 
   form.querySelectorAll("[data-fetch-models]").forEach(btn => btn.addEventListener("click", async (e) => {
     const pane = btn.closest(".pane");
     const provider = pane.dataset.pane, epoch = accountEpoch;
-    if (provider === "chatgpt_plan") { await loadChatgptModels(false, true); return; }
+    if (liveCatalogs.has(provider)) { await loadCatalog(provider, false, true); return; }
     if (provider === "claude_cli") { await loadClaudeModels(false); return; }
     e.target.disabled = true; show(true, t("正在获取模型列表…")); result.className = "muted";
     try {

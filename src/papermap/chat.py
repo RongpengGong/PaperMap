@@ -17,7 +17,7 @@ from pathlib import Path
 import pymupdf
 
 from . import ocr
-from .config import PRESETS, PROVIDERS, Config
+from .config import PRESETS, PROVIDERS, SIGN_IN_PROVIDERS, Config
 from .kb_writer import atomic_write
 from .llm import LLMClient
 from .registry import Registry
@@ -48,6 +48,10 @@ def _subscription_ready(config: Config, pid: str) -> bool:
             from .claude_cli import get_cli
 
             return bool(get_cli(config.data_dir).status()["ready"])
+        if pid == "antigravity_acp":
+            from .antigravity_cli import get_cli
+
+            return bool(get_cli(config.data_dir).status()["ready"])
     except Exception:  # noqa: BLE001 - an unavailable sign-in just hides the option
         return False
     return False
@@ -55,7 +59,7 @@ def _subscription_ready(config: Config, pid: str) -> bool:
 
 _CATALOG: dict[str, tuple[float, list[dict]]] = {}
 # Provider names shown in the model picker; listed here so the UI catalogs translate them.
-PROVIDER_LABELS = ("主模型", "自定义", "DeepSeek 官方", "ChatGPT 订阅", "Claude 订阅（Claude Code）", "Kimi 开放平台",
+PROVIDER_LABELS = ("主模型", "自定义", "DeepSeek 官方", "ChatGPT 订阅", "Claude 订阅（Claude Code）", "Antigravity 订阅", "Kimi 开放平台",
                    "智谱开放平台（GLM）", "阿里云百炼（通义千问）")
 
 
@@ -89,20 +93,21 @@ def _efforts(config: Config, pid: str, model: str) -> list[str]:
 
 def model_choices(config: Config) -> list[dict]:
     """Models the user has already set up (key or sign-in present). ``main`` = the main model.
-    Subscription models (ChatGPT, Claude) also list their reasoning-effort levels."""
+    Signed-in providers also list their reasoning-effort levels."""
     llm = config.llm
     main = config.effective_llm()
     mp = main.get("provider", "")
     out = [{"key": "main", "label": "主模型 · " + _label(main), "ready": config.model_ready(),
-            "efforts": _efforts(config, mp, main.get("model", "")) if mp in ("chatgpt_plan", "claude_cli") else [],
+            "efforts": _efforts(config, mp, main.get("model", "")),
             "effort": main.get("reasoning_effort") or ""}]
     seen = {(mp, main.get("model"))}
 
     def add(pid: str, model: str, label: str, efforts: list[str] | None = None) -> None:
         if model and (pid, model) not in seen:
             seen.add((pid, model))
+            level = (states.get(pid) or {}).get("reasoning_effort") or ""
             out.append({"key": f"{pid}|{model}", "label": label, "ready": True, "efforts": efforts or [],
-                        "effort": ((states.get(pid) or {}).get("reasoning_effort") or "") if efforts else ""})
+                        "effort": level if level in (efforts or []) else ""})
 
     states = llm.get("presets") or {}
     for pid, pre in PROVIDERS.items():
@@ -111,10 +116,24 @@ def model_choices(config: Config) -> list[dict]:
                 add(pid, m, f"{pre['label']} · {m}")
     for pid, pre in PRESETS.items():
         st = states.get(pid) or {}
-        if pid in ("chatgpt_plan", "claude_cli"):
+        if pid in SIGN_IN_PROVIDERS:
             if pid not in states and mp != pid:
                 continue  # never set up: do not probe sign-in state
-            if not _subscription_ready(config, pid):
+            ready = out[0]["ready"] if pid == mp else _subscription_ready(config, pid)
+            if not ready:
+                continue
+            if pid == "antigravity_acp":
+                from .antigravity_cli import get_cli
+
+                try:
+                    catalog = get_cli(config.data_dir).model_options()
+                except Exception:  # The CLI might have signed out since the readiness check.
+                    catalog = []
+                for row in catalog:
+                    efforts = row.get("reasoning_efforts") or []
+                    if pid == mp and (row["id"] == main["model"] or (main["model"] == "auto" and row.get("is_current"))):
+                        out[0]["efforts"] = efforts
+                    add(pid, row["id"], f"{pre['label']} · {row.get('label') or row['id']}", efforts)
                 continue
             if pid == "claude_cli":
                 from .claude_cli import MODELS
@@ -152,7 +171,10 @@ def resolve(config: Config, key: str, effort: str = "") -> dict:
         if pid in PROVIDERS:
             llm["model"] = model
         elif pid in PRESETS:
-            llm.setdefault("presets", {}).setdefault(pid, {})["model"] = model
+            state = llm.setdefault("presets", {}).setdefault(pid, {})
+            if pid == "antigravity_acp" and state.get("model") != model:
+                state["reasoning_effort"] = choices[key]["effort"]
+            state["model"] = model
         eff = config.resolve_llm(llm)
     if effort:
         if effort not in (choices.get(key) or {}).get("efforts", []):

@@ -27,7 +27,7 @@ def test_subscription_choices_do_not_request_api_keys(subscription_client):
     html = client.get("/settings").text
     picker = re.search(r'<select\b(?=[^>]*\bid="provider_picker")(?=[^>]*\bname="provider")[^>]*>(.*?)</select>', html, re.S)
     assert picker, "One native provider selector must remain the submitted input"
-    for provider in ("chatgpt_plan", "claude_cli"):
+    for provider in ("chatgpt_plan", "claude_cli", "antigravity_acp"):
         assert f'value="{provider}"' in picker.group(1)
         assert f'data-account-start="{provider}"' in html
         assert f'data-account-status="{provider}"' in html
@@ -52,7 +52,7 @@ def test_claude_quota_is_localized_without_requiring_login_again(subscription_cl
     assert "12:10" in result["message"] and "Europe/Berlin" in result["message"] and "额度" not in result["message"]
 
 
-@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
+@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli", "antigravity_acp"])
 def test_subscription_provider_and_model_saved(subscription_client, config, provider):
     client, token = subscription_client
     response = client.post("/settings", data={
@@ -106,6 +106,64 @@ def test_account_actions_validate_csrf_and_never_return_credentials(subscription
     assert client.post("/api/accounts/claude_cli/logout", json={"csrf": token}).json()["ok"]
     assert calls == ["start", "status", "login", "logout"]
     assert client.post("/api/accounts/custom/login", json={"csrf": token}).status_code == 404
+
+
+def test_unselected_default_antigravity_does_not_register_an_account(subscription_client, config, monkeypatch):
+    from papermap import chat
+
+    client, token = subscription_client
+    fields = {"csrf": token, "p_antigravity_acp_model": "auto", "p_antigravity_acp_reasoning_effort": ""}
+    probed = []
+    monkeypatch.setattr(chat, "_subscription_ready", lambda cfg, provider: probed.append(provider) or False)
+
+    def save(provider):
+        assert client.post("/settings", data={**fields, "provider": provider}, follow_redirects=False).status_code == 303
+
+    save("deepseek")
+    assert "antigravity_acp" not in config.llm["presets"]
+    chat.model_choices(config)
+    assert "antigravity_acp" not in probed
+
+    save("antigravity_acp")
+    save("deepseek")
+    assert config.llm["presets"]["antigravity_acp"]["model"] == "auto"
+    chat.model_choices(config)
+    assert "antigravity_acp" in probed
+
+
+def test_antigravity_login_and_catalog_use_official_client(subscription_client, config, monkeypatch):
+    from unittest.mock import Mock
+
+    client, token = subscription_client
+    official = Mock()
+    official.start_login.return_value = {"ok": True, "message": "登录已打开", "ready": False,
+                                         "private_token": "secret"}
+    official.status.return_value = {"ready": True, "available": True, "auth_token": "secret"}
+    official.model_options.return_value = [{"id": "gemini", "label": "Gemini",
+                                           "reasoning_efforts": ["low", "high"]}]
+
+    def account(provider, data_dir):
+        assert provider == "antigravity_acp" and data_dir == config.data_dir
+        return official
+
+    monkeypatch.setattr("papermap.web.app._account_client", account)
+    provider = "antigravity_acp"
+    prefix = f"/api/accounts/{provider}"
+    body = {"csrf": token, "provider": provider, "refresh": True}
+    assert client.post(f"{prefix}/login", json={}).status_code == 403
+    official.start_login.assert_not_called()
+    login = client.post(f"{prefix}/login", json=body).json()
+    assert login["ok"] and not login["ready"] and "private_token" not in login
+    official.start_login.assert_called_once_with()
+    status = client.post(f"{prefix}/status", json=body).json()
+    assert status["ready"] and "auth_token" not in status
+    official.status.assert_called_once_with(refresh=True)
+    assert client.post(f"{prefix}/logout", json=body).status_code == 404
+    catalog = client.post("/api/llm/models", json=body).json()
+    assert catalog["models"] == ["gemini"]
+    assert catalog["model_options"] == official.model_options.return_value
+    official.model_options.assert_called_once_with(refresh=True)
+    assert config.llm["provider"] == "deepseek"
 
 
 def test_chatgpt_consent_retry_pending_and_cancel(subscription_client, monkeypatch):
@@ -241,7 +299,7 @@ def test_reasoning_choices_save_restore_and_clear_independently(subscription_cli
     assert config.llm["presets"]["chatgpt_plan"]["reasoning_effort"] == "ultra"
 
 
-@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
+@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli", "antigravity_acp"])
 def test_unsaved_reasoning_and_default_reach_connection_test(subscription_client, config, monkeypatch, provider):
     client, token = subscription_client
     config.llm.setdefault("presets", {})[provider] = {"model": "old", "reasoning_effort": "high"}
@@ -281,7 +339,7 @@ def test_claude_full_model_capabilities_keep_alias_model_list(subscription_clien
     assert full["reasoning_efforts_known"] and "max" in full["reasoning_efforts"]
 
 
-@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli"])
+@pytest.mark.parametrize("provider", ["chatgpt_plan", "claude_cli", "antigravity_acp"])
 def test_invalid_reasoning_never_mutates_saved_settings(subscription_client, config, monkeypatch, provider):
     import copy
 
@@ -330,10 +388,10 @@ const aliases = [
   {id:"opus",label:"Opus",reasoning_efforts:["low","medium","high","xhigh","max"], reasoning_efforts_known:true,default_reasoning_effort:""},
   {id:"haiku",label:"Haiku",reasoning_efforts:[],reasoning_efforts_known:true,default_reasoning_effort:""},
 ];
-for (const p of ["chatgpt_plan","claude_cli","custom","deepseek"]) {
+for (const p of ["chatgpt_plan","claude_cli","antigravity_acp","custom","deepseek"]) {
   const pane = panes[p] = new Element("", {pane:p});
-  const parts = pane.parts = {model:new Element(p === "chatgpt_plan" ? "gpt-a" : p === "claude_cli" ? "opus" : "other"), datalist:new Element()};
-  if (p === "chatgpt_plan" || p === "claude_cli") {
+  const parts = pane.parts = {model:new Element(p === "chatgpt_plan" ? "gpt-a" : p === "claude_cli" ? "opus" : p === "antigravity_acp" ? "auto" : "other"), datalist:new Element()};
+  if (p === "chatgpt_plan" || p === "claude_cli" || p === "antigravity_acp") {
     parts["reasoning-effort"] = new Element(); parts["reasoning-value"] = new Element(p === "chatgpt_plan" ? "ultra" : "max"); parts.hint = new Element();
     parts.bootstrap = new Element(); parts.bootstrap.textContent = JSON.stringify(aliases);
     for (const [kind, all, data] of [["result",null,"accountResult"],["url",null,"accountUrl"],["start",starts,"accountStart"],["cancel",cancels,"accountCancel"],["status",statuses,"accountStatus"],["logout",logouts,"accountLogout"]]) {
@@ -368,6 +426,10 @@ async function fetch(url, opts) {
   if (url.endsWith("/logout")) return reply({ok:true,ready:false});
   if (url === "/api/llm/test") return reply({ok:true,message:"connected",latency_ms:1});
   if (url === "/api/llm/models") {
+    if (body.provider === "antigravity_acp") return reply({ok:true,models:["gemini","gemini-pro"],model_options:[
+      {id:"gemini",label:"Gemini",reasoning_efforts:["low","high"],reasoning_efforts_known:true},
+      {id:"gemini-pro",label:"Gemini Pro",is_current:true,reasoning_efforts:["medium","high"],reasoning_efforts_known:true}
+    ]});
     if (body.provider === "claude_cli") return reply({ok:true,models:["opus","haiku"],model_options:[...aliases,{id:body.model,label:body.model,reasoning_efforts:["low","high","max"],reasoning_efforts_known:true}]});
     if (mode === "hold") return new Promise(resolve=>{release=data=>resolve(reply(data));});
     if (mode === "offline") throw new Error("offline");
@@ -420,6 +482,16 @@ const values = select=>select.children.map(x=>x.value);
   await choose("claude_cli"); await windowEvents.emit("focus"); await flush();
   assert.equal(requests.at(-1).url,"/api/accounts/claude_cli/status");
   assert.equal(requests.at(-1).body.refresh,true,"return from official login must check the current CLI session");
+  await choose("antigravity_acp");
+  const ap = panes.antigravity_acp.parts;
+  assert.deepEqual(values(ap.model), ["auto","gemini","gemini-pro"]);
+  assert.equal(ap.model.value, "auto");
+  assert.deepEqual(values(ap["reasoning-effort"]), ["","medium","high"]);
+  ap.model.value="gemini"; await ap.model.emit("change");
+  assert.deepEqual(values(ap["reasoning-effort"]), ["","low","high"]);
+  ap["reasoning-effort"].value="high"; await ap["reasoning-effort"].emit("change");
+  await ids.test_conn.emit("click");
+  assert.equal(requests.at(-1).body.provider,"antigravity_acp"); assert.equal(requests.at(-1).body.model,"gemini"); assert.equal(requests.at(-1).body.reasoning_effort,"high");
   const requestsBeforeHidden=requests.length;
   modelSection.hidden=true; await documentEvents.emit("papermap:settings-section"); await choose("claude_cli");
   await windowEvents.emit("focus"); await flush();

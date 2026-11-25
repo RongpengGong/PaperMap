@@ -53,7 +53,7 @@
 
   {% for pid, p in presets.items() %}{% set st = preset_state.get(pid) or {} %}
   <div class="pane" data-pane="{{ pid }}" {% if provider != pid %}hidden{% endif %}>
-    {% set subscription = pid in ('chatgpt_plan', 'claude_cli') %}
+    {% set subscription = pid in sign_in_providers %}
     {% if subscription %}
     <section class="settings-account" aria-labelledby="account_title_{{ pid }}">
       <div class="settings-account-heading">
@@ -62,6 +62,8 @@
           <summary>{{ _("登录与用量说明") }}</summary>
           {% if pid == 'chatgpt_plan' %}
           <p>{{ _("在系统浏览器中完成 OpenAI 授权后，PaperMap 会使用该账号的套餐或余额。") }}<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">{{ _("管理 ChatGPT 用量") }}</a></p>
+          {% elif pid == 'antigravity_acp' %}
+          <p>{{ _("使用本机 Antigravity CLI 登录 Google 账号，完成后回到这里选择模型。") }} <a href="https://antigravity.google/docs/getting-started?tab=cli" target="_blank" rel="noopener">{{ _("安装官方 Antigravity CLI") }}</a></p>
           {% else %}
           <p>{{ _("点击登录后，本机 Claude Code 会从终端打开浏览器。完成登录并回到设置，账号状态会自动刷新。点「测试连接」可以向所选模型发送一条测试消息。按量使用 API 请单独选择「Anthropic Claude API」。") }} <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">{{ _("安装官方 Claude Code") }}</a></p>
           {% endif %}
@@ -69,10 +71,10 @@
       </div>
       <p class="muted small" data-account-result="{{ pid }}" role="status" aria-live="polite">{{ _("正在检查连接状态…") }}</p>
       <div class="row">
-        <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else _('用官方 Claude Code 登录') }}</button>
+        <button type="button" class="secondary" data-account-start="{{ pid }}">{{ 'Continue with ChatGPT' if pid == 'chatgpt_plan' else _('用 Google 账号登录') if pid == 'antigravity_acp' else _('用官方 Claude Code 登录') }}</button>
         <button type="button" class="secondary" data-account-status="{{ pid }}">{{ _("刷新连接状态") }}</button>
         {% if pid == 'chatgpt_plan' %}<button type="button" class="secondary" data-account-cancel="{{ pid }}" hidden>{{ _("取消等待") }}</button>{% endif %}
-        <button type="button" class="ghost-btn" data-account-logout="{{ pid }}" hidden>{{ _('断开连接') if pid == 'chatgpt_plan' else _('注销本机 Claude Code') }}</button>
+        {% if pid != 'antigravity_acp' %}<button type="button" class="ghost-btn" data-account-logout="{{ pid }}" hidden>{{ _('断开连接') if pid == 'chatgpt_plan' else _('注销本机 Claude Code') }}</button>{% endif %}
         <a data-account-url="{{ pid }}" target="_blank" rel="noopener" hidden>{{ _("打开官方授权页面") }}</a>
       </div>
     </section>
@@ -87,8 +89,15 @@
     <div class="{{ 'subscription-model-row' if subscription else 'row' }}">
       <div class="{{ 'model-field' if subscription else 'grow' }}">
         <label for="p_{{ pid }}_model">{{ _("模型") }}</label>
+        {% if pid == 'antigravity_acp' %}
+        <select id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model">
+          <option value="auto">{{ _("沿用 Antigravity 当前模型") }}</option>
+          {% if st.model and st.model != 'auto' %}<option value="{{ st.model }}" selected>{{ st.model }}</option>{% endif %}
+        </select>
+        {% else %}
         <input type="text" id="p_{{ pid }}_model" name="p_{{ pid }}_model" data-role="model" list="p_{{ pid }}_models"
           value="{{ st.model or p.default_model }}" placeholder="{{ _("选择或输入模型名称") }}">
+        {% endif %}
       </div>
       {% if subscription %}
       <div class="effort-field">
@@ -102,9 +111,9 @@
       {% endif %}
       <button type="button" class="secondary" data-fetch-models>{{ _("获取模型列表") }}</button>
     </div>
-    {% if pid in ('chatgpt_plan', 'claude_cli') %}<p class="muted small" id="{{ pid }}_reasoning_hint" data-reasoning-hint role="status" aria-live="polite">{% if pid == 'chatgpt_plan' %}{{ _("连接后会自动获取所选模型支持的推理强度") }}{% else %}{{ _("按官方 Claude Code 的模型能力显示可选强度") }}{% endif %}{{ _("；默认由模型决定。") }}</p>{% endif %}
+    {% if subscription %}<p class="muted small" id="{{ pid }}_reasoning_hint" data-reasoning-hint role="status" aria-live="polite">{% if pid != 'claude_cli' %}{{ _("连接后会自动获取所选模型支持的推理强度") }}{% else %}{{ _("按官方 Claude Code 的模型能力显示可选强度") }}{% endif %}{{ _("；默认由模型决定。") }}</p>{% endif %}
     {% if pid == 'claude_cli' %}<script type="application/json" data-claude-model-options>{{ claude_model_options|tojson }}</script>{% endif %}
-    <datalist id="p_{{ pid }}_models">{% for mid, m in p.models.items() %}<option value="{{ mid }}">{{ m.label }}</option>{% endfor %}</datalist>
+    {% if pid != 'antigravity_acp' %}<datalist id="p_{{ pid }}_models">{% for mid, m in p.models.items() %}<option value="{{ mid }}">{{ m.label }}</option>{% endfor %}</datalist>{% endif %}
     {% if p.group == 'api' %}
     <details {{ 'open' if not p.models and not st.price_input_per_1m }}>
       <summary class="muted">{{ _("价格（美元 / 百万 token，用于本地估算和每月预算）") }}</summary>
@@ -117,7 +126,7 @@
     </details>
     {% endif %}
     <details class="settings-provider-details"><summary>{{ _("计费说明") }}</summary><dl class="kv muted">
-      {% if pid not in ('chatgpt_plan', 'claude_cli') %}
+      {% if not subscription %}
       <dt>Base URL</dt><dd><code>{{ p.base_url }}</code></dd>
       <dt>{{ _("协议") }}</dt><dd>{{ protocols[p.protocol] }}</dd>
       {% endif %}

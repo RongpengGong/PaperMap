@@ -116,7 +116,7 @@
 </aside>
 {% endif %}
 <main id="main_content" class="content {% block content_class %}{% endblock %}" tabindex="-1">
-{% if settings_groups is not defined and not key_set %}<div class="notice">{% if account_provider in ('chatgpt_plan', 'claude_cli') %}{{ _("模型订阅尚未连接：请到") }} <a href="/settings">{{ _("设置") }}</a> {{ _("完成官方登录并检查连接，新论文会先识别和登记。") }}{% else %}{{ _("尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在") }} <a href="/settings">{{ _("设置") }}</a> {{ _("里填入 Key 后才会生成。") }}{% endif %}</div>{% endif %}
+{% if settings_groups is not defined and not key_set %}<div class="notice">{% if account_provider in sign_in_providers %}{{ _("模型订阅尚未连接：请到") }} <a href="/settings">{{ _("设置") }}</a> {{ _("完成官方登录并检查连接，新论文会先识别和登记。") }}{% else %}{{ _("尚未设置模型 API Key：新论文会被识别和登记，但卡片要等你在") }} <a href="/settings">{{ _("设置") }}</a> {{ _("里填入 Key 后才会生成。") }}{% endif %}</div>{% endif %}
 {% if settings_groups is not defined and budget_ratio >= 1 %}<div class="notice">{{ _("本月 LLM 预算已用完，新论文的处理已暂停。到") }} <a href="/settings?section=processing">{{ _("论文处理") }}</a> {{ _("提高预算后会自动继续。") }}</div>
 {% elif settings_groups is not defined and budget_ratio >= 0.8 %}<div class="notice">{{ _("本月 LLM 预算已用掉") }} {{ "%.0f"|format(100 * budget_ratio) }}%。</div>{% endif %}
 {% block content %}{% endblock %}

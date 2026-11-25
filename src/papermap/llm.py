@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import httpx
 
-from .config import Config
+from .config import Config, SIGN_IN_PROVIDERS
 from .registry import Registry
 
 log = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class LLMClient:
             kwargs["temperature"] = 0.3
         if eff.get("extra_body"):
             kwargs["extra_body"] = eff["extra_body"]
-        if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+        if eff.get("provider") in SIGN_IN_PROVIDERS and eff.get("reasoning_effort"):
             kwargs["reasoning_effort"] = eff["reasoning_effort"]
         resp = client.chat.completions.create(**kwargs)
         raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
@@ -157,7 +157,7 @@ class LLMClient:
             extra = eff.get("extra_body")
             if extra:
                 kwargs["extra_body"] = extra
-            if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+            if eff.get("provider") in SIGN_IN_PROVIDERS and eff.get("reasoning_effort"):
                 kwargs["reasoning_effort"] = eff["reasoning_effort"]
             resp = client.chat.completions.create(**kwargs)
             raw = strip_think((resp.choices[0].message.content or "") if resp.choices else "")
@@ -228,6 +228,10 @@ def make_client(eff: dict[str, Any], timeout_s: float = 180) -> Any:
         return _chatgpt_plan_client(eff, timeout_s)
     if eff.get("provider") == "claude_cli":
         from .claude_cli import get_cli
+
+        return get_cli(Path(eff["data_dir"]), timeout_s=timeout_s)
+    if eff.get("provider") == "antigravity_acp":
+        from .antigravity_cli import get_cli
 
         return get_cli(Path(eff["data_dir"]), timeout_s=timeout_s)
     missing = [label for key, label in (("base_url", "Base URL"), ("model", "model name")) if not eff.get(key)]
@@ -455,6 +459,8 @@ def list_models(eff: dict[str, Any], timeout_s: float = 20) -> list[str]:
         from .claude_cli import MODELS
 
         return [model["id"] for model in MODELS]
+    if eff.get("provider") == "antigravity_acp":
+        return [model["id"] for model in make_client(eff, timeout_s).model_options(refresh=True)]
     if not eff.get("base_url") or not eff.get("api_key"):
         raise LLMNotConfigured("Base URL and API key are needed to list models")
     base = eff["base_url"].rstrip("/")
@@ -485,7 +491,7 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
         }
         if eff.get("extra_body"):
             kwargs["extra_body"] = eff["extra_body"]
-        if eff.get("provider") in ("chatgpt_plan", "claude_cli") and eff.get("reasoning_effort"):
+        if eff.get("provider") in SIGN_IN_PROVIDERS and eff.get("reasoning_effort"):
             kwargs["reasoning_effort"] = eff["reasoning_effort"]
         resp = client.chat.completions.create(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
@@ -494,13 +500,13 @@ def check_connection(eff: dict[str, Any], timeout_s: float = 60) -> dict[str, An
         return {"ok": True, "message": f"连接成功，模型回复：{text[:40] or '(空)'}",
                 "latency_ms": int((time.monotonic() - t0) * 1000), "tokens": tokens}
     except LLMNotConfigured as exc:
-        if eff.get("provider") in ("chatgpt_plan", "claude_cli"):
+        if eff.get("provider") in SIGN_IN_PROVIDERS:
             return {"ok": False, "message": str(exc)}
         if not eff.get("api_key"):
             return {"ok": False, "message": "请先填写 API Key"}
         return {"ok": False, "message": "请填写 Base URL 和模型名"}
     except Exception as exc:  # noqa: BLE001 - report anything to the user
-        if eff.get("provider") == "claude_cli" and isinstance(exc, (BudgetExceeded, LLMError)):
+        if eff.get("provider") in ("claude_cli", "antigravity_acp") and isinstance(exc, (BudgetExceeded, LLMError)):
             failure = {"ok": False, "message": str(exc)}
             if getattr(exc, "reset_time", None) and getattr(exc, "reset_zone", None):
                 failure.update(reset_time=exc.reset_time, reset_zone=exc.reset_zone)

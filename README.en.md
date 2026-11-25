@@ -54,7 +54,7 @@ PaperMap runs on your own computer. It reads every paper into a structured card,
 
 ### 3. Think while you read
 * **Built-in PDF reader**: outline, search, highlights, notes, figure/table capture, on-device OCR, select-to-translate and side-by-side full-text translation.
-* **AI chat** next to the paper with any configured model (reasoning effort for ChatGPT / Claude subscriptions); answers cite pages that jump back into the PDF. Select a passage and **Ask AI**. Every other page has an **Ask AI** drawer. When a discussion ends, its points go into your notes only after you confirm.
+* **AI chat** next to the paper with any configured model (adjustable reasoning effort on supported subscription models); answers cite pages that jump back into the PDF. Select a passage and **Ask AI**. Every other page has an **Ask AI** drawer. When a discussion ends, its points go into your notes only after you confirm.
 * **Right-click**: select text in a card to highlight, colour or bold it in place; select anything anywhere to **save it to Clippings**. Clippings are organised into cited knowledge points by AI every week.
 * **Skills**: prompt-only skills such as close reading for an in-depth reading of one paper (no scripts are ever run).
 
@@ -111,7 +111,7 @@ papermap            # creates a configuration on first run and opens the window
 
 ### First use (3 minutes)
 
-1. **Connect a model** in Settings → AI services → Models and accounts: sign in with a **ChatGPT plan** or a **Claude subscription (local Claude Code)**, or enter an API key for DeepSeek, Anthropic, OpenAI, Gemini, Kimi, Zhipu, Qwen…, or any OpenAI / Anthropic-compatible service. Click **Test connection** before saving.
+1. **Connect a model** in Settings → AI services → Models and accounts: sign in with a **ChatGPT plan**, a **Claude subscription (local Claude Code)** or an **Antigravity subscription (local Google Antigravity CLI)**, or enter an API key for DeepSeek, Anthropic, OpenAI, Gemini, Kimi, Zhipu, Qwen…, or any OpenAI / Anthropic-compatible service. Click **Test connection** before saving.
 2. **Import papers**: drag PDFs into the window, or add an import folder under Settings → Library → Import and folders (e.g. Zotero's `storage`, read-only). Batches of 5+ papers show a cost estimate first.
 3. **No papers yet?** Click "Import sample papers" on the welcome card, in the guide or in the empty paper list: PaperMap downloads 6 CC BY papers from the PMC open-access collection into their own group.
 4. **Open the Guide** (under More in the sidebar) and press **⌘K** to jump anywhere. "More → Report a problem" builds a report with private details removed; the sidebar tells you when a new version is out.
