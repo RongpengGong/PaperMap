@@ -37,7 +37,7 @@
   {% else %}<p class="muted small">{{ _("还没有。打开一篇论文的「变化」标签，选一个研究问题，模型会判断这篇论文改变了什么；你确认或改写后才会出现在这里。") }}</p>{% endfor %}
   {% if unchanged_n %}<p class="muted small">{{ _("另有") }} {{ unchanged_n }} {{ _("篇论文经你确认「未改变当前判断」。") }}</p>{% endif %}
 </section>
-<div class="card md" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
+<div class="md card-view page-view" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
 <p class="muted">{{ _("文件：") }}<code>knowledge/{{ rel }}</code>{{ _("（可直接用 Obsidian 打开；「我的笔记」一块程序永远不会改动）") }}</p>
 {% endblock %}
 {% block scripts %}<script>

@@ -21,6 +21,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import psutil
 from cryptography import x509
@@ -28,7 +29,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from . import llm as llm_mod, mobile_backup, mobile_inbox, mobile_match, mobile_sync, mobile_work
+from . import llm as llm_mod, mobile_backup, mobile_inbox, mobile_match, mobile_sync, mobile_work, remote_web
 
 _PRIVATE = tuple(ipaddress.ip_network(s) for s in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
 _PAPER_ROUTE = re.compile(r'/v1/papers/([1-9][0-9]{0,17})/([a-f0-9]{64})(?:/(pdf|changes|companion|match|pages/(0|[1-9][0-9]{0,8})))?')
@@ -38,6 +39,7 @@ _TASK_ROUTE = re.compile(r'/v1/tasks/([a-f0-9-]{36})')
 _INBOX_ROUTE = re.compile(r'/v1/inbox/new/([1-9][0-9]{0,17})')
 _BACKUP_ROUTE = re.compile(r'/v1/backups/([a-f0-9]{64})(?:/(chunks/(0|[1-9][0-9]{0,9})|finish|meta|pdf))?')
 _MAX_CLIENTS = 8
+_MAX_WEB_CLIENTS = 16  # a page loads its styles and scripts in parallel
 _PAIRING = 'mobile_pairing.json'  # private: the token and keys that let a paired phone reconnect after a restart
 _CA_DAYS = 5 * 365
 _LEAF_DAYS = 397
@@ -108,15 +110,15 @@ def remembered(config) -> dict:
         return {}
     if not isinstance(data, dict):
         return {}
-    ids = [i for i in data.get('paperIds') or [] if type(i) is int and i > 0]
-    return {'paperIds': ids, 'address': str(data.get('address') or ''), 'inbox': data.get('inbox') is not False,
+    return {'address': str(data.get('address') or ''), 'inbox': data.get('inbox') is not False,
             'processing': data.get('processing') is True, 'at': str(data.get('at') or ''),
-            'active': data.get('active') is True, 'review': data.get('review') is True}
+            'active': data.get('active') is True, 'review': data.get('review') is True,
+            'web': data.get('web') is True}
 
 
-def _remember(config, address, ids, processing, inbox, active=True, review=False) -> None:
-    state = {'paperIds': sorted(set(ids)), 'address': address, 'processing': bool(processing), 'inbox': bool(inbox),
-             'review': bool(review),
+def _remember(config, address, processing, inbox, active=True, review=False, web=False) -> None:
+    state = {'address': address, 'processing': bool(processing), 'inbox': bool(inbox),
+             'review': bool(review), 'web': bool(web),
              'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'), 'active': bool(active)}
     try:
         (Path(config.data_dir) / _SHARE_STATE).write_text(json.dumps(state), 'utf-8')
@@ -128,8 +130,8 @@ def _mark_stopped(config) -> None:
     """The user closed the share: do not reopen it when PaperMap starts again."""
     last = remembered(config)
     if last.get('active'):
-        _remember(config, last['address'], last['paperIds'], last['processing'], last['inbox'], active=False,
-                  review=last['review'])
+        _remember(config, last['address'], last['processing'], last['inbox'], active=False,
+                  review=last['review'], web=last['web'])
 
 
 def _load_pairing(config, library_id: str) -> dict:
@@ -248,8 +250,12 @@ class _Listener(ThreadingHTTPServer):
     allow_reuse_address = sys.platform != 'win32'
 
     def __init__(self, address, network, context, info, config, registry, revisions, processor=None, inbox=False, port=0,
-                 actions=None):
+                 actions=None, web=False):
         self.network = network
+        # The phone may open this computer's pages (remote_web): sessions live as long as this listener.
+        self.web = bool(web)
+        self.sessions = remote_web.Sessions()
+        self.web_port = int(config.web['port'])
         self.context = context
         self.info = info
         self.config = config
@@ -258,7 +264,7 @@ class _Listener(ThreadingHTTPServer):
         self.inbox = inbox
         self.actions = actions  # (pipeline, field_tasks) when the phone may settle review items and take papers in
         self.pipeline = processor
-        self.slots = threading.BoundedSemaphore(_MAX_CLIENTS)
+        self.slots = threading.BoundedSemaphore(_MAX_WEB_CLIENTS if web else _MAX_CLIENTS)
         self.stopped = threading.Event()
         self.work = mobile_work.MobileWork(processor, revisions, self.stopped) if processor else None
         self.guard = threading.Lock()
@@ -313,6 +319,7 @@ class _Listener(ThreadingHTTPServer):
 
     def stop(self):
         self.stopped.set()
+        self.sessions.clear()
         with self.guard:
             for stream in self.clients:
                 try:
@@ -526,9 +533,15 @@ class _Handler(BaseHTTPRequestHandler):
             upd = appupdate.state(server.config)  # cached answer only: the phone never triggers a GitHub request
             self._json(200, {'v': 1, 'libraryId': server.info['libraryId'], 'papers': result,
                              'processing': server.work is not None, 'inbox': server.inbox,
-                             'reviewActions': server.actions is not None, 'backups': True,
+                             'reviewActions': server.actions is not None, 'backups': True, 'web': server.web,
                              'desktop': {'version': upd['current'], 'latestVersion': upd.get('latest') or '',
                                          'updateAvailable': upd['newer'], 'releaseUrl': upd.get('url') or ''}})
+            return
+        if self.path == '/v1/web/ticket' and self.command == 'POST':
+            if not server.web:
+                self._error(403, 'web_disabled')
+            else:
+                self._json(200, {'path': '/web/enter?t=' + server.sessions.ticket()})
             return
         if self.path in ('/v1/inbox', '/v1/review') or self.path.startswith('/v1/inbox/'):
             self._inbox()
@@ -576,7 +589,45 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._error(405, 'method_not_allowed')
 
+    def _web(self):
+        """The phone's web view: a ticket becomes a session cookie, then pages are relayed to the web app."""
+        server = self.server
+        if urlsplit(self.path).path == '/web/enter' and self.command == 'GET':
+            ticket, target = remote_web.ticket_from(self.path)
+            session = server.sessions.redeem(ticket) if ticket and not server.stopped.is_set() else None
+            if not server.admit(session is not None):
+                self._error(429, 'too_many_requests')
+            elif session is None:
+                self._error(401, 'pairing_required')
+            else:
+                self.send_response(303)
+                self.send_header('Location', target)
+                self.send_header('Set-Cookie', f'{remote_web.COOKIE}={session}; Path=/; Secure; HttpOnly; SameSite=Strict')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', '0')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+            return
+        valid = server.sessions.valid(remote_web.cookie_value(self.headers.get('Cookie')))
+        if not server.admit(valid):
+            self._error(429, 'too_many_requests')
+        elif server.stopped.is_set() or not valid:
+            self._error(401, 'pairing_required')
+        else:
+            server.last_seen = time.time()
+            remote_web.forward(self, server.web_port)
+
     def _dispatch(self):
+        if self.server.web and not self.path.startswith('/v1/'):
+            try:
+                self._web()
+            except (BrokenPipeError, ConnectionError, TimeoutError, ssl.SSLError):
+                pass
+            except OSError:
+                self._error(502, 'desktop_unavailable')  # the web app is not answering on loopback
+            except Exception:
+                _LOG.exception('Phone page request failed')
+            return
         try:
             self._route()
         except (mobile_work.WorkError, mobile_backup.BackupError) as exc:
@@ -630,14 +681,11 @@ class MobileLan:
     def remembered(self) -> dict:
         return remembered(self.config)
 
-    def start(self, address: str, selected_ids, *, processing=False, inbox=False, review=False, _resume=False) -> dict:
-        if not isinstance(selected_ids, (list, tuple, set)) or not (selected_ids or processing or inbox):
-            raise ValueError('请选择要共享的论文。')
+    def start(self, address: str, *, processing=False, inbox=False, review=False, web=False, _resume=False) -> dict:
+        """Share the whole library with paired phones; each phone picks the papers it downloads."""
         if (processing or review) and not self.pipeline:
             raise ValueError('电脑处理服务尚未就绪。')
         review = bool(review and inbox)  # acting on the lists needs the lists
-        if not all(type(pid) is int and 0 < pid < 10**18 for pid in selected_ids):
-            raise ValueError('论文编号无效。')
         if not _resume:
             self._cancel_resume()
         with self._mutex:
@@ -646,14 +694,7 @@ class MobileLan:
             network = _networks().get(address)
             if network is None:
                 raise ValueError('请选择此电脑的局域网 IPv4 地址。')
-            revisions = {}
-            for pid in set(selected_ids):
-                try:
-                    revisions[pid] = mobile_sync.capture(self.config, self.registry, pid)['revision']
-                except LookupError as exc:
-                    if _resume:
-                        continue  # A paper deleted since the last share no longer reopens with it.
-                    raise ValueError(str(exc)) from exc
+            revisions = mobile_sync.LibraryShare(self.config, self.registry)
             library = mobile_sync.library_id(self.registry)
             saved = _load_pairing(self.config, library)
             keys = dict(saved.get('keys', {}))
@@ -665,6 +706,8 @@ class MobileLan:
             args = (address, network, context, info, self.config, self.registry, revisions,
                     self.pipeline if processing else None, bool(inbox))
             extra = {'actions': (self.pipeline, self.field_tasks)} if review else {}
+            if web:
+                extra['web'] = True
             port = saved.get('port', 0) if token else 0
             try:
                 server = _Listener(*args, port=port, **extra)
@@ -683,8 +726,7 @@ class MobileLan:
                 raise
             self._listener, self._thread = server, thread
             _save_pairing(self.config, library, info['token'], keys, server.server_port)
-            _remember(self.config, address, selected_ids if not _resume else sorted(revisions), processing, inbox,
-                      review=review)
+            _remember(self.config, address, processing, inbox, review=review, web=web)
             return dict(info)
 
     def resume(self) -> None:
@@ -700,8 +742,9 @@ class MobileLan:
                 if last['address'] in _networks():
                     try:
                         ready = bool(self.pipeline)
-                        self.start(last['address'], last['paperIds'], processing=last['processing'] and ready,
-                                   inbox=last['inbox'], review=last['review'] and ready, _resume=True)
+                        self.start(last['address'], processing=last['processing'] and ready,
+                                   inbox=last['inbox'], review=last['review'] and ready, web=last['web'],
+                                   _resume=True)
                         if tries >= 4:
                             self.moved_port = True
                         return
@@ -753,10 +796,11 @@ class MobileLan:
         with self._mutex:
             if self._listener:
                 return {'active': True, 'address': self._listener.server_address[0],
-                        'paperIds': sorted(self._listener.revisions.copy()),
+                        'papers': len(self._listener.revisions),
                         **({'processing': True} if self._listener.work else {}),
                         **({'inbox': True} if self._listener.inbox else {}),
                         **({'review': True} if self._listener.actions else {}),
+                        **({'web': True} if self._listener.web else {}),
                         **({'movedPort': True} if self.moved_port else {})}
             return {'active': False}
 

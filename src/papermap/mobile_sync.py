@@ -81,6 +81,68 @@ def _document(path):
         yield doc
 
 
+_PAGE_COUNTS: dict[str, int] = {}  # PDF revision -> pages; the phone's catalog asks every minute
+
+
+def _page_count(path, revision) -> int:
+    count = _PAGE_COUNTS.get(revision)
+    if count is None:
+        with _document(path) as doc:
+            count = doc.page_count
+        if len(_PAGE_COUNTS) > 4096:
+            _PAGE_COUNTS.clear()
+        _PAGE_COUNTS[revision] = count
+    return count
+
+
+# Papers the phone can see: processed papers, and papers still being processed that already have a card.
+_SHARED_SQL = """SELECT id FROM papers WHERE status != 'ignored' AND (status = 'done'
+    OR (status IN ('new','extracting','error') AND kb_path IS NOT NULL)) ORDER BY id"""
+
+
+class LibraryShare:
+    """The whole library as the phone sees it: every paper with a readable PDF, at its current revision.
+
+    Behaves like the ``{paper id: revision}`` map the listener checks requests against, but is worked
+    out on each request, so papers imported later appear by themselves and deleted ones disappear."""
+
+    def __init__(self, config, registry):
+        self.config = config
+        self.registry = registry
+
+    def get(self, paper_id, default=None):
+        try:
+            row = _paper(self.registry, paper_id)
+            if row["status"] != "done" and not (row["status"] in ("new", "extracting", "error") and row["kb_path"]):
+                return default
+            return evidence.document_revision(_main_path(self.config, self.registry, row))
+        except (LookupError, OSError):
+            return default
+
+    def __contains__(self, paper_id):
+        return self.get(paper_id) is not None
+
+    def __getitem__(self, paper_id):
+        revision = self.get(paper_id)
+        if revision is None:
+            raise KeyError(paper_id)
+        return revision
+
+    def __setitem__(self, paper_id, revision):
+        pass  # A paper the phone imported is part of the library, so it is shared already.
+
+    def __len__(self):
+        return len(self.registry.query(_SHARED_SQL))
+
+    def copy(self) -> dict:
+        out = {}
+        for row in self.registry.query(_SHARED_SQL):
+            revision = self.get(row["id"])
+            if revision is not None:
+                out[row["id"]] = revision
+        return out
+
+
 def _check_page(page, count):
     if type(page) is not int or not 0 <= page < count:
         raise ValueError("页码超出正文 PDF 的范围。")
@@ -109,8 +171,7 @@ def capture(config, registry, paper_id, marks=False) -> dict:
     row = _paper(registry, paper_id)
     path = _main_path(config, registry, row)
     revision = evidence.document_revision(path)
-    with _document(path) as doc:
-        count = doc.page_count
+    count = _page_count(path, revision)
     size = path.stat().st_size
     pdf_path(config, registry, paper_id, revision)
     where = mobile_marks.scope(config, registry, paper_id, revision) if marks else None

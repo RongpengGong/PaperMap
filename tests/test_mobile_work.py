@@ -57,7 +57,7 @@ def test_mobile_import_and_independent_generation(desktop, config, registry, pdf
     pdf = pdfs["paper"].read_bytes()
     config.raw["translation"]["privacy_ack"] = True
     monkeypatch.setattr(translate.Translator, "_bilibili", lambda self, prompt, paper_id: "Translated text")
-    pair = service.start("127.0.0.1", [], processing=True)
+    pair = service.start("127.0.0.1", processing=True)
     with client(pair) as web:
         assert web.get("/v1/papers").json()["processing"]
         rev = upload(web, pdf)
@@ -87,13 +87,13 @@ def test_mobile_processing_scope_bounds_and_revocation(desktop, config, registry
     rev = hashlib.sha256(existing.read_bytes()).hexdigest()
     pid = registry.create_paper(title="Unshared")
     registry.upsert_file(rev, str(existing), existing.stat().st_size, existing.stat().st_mtime, pid)
-    ro = service.start("127.0.0.1", [pid])
+    ro = service.start("127.0.0.1")
     with client(ro) as web:
         assert not web.get("/v1/papers").json()["processing"]
         assert web.post("/v1/tasks", json={}).status_code == 403
         assert web.post("/v1/uploads/" + rev, json={"byteSize": 100}).status_code == 403
     service.stop()
-    pair = service.start("127.0.0.1", [], processing=True)
+    pair = service.start("127.0.0.1", processing=True)
     with client(pair) as web:
         assert web.post("/v1/tasks", json={"id": str(uuid.uuid4()), "kind": "card", "paperId": pid,
                                            "revision": rev}).status_code == 403
@@ -117,7 +117,7 @@ def test_mobile_processing_scope_bounds_and_revocation(desktop, config, registry
         assert list(config.imported_dir.glob(".papermap-phone-*.part"))
     service.stop()
     assert not list(config.imported_dir.glob(".papermap-phone-*.part"))
-    pair = service.start("127.0.0.1", [], processing=True)
+    pair = service.start("127.0.0.1", processing=True)
     with client(pair) as web:
         assert web.get("/v1/tasks/"+duplicate["id"]).status_code == 404
         assert web.get("/v1/papers").json()["papers"] == []

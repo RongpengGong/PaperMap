@@ -32,6 +32,8 @@ from .. import reader as reader_mod
 from ..llm import check_connection, list_chatgpt_model_options, list_models
 from ..pipeline import Pipeline
 from ..registry import Registry, now_iso
+from .card_view import cardify, notes_written
+from .. import remote_web
 from .. import purposes as _purposes
 from .. import versions as _versions
 import contextvars
@@ -157,6 +159,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             host = None
         if host not in ALLOWED_HOSTS:
             return HTMLResponse("Forbidden host", status_code=403)
+        # Relayed from a paired phone (remote_web): settings, credentials and this computer's files stay here.
+        request.state.remote = remote_web.is_remote(request.headers)
+        if request.state.remote and remote_web.denied(request.url.path):
+            return HTMLResponse(_gettext("这一页只能在电脑上打开。"), status_code=403)
         origin = request.headers.get("origin")
         if request.method == "POST" and origin and origin != str(request.base_url).rstrip("/"):
             return HTMLResponse("Forbidden origin", status_code=403)
@@ -267,8 +273,6 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return None
 
     def paper_panel_ctx(paper_id: int) -> dict | None:
-        from .card_view import cardify
-
         row = registry.get_paper(paper_id)
         if row is None:
             return None
@@ -320,7 +324,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                     name = front["skill_name"]
                     if isinstance(name, str) and name.strip():
                         outputs.append({"id": sid, "label": skills[sid].label if sid in skills else name,
-                                        "html": md_html(body)})
+                                        "html": cardify(md_html(body))})
         jobs = registry.query("SELECT * FROM jobs WHERE paper_id=? ORDER BY id DESC LIMIT 6", (paper_id,))
         tr_cfg = config.raw.get("translation") or {}
         from .. import notelinks
@@ -339,7 +343,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             except OSError:
                 pass  # A missing or unreadable source can still have a readable translation.
 
-        return {"gap_hits": gapmod.for_paper(registry, paper_id), "p": row, "body_html": body_html, "notes_text": notes_text, "has_pdf": pdf is not None,
+        notes_cards = cardify(md_html(notes_text), whole=True) if notes_written(notes_text) else ""
+        return {"gap_hits": gapmod.for_paper(registry, paper_id), "p": row, "body_html": body_html, "notes_text": notes_text,
+                "notes_cards": notes_cards, "has_pdf": pdf is not None,
                 "update_cards": ucards, "update_pending": sum(u["status"] == "pending" for u in ucards),
                 "update_questions": upd.candidate_questions(registry, paper_id), "update_outcomes": upd.OUTCOMES,
                 "backlinks": notelinks.backlinks(registry, config.knowledge_dir, paper_id),
@@ -426,7 +432,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     @app.post("/api/notes-preview")
     async def notes_preview(request: Request):
         body = await json_body(request)
-        return {"html": md_html(str(body.get("text", "")))}
+        html = md_html(str(body.get("text", "")))
+        if body.get("cards"):  # the notes tab shows notes as tiles, once something is written
+            html = cardify(html, whole=True) if notes_written(str(body.get("text", ""))) else ""
+        return {"ok": True, "html": html}
 
     @app.post("/paper/{paper_id}/notes")
     async def paper_notes(paper_id: int, request: Request):
@@ -1534,7 +1543,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         path = config.knowledge_dir / "fields" / f"{slug}.md"
         if not path.exists():
             pipeline.refresh_fields({slug})
-        body_html = md_html(_split_front(path.read_text("utf-8"))[1]) if path.exists() else ""
+        body_html = cardify(md_html(_split_front(path.read_text("utf-8"))[1])) if path.exists() else ""
         from .. import questions as qmod
 
         suggested = qmod.field_questions(registry, f["id"], "suggested")
@@ -1681,7 +1690,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         path = config.knowledge_dir / "handbooks" / f"{slug}.md"
         if not path.exists():
             raise HTTPException(404)
-        return render(request, "handbook.html", slug=slug, body_html=md_html(_split_front(path.read_text("utf-8"))[1]),
+        return render(request, "handbook.html", slug=slug, body_html=cardify(md_html(_split_front(path.read_text("utf-8"))[1])),
                       rel=f"handbooks/{slug}.md", f=registry.field_by_slug(slug))
 
     @app.post("/field/{slug}/consolidate")
@@ -1782,7 +1791,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         path = config.knowledge_dir / "concepts" / f"{slug}.md"
         if not path.exists() or not re.fullmatch(r"[a-z0-9-]+", slug):
             raise HTTPException(404)
-        return render(request, "concept.html", body_html=md_html(_split_front(path.read_text("utf-8"))[1]),
+        return render(request, "concept.html", body_html=cardify(md_html(_split_front(path.read_text("utf-8"))[1])),
                       rel=f"concepts/{slug}.md")
 
     @app.post("/handbook/{slug}/generate")

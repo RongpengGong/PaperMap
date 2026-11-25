@@ -1110,8 +1110,8 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .card-view .cc-methods ul { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
 .card-view .cc-methods li { margin:0; padding:3px 10px; border-radius:999px; background:var(--accent-soft); font-size:12.5px; line-height:1.5; }
 .card-view .cc-methods li p { margin:0; }
-.card-view .cc-tools .cc-b p { display:flex; flex-wrap:wrap; gap:6px; margin:0; }
-.card-view .cc-tools code { padding:2px 9px; border:1px solid var(--line-strong); border-radius:6px; background:var(--bg); font-size:12px; }
+.card-view p.cc-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.card-view p.cc-chips code { padding:2px 9px; border:1px solid var(--line-strong); border-radius:6px; background:var(--bg); font-size:12px; }
 /* findings: numbered points */
 .card-view .cc-findings ol { list-style:none; counter-reset:cc-f; margin:0; padding:0; display:grid; gap:6px; }
 .card-view .cc-findings li { counter-increment:cc-f; position:relative; margin:0; padding:7px 10px 7px 40px; border-radius:8px; background:var(--bg); }
@@ -1128,3 +1128,39 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .cc-notes-head { display:flex; align-items:center; gap:8px; }
 .cc-notes-head h2.cc-h { margin:0; }
 .cc-notes-text { margin:6px 0 0; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+
+/* The same tiles for longer reading: notes, skill readings, field / handbook / tool pages.
+   Section titles read as headings here, and the page's own title stays a title. */
+.card-view:not([data-card-body]) h2.cc-h { margin-bottom:8px; font-size:14.5px; letter-spacing:0; color:var(--fg); }
+.card-view:not([data-card-body]) .cc-b h3 { margin:14px 0 6px; font-size:13.5px; }
+.card-view:not([data-card-body]) .cc-b blockquote { margin:6px 0 10px; }
+.card-view:not([data-card-body]):not(.notes-cards) .cc-lead { font-size:inherit; line-height:inherit; color:inherit; }
+.card-view .cc-lead h1 { margin:0 0 8px; }
+.page-view .card-tiles { grid-template-columns:minmax(0,1fr); }
+.page-view { max-width:900px; }
+.card-view .cc-overview { border-color:color-mix(in srgb,var(--accent) 28%,var(--line)); background:var(--accent-soft); box-shadow:inset 4px 0 0 var(--accent); padding-left:20px; }
+.card-view .cc-overview h2.cc-h { color:var(--accent); }
+.card-view .cc-mine { border-style:dashed; }
+.card-view .cc-library { box-shadow:inset 4px 0 0 var(--accent); padding-left:20px; }
+.card-view .cc-background { border-style:dashed; background:var(--bg); }
+.card-view .cc-disputes { box-shadow:inset 4px 0 0 var(--warn); padding-left:20px; }
+/* notes tab: tiles to read, the editor to write */
+.notes-cards { cursor:default; }
+.notes-cards .cc-lead { padding:0 2px; }
+.notes-cards .cc-lead h1 { font-size:14px; font-weight:600; color:var(--muted); }
+.notes-cards .cc-lead p { margin:2px 0 0; }
+/* digest: inner items as small tiles, the AI summary as a banner */
+.dg-sec .dg-push { margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); }
+.dg-sec .dg-push:first-of-type { margin-top:0; padding-top:10px; border-top:1px solid var(--line); }
+.dg-summary { padding:10px 14px 10px 18px; border-radius:9px; background:var(--accent-soft); box-shadow:inset 4px 0 0 var(--accent); }
+.card-view .cc-b table { display:block; max-width:100%; overflow-x:auto; }
+
+/* Opened from a paired phone or tablet (remote_web): the phone shows its own PaperMap sidebar,
+   so pages fill the screen, with touch-sized controls and no hover-only affordances. */
+body.remote-touch { padding:0; background:var(--bg); box-shadow:none; }
+body.remote-touch > .sidebar, body.remote-touch .skip-link, body.remote-touch [data-action="toggle-list"] { display:none !important; }
+body.remote-touch > .content { border-radius:0; box-shadow:none; padding:16px 14px 48px; -webkit-overflow-scrolling:touch; }
+body.remote-touch button, body.remote-touch .ghost-btn, body.remote-touch select, body.remote-touch .seg button { min-height:38px; }
+body.remote-touch input, body.remote-touch select, body.remote-touch textarea { font-size:16px; }  /* no zoom on focus */
+body.remote-touch .nav a, body.remote-touch .tab { min-height:40px; }
+body.remote-touch .md, body.remote-touch .card-view { font-size:15px; }

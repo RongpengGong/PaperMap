@@ -118,11 +118,11 @@
     {% else %}<p class="muted pad">{% if p.status in ('new','extracting') %}{{ _("正在生成卡片…") }}{% elif p.status == 'doi_unverified' %}{{ _("DOI 没有通过校验，请到「待审核」确认。") }}{% else %}{{ _("还没有卡片。") }}{% endif %}</p>{% endif %}
   </div>
   {% if notes_text is not none %}
-  <div class="tab-body" data-body="notes" hidden>
-    <div class="notes-bar"><button type="button" class="ghost-btn" data-notes-preview>{{ _("预览") }}</button><span class="muted small">{{ _("输入") }} <code>[[</code> {{ _("链接其他论文或学科") }}{{ _("；图片可以直接粘贴") }}</span></div>
+  <div class="tab-body" data-body="notes" data-notes-mode="{{ 'cards' if notes_cards else 'edit' }}" hidden>
+    <div class="notes-bar"><button type="button" class="ghost-btn" data-notes-toggle>{{ _("编辑") if notes_cards else _("完成") }}</button><span class="muted small" data-notes-hint-edit {{ 'hidden' if notes_cards }}>{{ _("输入") }} <code>[[</code> {{ _("链接其他论文或学科") }}{{ _("；图片可以直接粘贴") }}</span><span class="muted small" data-notes-hint-cards {{ 'hidden' if not notes_cards }}>{{ _("双击卡片开始编辑") }}</span></div>
+    <div class="md card-view notes-cards" data-notes-cards {{ 'hidden' if not notes_cards }} title="{{ _("双击开始编辑") }}">{{ notes_cards|safe }}</div>
     <div class="notes-live" data-notes-live hidden></div>
-    <textarea class="notes" spellcheck="false" placeholder="{{ _("写下你的笔记（Markdown）。自动保存。输入 [[ 可以链接到其他论文或学科。") }}">{{ notes_text|keep }}</textarea>
-    <div class="notes-preview md" hidden></div>
+    <textarea class="notes" spellcheck="false" {{ 'hidden' if notes_cards }} placeholder="{{ _("写下你的笔记（Markdown）。自动保存。输入 [[ 可以链接到其他论文或学科。") }}">{{ notes_text|keep }}</textarea>
     <p class="muted small" data-notes-status>{{ _("保存在这篇论文的文件夹里，PaperMap 永远不会改动它。⌘S 立即保存。") }}</p>
     {% if backlinks %}<h3>{{ _("提到这篇论文的地方") }}</h3><ul class="backlinks">{% for b in backlinks %}<li>{% if b.paper_id %}<a href="/?id={{ b.paper_id }}">{{ b.label }}</a>{% else %}{{ b.label }}{% endif %}<br><span class="muted small">{{ b.snippet }}</span></li>{% endfor %}</ul>{% endif %}
   </div>
@@ -140,7 +140,7 @@
     </div>
   </div>
   {% endif %}
-  {% for o in skill_outputs %}<div class="tab-body" data-body="skill-{{ o.id }}" hidden><div class="md">{{ o.html|safe }}</div></div>{% endfor %}
+  {% for o in skill_outputs %}<div class="tab-body" data-body="skill-{{ o.id }}" hidden><div class="md card-view">{{ o.html|safe }}</div></div>{% endfor %}
   {% if has_pdf and p.status == 'done' %}
   <div class="tab-body" data-body="updates" hidden>
     <div class="pad-sm">

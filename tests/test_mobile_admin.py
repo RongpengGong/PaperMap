@@ -19,7 +19,8 @@ def phone_controls(config, registry, monkeypatch):
         ips = ["192.168.1.2"]
 
         def __init__(self, config, registry):
-            self.shared = []
+            self.config = config
+            self.shared = False
             self.code = None
             self.processing = False
 
@@ -28,14 +29,13 @@ def phone_controls(config, registry, monkeypatch):
 
         def status(self):
             return {"active": bool(self.code), "address": self.ips[0] if self.ips else "",
-                    "paperIds": self.shared, "processing": self.processing}
+                    "papers": 2 if self.shared else 0, "processing": self.processing}
 
-        def start(self, address, ids, *, processing=False, inbox=False, review=False):
-            if not ids and not processing and not inbox:
-                raise ValueError("请选择要共享的论文。")
+        def start(self, address, *, processing=False, inbox=False, review=False, web=False):
+            self.web = web
             if address not in self.ips:
                 raise ValueError("请选择此电脑的局域网 IPv4 地址。")
-            self.shared = list(ids)
+            self.shared = True
             self.processing = processing
             _, ca, pin = mobile_lan._identity(address)
             self.code = {"v": 1, "url": "https://192.168.1.2:12345", "libraryId": str(uuid.uuid4()),
@@ -44,12 +44,12 @@ def phone_controls(config, registry, monkeypatch):
 
         def stop(self):
             self.kept = self.code is not None or getattr(self, "kept", False)
-            self.shared = []
+            self.shared = False
             self.code = None
             self.processing = False
 
         def sidebar(self):
-            return {"active": True, "papers": len(self.shared), "minutesAgo": 3} if self.code else {"active": False}
+            return {"active": True, "papers": 2, "minutesAgo": 3} if self.code else {"active": False}
 
         def paired(self):
             return self.code is not None or getattr(self, "kept", False)
@@ -68,29 +68,26 @@ def phone_controls(config, registry, monkeypatch):
     return client(config, registry), controls
 
 
-def test_desktop_selection_and_secret_lifetime(phone_controls, registry):
+def test_the_whole_library_is_shared_and_the_secret_lifetime(phone_controls, registry):
     web, controls = phone_controls
-    pid = registry.create_paper(title="Selected work", status="done")
-    other = registry.create_paper(title="Another work", status="done")
-    registry.create_paper(title="Still pending", status="new")
+    registry.create_paper(title="Selected work", status="done")
+    registry.create_paper(title="Another work", status="done")
+    registry.create_paper(title="Still pending", status="new")  # no card yet: not offered
     tok = _token(web)
     page = nodes(web.get("/settings?section=mobile").text)
     nav = page.all(lambda n: n.attrs.get("data-settings-link") == "mobile")[0]
     assert nav.attrs["aria-current"] == "page"
     mobile = page.all(lambda n: n.attrs.get("data-settings-panel") == "mobile")[0]
     assert "hidden" not in mobile.attrs
-    options = mobile.all(lambda n: n.attrs.get("name") == "paper_id")
-    assert {int(n.attrs["value"]) for n in options} == {pid, other}
-    assert not any("checked" in n.attrs for n in options)
+    assert not mobile.all(lambda n: n.attrs.get("name") == "paper_id")  # the phone picks, not the computer
+    assert "共享整个文献库（现在 2 篇" in mobile.text()
     for action in ("start", "show", "stop"):
         assert web.post("/settings/mobile/" + action, data={"csrf": "wrong"}).status_code == 403
     assert not controls.shared
-    empty = web.post("/settings/mobile/start", headers=FRAGMENT, data={"csrf": tok, "address": controls.ips[0]})
-    assert "请选择要共享的论文。" in empty.text and not controls.shared
-    start = web.post("/settings/mobile/start", headers=FRAGMENT,
-                     data={"csrf": tok, "address": controls.ips[0], "paper_id": [pid]})
+    start = web.post("/settings/mobile/start", headers=FRAGMENT, data={"csrf": tok, "address": controls.ips[0]})
     assert start.status_code == 200 and "no-store" in start.headers["cache-control"]
-    assert controls.shared == [pid] and "Selected work" in start.text and "Another work" not in start.text
+    assert controls.shared and "整个文献库" in start.text and "「我的笔记」（手机上只读）" in start.text
+    assert "Selected work" not in start.text  # no title list on the share page
     qr = nodes(start.text).all(lambda n: n.tag == "textarea")[0].text()
     assert json.loads(qr) == controls.code
     assert "data:image/svg+xml;base64" in start.text and "<aside" not in start.text
@@ -107,7 +104,7 @@ def test_empty_library_and_missing_network(phone_controls):
     controls.ips = []
     page = web.get("/settings?section=mobile").text
     assert "尚未找到局域网地址，请连接 Wi-Fi 后刷新。" in page
-    assert "暂无已入库的论文" in page
+    assert "共享整个文献库（现在 0 篇" in page
     form = nodes(page).all(lambda n: n.attrs.get("action") == "/settings/mobile/start")[0]
     assert "disabled" in form.all(lambda n: n.tag == "button")[0].attrs
 
@@ -119,10 +116,22 @@ def test_processing_requires_explicit_consent_and_supports_import_into_empty_lib
     assert "checked" not in option.attrs
     start = web.post("/settings/mobile/start", headers=FRAGMENT,
                      data={"csrf": _token(web), "address": controls.ips[0], "processing": "true"})
-    assert controls.processing and not controls.shared
+    assert controls.processing and controls.shared
     assert "本次配对已允许" in start.text
     assert web.post("/settings/mobile/stop", data={"csrf": _token(web)}, follow_redirects=False).status_code == 303
     assert not controls.processing
+
+
+def test_full_library_access_for_the_phone_is_a_separate_unticked_choice(phone_controls):
+    web, controls = phone_controls
+    form = nodes(web.get("/settings/mobile/panel").text)
+    option = form.all(lambda n: n.attrs.get("name") == "web")[0]
+    assert "checked" not in option.attrs
+    web.post("/settings/mobile/start", headers=FRAGMENT, data={"csrf": _token(web), "address": controls.ips[0]})
+    assert controls.web is False
+    web.post("/settings/mobile/start", headers=FRAGMENT,
+             data={"csrf": _token(web), "address": controls.ips[0], "web": "true"})
+    assert controls.web is True
 
 
 def test_pairing_qr_decodes_to_exact_displayed_payload(phone_controls, registry):
@@ -132,8 +141,8 @@ def test_pairing_qr_decodes_to_exact_displayed_payload(phone_controls, registry)
     from Foundation import NSData, NSDictionary
 
     web, controls = phone_controls
-    pid = registry.create_paper(title="QR check", status="done")
-    result = web.post("/settings/mobile/start", data={"csrf": _token(web), "address": controls.ips[0], "paper_id": pid})
+    registry.create_paper(title="QR check", status="done")
+    result = web.post("/settings/mobile/start", data={"csrf": _token(web), "address": controls.ips[0]})
     doc = nodes(result.text)
     qr = doc.all(lambda n: n.tag == "img" and n.attrs.get("alt") == "手机配对二维码")[0]
     text = doc.all(lambda n: n.tag == "textarea" and "readonly" in n.attrs)[0].text()
@@ -150,16 +159,11 @@ def test_pairing_qr_decodes_to_exact_displayed_payload(phone_controls, registry)
     assert json.loads(text) == controls.code
 
 
-def test_sharing_no_papers_says_what_the_phone_will_miss(phone_controls):
+def test_old_paper_choices_in_a_form_post_are_ignored(phone_controls):
     web, controls = phone_controls
-    tok = _token(web)
-    form = web.get("/settings/mobile/panel", headers=FRAGMENT).text
-    hint = nodes(form).all(lambda n: "data-mobile-none" in n.attrs)[0]
-    assert "hidden" not in hint.attrs  # nothing is ticked yet
-    lists_only = web.post("/settings/mobile/start", headers=FRAGMENT,
-                          data={"csrf": tok, "address": controls.ips[0], "inbox": "true"})
-    assert lists_only.status_code == 200 and controls.code
-    assert "这次没有共享任何论文" in lists_only.text
+    shared = web.post("/settings/mobile/start", headers=FRAGMENT,
+                      data={"csrf": _token(web), "address": controls.ips[0], "paper_id": ["1"], "inbox": "true"})
+    assert shared.status_code == 200 and controls.code and controls.shared
 
 
 def test_a_kept_pairing_can_be_revoked(phone_controls):

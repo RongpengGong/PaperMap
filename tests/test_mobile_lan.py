@@ -52,18 +52,14 @@ def test_lan_addresses_bind_only_private_active_interfaces(monkeypatch):
     assert mobile_lan._networks()['192.168.88.2'] == ipaddress.ip_network('192.168.88.0/24')
 
 
-def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
+def test_the_library_crosses_the_tls_session_except_deleted_papers(lan, pdfs, registry):
     assert lan.status() == {'active': False}
     with pytest.raises(ValueError):
         lan.pairing()
     with pytest.raises(ValueError):
-        lan.start('0.0.0.0', [1])
-    with pytest.raises(ValueError):
-        lan.start('127.0.0.1', [])
-    with pytest.raises(ValueError):
-        lan.start('127.0.0.1', [123456])
-    pair = lan.start('127.0.0.1', [1])
-    assert pair == lan.pairing() and lan.status() == {'active': True, 'address': '127.0.0.1', 'paperIds': [1]}
+        lan.start('0.0.0.0')
+    pair = lan.start('127.0.0.1')
+    assert pair == lan.pairing() and lan.status() == {'active': True, 'address': '127.0.0.1', 'papers': 2}
     port = int(pair['url'].rsplit(':', 1)[1])
     with socket.create_connection(('127.0.0.1', port), timeout=3) as tcp:
         with trusted(pair).wrap_socket(tcp, server_hostname='127.0.0.1') as tls:
@@ -80,11 +76,14 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         assert web.get('/v1/papers', headers={'Host': 'elsewhere.test'}).status_code == 403
         listing = web.get('/v1/papers').json()
         assert listing['libraryId'] == pair['libraryId'] and listing['v'] == 1
-        assert [p['id'] for p in listing['papers']] == [1]
+        assert [p['id'] for p in listing['papers']] == [1, 2]  # the whole library; the phone picks
         assert listing['desktop']['version'] and 'updateAvailable' in listing['desktop']  # shown on the phone
         revision = listing['papers'][0]['revision']
         base = '/v1/papers/1/' + revision
-        other = '/v1/papers/2/' + hashlib.sha256(pdfs['refs_only'].read_bytes()).hexdigest()
+        other = '/v1/papers/2/' + [p for p in listing['papers'] if p['id'] == 2][0]['revision']
+        assert web.get(other).status_code == 200
+        registry.execute("UPDATE papers SET status='ignored' WHERE id=2")  # deleted on the computer
+        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
         for path in ('/settings', '/mcp', '/api/state', '/docs', '/v1/papers/', other, other + '/pdf',
                      other + '/companion'):
             assert web.get(path).status_code == 404
@@ -92,7 +91,7 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         paper = web.get(base).json()
         assert paper['revision'] == revision
         companion = web.get(base + '/companion').json()
-        assert companion == {'id': 1, 'revision': revision, 'card': '',
+        assert companion == {'id': 1, 'revision': revision, 'card': '', 'notes': '',
                              'version': listing['papers'][0]['companionVersion'],
                              'translation': {'state': 'missing', 'paragraphs': []}}
         assert paper['companionVersion'] == companion['version']
@@ -119,8 +118,9 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         with pdfs['paper'].open('ab') as doc:
             doc.write(b'\n% revised\n')
         next_revision = hashlib.sha256(pdfs['paper'].read_bytes()).hexdigest()
-        assert web.get('/v1/papers').json()['papers'] == []
-        assert web.get('/v1/papers/1/'+next_revision+'/pdf').status_code == 409
+        fresh = web.get('/v1/papers').json()['papers']  # the new version is offered by itself
+        assert [p['id'] for p in fresh] == [1] and fresh[0]['revision'] == next_revision != revision
+        assert web.get('/v1/papers/1/'+next_revision+'/pdf').status_code == 200
         assert web.get(base+'/pdf').status_code == 409
         assert web.get(base+'/companion').status_code == 409
         lan.stop()
@@ -128,25 +128,25 @@ def test_only_shared_resources_cross_the_tls_session(lan, pdfs):
         with pytest.raises(httpx.ConnectError):
             web.get('/v1/papers')
     # Sharing again keeps the pairing: the phone's saved address, CA, pin and token still work.
-    again = lan.start('127.0.0.1', [2])
+    again = lan.start('127.0.0.1')
     assert (again['url'], again['token'], again['pin'], again['libraryId']) == (
         pair['url'], pair['token'], pair['pin'], pair['libraryId'])
     with client(pair) as web:
-        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [2]
+        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
     lan.revoke()
-    replacement = lan.start('127.0.0.1', [2])
+    replacement = lan.start('127.0.0.1')
     assert replacement['libraryId'] == pair['libraryId']
     assert replacement['token'] != pair['token'] and replacement['pin'] != pair['pin']
     with client(replacement) as web:
         assert web.get('/v1/papers', headers={'Authorization': 'Bearer ' + pair['token']}).status_code == 401
-        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [2]
+        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
     lan.stop()
     lan.stop()
 
 
 def test_a_share_on_at_quit_reopens_with_the_same_pairing(lan, config, registry, monkeypatch):
     monkeypatch.setattr(mobile_lan, '_RESUME_EVERY', 0.05)
-    pair = lan.start('127.0.0.1', [1, 2], inbox=True)
+    pair = lan.start('127.0.0.1', inbox=True)
     saved = config.data_dir / 'mobile_pairing.json'
     assert saved.stat().st_mode & 0o077 == 0  # the token and keys are readable by this user only
     lan.close()  # PaperMap quits
@@ -156,7 +156,7 @@ def test_a_share_on_at_quit_reopens_with_the_same_pairing(lan, config, registry,
     try:
         restarted.resume()
         restarted._resumer.join(5)
-        assert restarted.status() == {'active': True, 'address': '127.0.0.1', 'paperIds': [1], 'inbox': True}
+        assert restarted.status() == {'active': True, 'address': '127.0.0.1', 'papers': 1, 'inbox': True}
         with client(pair) as web:  # the phone's stored pairing, untouched
             assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
         restarted.stop()  # the user closes it: no reopening on the next start
@@ -170,7 +170,7 @@ def test_a_share_on_at_quit_reopens_with_the_same_pairing(lan, config, registry,
 
 def test_resume_waits_for_the_address_and_a_taken_port_is_given_up(lan, config, registry, monkeypatch):
     monkeypatch.setattr(mobile_lan, '_RESUME_EVERY', 0.05)
-    pair = lan.start('127.0.0.1', [1])
+    pair = lan.start('127.0.0.1')
     port = int(pair['url'].rsplit(':', 1)[1])
     lan.close()
     nets = {}
@@ -195,16 +195,16 @@ def test_resume_waits_for_the_address_and_a_taken_port_is_given_up(lan, config, 
 
 
 def test_a_damaged_or_foreign_pairing_file_starts_a_new_pairing(lan, config):
-    first = lan.start('127.0.0.1', [1])
+    first = lan.start('127.0.0.1')
     lan.stop()
     saved = config.data_dir / 'mobile_pairing.json'
     data = __import__('json').loads(saved.read_text('utf-8'))
     saved.write_text(__import__('json').dumps({**data, 'libraryId': str(uuid.uuid4())}), 'utf-8')
-    second = lan.start('127.0.0.1', [1])
+    second = lan.start('127.0.0.1')
     assert second['token'] != first['token'] and second['pin'] != first['pin']
     lan.stop()
     saved.write_text('{not json', 'utf-8')
-    third = lan.start('127.0.0.1', [1])
+    third = lan.start('127.0.0.1')
     assert third['token'] not in (first['token'], second['token'])
 
 
@@ -236,13 +236,13 @@ def test_inbox_is_opt_in_and_files_suggestions_away(lan, registry):
         "'Nature', '[\"Ada Lovelace\"]', 7.5, 'new', '2026-11-24', '2026-11-24')")
     registry.execute("UPDATE papers SET status='doi_unverified' WHERE id=2")
 
-    pair = lan.start('127.0.0.1', [1])
+    pair = lan.start('127.0.0.1')
     with client(pair) as web:
         assert web.get('/v1/papers').json()['inbox'] is False
         assert web.get('/v1/inbox').status_code == 403
     lan.stop()
 
-    pair = lan.start('127.0.0.1', [], inbox=True)
+    pair = lan.start('127.0.0.1', inbox=True)
     assert lan.status()['inbox'] is True
     with client(pair) as web:
         assert web.get('/v1/papers').json()['inbox'] is True
@@ -251,8 +251,8 @@ def test_inbox_is_opt_in_and_files_suggestions_away(lan, registry):
         assert new['title'] == 'A spatial atlas of the liver' and new['url'] == 'https://doi.org/10.1038/s41586-026-00001-1'
         assert new['authors'] == ['Ada Lovelace']
         assert [(r['kind'], r['title']) for r in box['review']] == [('doi', 'refs_only')]
-        # Only the titles of unshared papers are visible, never their files.
-        assert web.get('/v1/papers').json()['papers'] == []
+        # A paper waiting for DOI review is listed for review only, never offered for download.
+        assert [p['id'] for p in web.get('/v1/papers').json()['papers']] == [1]
         bad = web.post(f"/v1/inbox/new/{new['id']}", json={'action': 'take_in'})
         assert bad.status_code == 400
         assert web.post(f"/v1/inbox/new/{new['id']}", json={'action': 'dismissed'}).json() == {'ok': True}
@@ -262,11 +262,11 @@ def test_inbox_is_opt_in_and_files_suggestions_away(lan, registry):
 def test_pairing_names_the_computer_and_the_share_is_remembered(lan, config, monkeypatch):
     monkeypatch.setattr(mobile_lan, 'computer_name', lambda: 'Lab Mac')
     assert lan.remembered() == {}
-    pair = lan.start('127.0.0.1', [2, 1], inbox=False)
+    pair = lan.start('127.0.0.1', inbox=False)
     assert pair['name'] == 'Lab Mac'
     lan.stop()
     last = lan.remembered()
-    assert last['paperIds'] == [1, 2] and last['address'] == '127.0.0.1'
+    assert 'paperIds' not in last and last['address'] == '127.0.0.1'
     assert last['inbox'] is False and last['processing'] is False and last['at']
     (config.data_dir / 'mobile_share.json').write_text('[1]', 'utf-8')
     assert lan.remembered() == {}
@@ -280,9 +280,9 @@ def test_computer_name_has_no_control_characters(monkeypatch):
 
 
 def test_phone_excerpts_are_relocated_by_text_and_the_model_only_on_request(lan, registry):
-    pair = lan.start('127.0.0.1', [1])
+    pair = lan.start('127.0.0.1')
     with client(pair) as web:
-        [paper] = web.get('/v1/papers').json()['papers']
+        paper = web.get('/v1/papers').json()['papers'][0]
         base = f"/v1/papers/{paper['id']}/{paper['revision']}"
         seg = web.get(base + '/pages/1').json()['segments'][0]
         # A changed line break and hyphenation still find the same paragraph without any model.
@@ -319,8 +319,8 @@ def test_the_model_chooses_among_the_closest_paragraphs(config, registry, pdfs):
 
 def test_sidebar_shows_whether_the_phone_has_been_in_touch(lan):
     assert lan.sidebar() == {'active': False, 'resuming': False}
-    pair = lan.start('127.0.0.1', [1])
-    assert lan.sidebar() == {'active': True, 'papers': 1, 'minutesAgo': None}
+    pair = lan.start('127.0.0.1')
+    assert lan.sidebar() == {'active': True, 'papers': 2, 'minutesAgo': None}
     with client(pair) as web:
         web.get('/v1/papers')
     assert lan.sidebar()['minutesAgo'] == 0
@@ -351,7 +351,7 @@ def test_phone_settles_review_items_only_when_the_share_allows_it(config, regist
 
     lan = mobile_lan.MobileLan(config, registry, pipe)
     try:
-        pair = lan.start('127.0.0.1', [], inbox=True)
+        pair = lan.start('127.0.0.1', inbox=True)
         with client(pair) as web:
             box = web.get('/v1/inbox').json()
             assert box['actions'] is False and 'fields' not in box
@@ -360,7 +360,7 @@ def test_phone_settles_review_items_only_when_the_share_allows_it(config, regist
             assert web.post(f'/v1/inbox/new/{cid}', json={'action': 'take'}).status_code == 400
         lan.stop()
 
-        pair = lan.start('127.0.0.1', [], inbox=True, review=True)
+        pair = lan.start('127.0.0.1', inbox=True, review=True)
         assert lan.status()['review'] is True and lan.remembered()['review'] is True
         with client(pair) as web:
             assert web.get('/v1/papers').json()['reviewActions'] is True
@@ -396,7 +396,7 @@ def test_phone_backups_are_kept_beside_the_library_and_restored(lan, config, reg
 
     pdf = b'%PDF-1.7\n' + b'x' * (mobile_backup.CHUNK + 300) + b'\n%%EOF'
     rev = hashlib.sha256(pdf).hexdigest()
-    pair = lan.start('127.0.0.1', [], inbox=True)
+    pair = lan.start('127.0.0.1', inbox=True)
     papers_before = registry.one("SELECT count(*) AS n FROM papers")["n"]
     with client(pair) as web:
         assert web.get('/v1/papers').json()['backups'] is True
@@ -428,3 +428,36 @@ def test_phone_backups_are_kept_beside_the_library_and_restored(lan, config, reg
         assert web.post(f'/v1/backups/{other}', json={'byteSize': 100}).status_code == 507
     assert registry.one("SELECT count(*) AS n FROM papers")["n"] == papers_before  # never imported
     assert (config.data_dir / 'phone_backup' / rev / 'paper.pdf').read_bytes() == pdf
+
+
+def test_new_papers_and_my_notes_reach_the_phone_without_sharing_again(lan, registry, config, tmp_path):
+    import pymupdf as fitz
+
+    pair = lan.start('127.0.0.1')
+    stem = 'paper_x'
+    folder = config.knowledge_dir / 'papers' / stem
+    folder.mkdir(parents=True)
+    (folder / f'{stem}.md').write_text('## 一句话结论\n\nA.\n', 'utf-8')
+    notes = folder / f'{stem}.notes.md'
+    notes.write_text('## 与我相关的点\n\n- first thought\n', 'utf-8')
+    registry.execute("UPDATE papers SET kb_path=? WHERE id=1", (f'papers/{stem}/{stem}.md',))
+    with client(pair) as web:
+        listed = {p['id']: p for p in web.get('/v1/papers').json()['papers']}
+        assert set(listed) == {1, 2}
+        base = f"/v1/papers/1/{listed[1]['revision']}"
+        companion = web.get(base + '/companion').json()
+        assert companion['notes'] == '## 与我相关的点\n\n- first thought\n'  # read-only on the phone
+        # Editing the notes on the computer changes the version the phone checks on each sync.
+        notes.write_text('## 与我相关的点\n\n- first thought\n- second thought\n', 'utf-8')
+        again = {p['id']: p for p in web.get('/v1/papers').json()['papers']}
+        assert again[1]['companionVersion'] != listed[1]['companionVersion']
+        assert 'second thought' in web.get(base + '/companion').json()['notes']
+        # A paper imported after the share started is offered by itself.
+        pdf = tmp_path / 'later.pdf'
+        with fitz.open() as doc:
+            doc.new_page().insert_text((72, 72), 'Imported later')
+            doc.save(pdf)
+        pid = registry.create_paper(title='later', status='done')
+        registry.upsert_file(hashlib.sha256(pdf.read_bytes()).hexdigest(), str(pdf), pdf.stat().st_size,
+                             pdf.stat().st_mtime, pid)
+        assert pid in {p['id'] for p in web.get('/v1/papers').json()['papers']}

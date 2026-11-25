@@ -17,11 +17,8 @@ def _pairing_image(text):
 
 
 def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
-    def context(pairing=None, error="", selected_address=None, selected_ids=None, processing=None, inbox=None,
-                review=None):
+    def context(pairing=None, error="", selected_address=None, processing=None, inbox=None, review=None, web=None):
         last = mobile.remembered() if hasattr(mobile, "remembered") else {}
-        if selected_ids is None:
-            selected_ids = last.get("paperIds", [])
         if selected_address is None:
             selected_address = last.get("address", "")
         if processing is None:
@@ -30,19 +27,19 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
             inbox = last.get("inbox", True)
         if review is None:
             review = last.get("review", False)
-        since = last.get("at", "")
-        rows = registry.query("""SELECT id,title,created_at FROM papers WHERE status='done'
-            OR (status IN ('new','extracting','error') AND kb_path IS NOT NULL)
-            ORDER BY title COLLATE NOCASE, id""")
+        if web is None:
+            web = last.get("web", False)
+        from .. import mobile_sync
+
+        shared = len(mobile_sync.LibraryShare(mobile.config, registry)) if hasattr(mobile, "config") else 0
         code = json.dumps(pairing, separators=(",", ":")) if pairing else ""
         from .. import mobile_backup
 
         backup = mobile_backup.summary(mobile.config) if hasattr(mobile, "config") else {"count": 0}
-        return dict(lan=mobile.status(), addresses=mobile.addresses(), backup=backup, papers=rows, code=code,
+        return dict(lan=mobile.status(), addresses=mobile.addresses(), backup=backup, shared=shared, code=code,
                     qr=_pairing_image(code) if code else "", error=error,
-                    selected_address=selected_address, selected_ids=selected_ids, processing=processing, inbox=inbox,
-                    review=review, remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False,
-                    new_ids={r["id"] for r in rows if since and (r["created_at"] or "") > since})
+                    selected_address=selected_address, processing=processing, inbox=inbox,
+                    review=review, web=web, remembered=bool(last), paired=mobile.paired() if hasattr(mobile, "paired") else False)
 
     def page(request, **kwargs):
         fragment = request.headers.get("x-papermap-panel") == "mobile"
@@ -57,16 +54,15 @@ def mount_mobile(app, mobile, registry, render, csrf_token, check_csrf, groups):
         return page(request)
 
     @app.post("/settings/mobile/start")
-    def start(request: Request, csrf: str = Form(...), address: str = Form(""),
-              paper_id: list[int] = Form(default=[]), processing: bool = Form(False),
-              inbox: bool = Form(False), review: bool = Form(False)):
+    def start(request: Request, csrf: str = Form(...), address: str = Form(""), processing: bool = Form(False),
+              inbox: bool = Form(False), review: bool = Form(False), web: bool = Form(False)):
         check_csrf(csrf, csrf_token)
         try:
-            return page(request, pairing=mobile.start(address, paper_id, processing=processing, inbox=inbox,
-                                                      review=review))
+            return page(request, pairing=mobile.start(address, processing=processing, inbox=inbox,
+                                                      review=review, web=web))
         except (OSError, LookupError, ValueError, RuntimeError) as exc:
-            return page(request, error=str(exc), selected_address=address, selected_ids=paper_id, processing=processing,
-                        inbox=inbox, review=review)
+            return page(request, error=str(exc), selected_address=address, processing=processing,
+                        inbox=inbox, review=review, web=web)
 
     @app.post("/settings/mobile/show")
     def show(request: Request, csrf: str = Form(...)):

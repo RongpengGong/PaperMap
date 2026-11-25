@@ -212,8 +212,7 @@
     panel.querySelector('.tab[data-tab="card"]')?.addEventListener("click", showNotes);
     panel.querySelector("[data-card-notes-open]")?.addEventListener("click", () => {
       showTab("notes"); pref("pm_side_tab", "notes");
-      const live = panel.querySelector("[data-notes-live]");
-      setTimeout(() => (live && live._pmEditor ? live._pmEditor.commands.focus("end") : notesArea?.focus()), 30);
+      if (panel._pmNotesEdit) panel._pmNotesEdit();
     });
     // a link such as /?id=3&tab=notes (from the review page) opens that paper on the named tab
     const urlArgs = new URLSearchParams(location.search);
@@ -340,12 +339,27 @@
       });
       pop.addEventListener("mousedown", e => { const d = e.target.closest(".lp-item"); if (d) { e.preventDefault(); pick(+d.dataset.i); } });
       notes.addEventListener("blur", () => setTimeout(close, 150));
-      const pv = panel.querySelector("[data-notes-preview]"), pvBox = panel.querySelector(".notes-preview");
-      pv && pv.addEventListener("click", async () => {
-        const showing = !pvBox.hidden;
-        if (!showing) pvBox.innerHTML = (await api("/api/notes-preview", { text: notes.value })).html || "";
-        pvBox.hidden = showing; notes.hidden = !showing; pv.textContent = showing ? t("预览") : t("编辑");
-      });
+      // read the notes as tiles, edit them in the editor (or the plain textarea if it failed to load)
+      const notesBody = panel.querySelector('[data-body="notes"]'), toggle = panel.querySelector("[data-notes-toggle]");
+      const cards = panel.querySelector("[data-notes-cards]"), live = panel.querySelector("[data-notes-live]");
+      const setNotesMode = async edit => {
+        if (!edit) {
+          await save();
+          const html = (await api("/api/notes-preview", { text: notes.value, cards: true })).html || "";
+          if (!html.trim()) edit = true;  // nothing written yet: stay in the editor
+          else cards.innerHTML = html;
+        }
+        notesBody.dataset.notesMode = edit ? "edit" : "cards";
+        const ed = live && live._pmEditor;
+        cards.hidden = edit; live.hidden = !edit || !ed; notes.hidden = !edit || !!ed;
+        toggle.textContent = edit ? t("完成") : t("编辑");
+        panel.querySelector("[data-notes-hint-edit]").hidden = !edit;
+        panel.querySelector("[data-notes-hint-cards]").hidden = edit;
+        if (edit) setTimeout(() => (ed ? ed.commands.focus("end") : notes.focus()), 30);
+      };
+      panel._pmNotesEdit = () => setNotesMode(true);
+      toggle && toggle.addEventListener("click", () => setNotesMode(notesBody.dataset.notesMode === "cards"));
+      cards && cards.addEventListener("dblclick", e => { if (!e.target.closest("a")) setNotesMode(true); });
     }
   }
   initPanel();

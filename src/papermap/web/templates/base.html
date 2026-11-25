@@ -46,7 +46,7 @@
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}PaperMap{% endblock %}</title>
 <link rel="icon" href="/static/icon.png?v={{ static_v }}"><link rel="stylesheet" href="/static/style.css?v={{ static_v }}"><link rel="stylesheet" href="/static/themes.css?v={{ static_v }}">{% block head %}{% endblock %}</head>
-<body class="app" data-csrf="{{ csrf }}">
+<body class="app{{ ' remote-touch' if request.state.remote }}" data-csrf="{{ csrf }}">
 <a class="skip-link" href="#main_content">{{ _("跳到内容") }}</a>
 {% if settings_groups is defined %}
 <aside class="sidebar settings-sidebar" aria-label="{{ _("设置侧栏") }}">

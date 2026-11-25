@@ -33,11 +33,11 @@
     const node = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
     if (!node || !node.closest("#main_content, .ai-drawer")) return;
     const panel = node.closest(".panel"), pid = panel ? panel.dataset.paper : null;
-    // the comparison view and the card both quote into this paper's AI conversation;
-    // only the comparison view knows PDF pages, card text never carries one
+    // the comparison view, the card and the notes tiles quote into this paper's AI conversation;
+    // only the comparison view knows PDF pages, card and notes text never carry one
     const grid = node.closest('[data-body="translation"] .bilingual');
     const card = node.closest("[data-card-body]");
-    const askFrom = grid || card;
+    const askFrom = grid || card || node.closest("[data-notes-cards]");
     const canAsk = askFrom && askFrom.contains(e.target) && panel?.querySelector("[data-paper-chat-drawer]");
     if (!canAsk && text.length < 2) return;
     const page = canAsk && grid ? Number(node.closest("[data-quote-page]")?.dataset.quotePage) || null : null;

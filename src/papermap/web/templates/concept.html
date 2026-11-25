@@ -2,6 +2,6 @@
 {% block title %}{{ _("工具 - PaperMap") }}{% endblock %}
 {% block content %}
 <p><a href="/concepts">{{ _("← 全部工具") }}</a></p>
-<div class="card md" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
+<div class="md card-view page-view" data-kb-notes="{{ rel }}">{{ body_html|safe }}</div>
 <p class="muted">{{ _("文件：") }}<code>knowledge/{{ rel }}</code></p>
 {% endblock %}

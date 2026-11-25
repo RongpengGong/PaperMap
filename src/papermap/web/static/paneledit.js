@@ -73,8 +73,8 @@
       () => ta.dispatchEvent(new Event("blur")), uploader("../../attachments/"));
     linkSuggest(ed);
     live._pmEditor = ed;
-    ta.hidden = true; live.hidden = false;
-    const pv = panel.querySelector("[data-notes-preview]"); if (pv) pv.hidden = true;
+    // notes with content open as tiles (app.js toggles); the editor shows when editing
+    ta.hidden = true; live.hidden = panel.querySelector('[data-body="notes"]')?.dataset.notesMode === "cards";
     ed.on("focus", () => live.classList.add("typing")); ed.on("blur", () => live.classList.remove("typing"));
   }
 

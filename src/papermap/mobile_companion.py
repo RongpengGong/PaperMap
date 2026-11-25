@@ -1,4 +1,4 @@
-"""Read a selected paper's card and paragraph translation for paired offline readers."""
+"""Read a shared paper's card, paragraph translation and the user's notes for paired offline readers."""
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +12,7 @@ from . import kb_writer, ocr, translate
 # Leave headroom below the phone's 10 MiB HTTP response limit, including JSON escaping.
 _CARD_BYTES = 1024 * 1024
 _TRANSLATION_BYTES = 8 * 1024 * 1024
+_NOTES_BYTES = 256 * 1024  # the phone shows the notes read-only; they are edited on the computer
 
 
 def _paths(config, row):
@@ -51,7 +52,8 @@ def version(config, row, revision):
             cache_time = cache.stat().st_mtime_ns
         except OSError:
             pass
-    identity = ["reading-materials-v1", revision, _stamp(card), stamp, cache_time]
+    notes = card.with_name(f"{card.stem}.notes.md") if card is not None else None
+    identity = ["reading-materials-v1", revision, _stamp(card), stamp, cache_time, _stamp(notes)]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
@@ -135,5 +137,9 @@ def read(config, row, revision, pdf, page_count):
             body = ""
     except (ValueError, OSError, RuntimeError):
         body = ""
-    return {"id": row["id"], "revision": revision, "version": original_version, "card": body,
+    try:
+        notes = _read(card.with_name(f"{card.stem}.notes.md"), _NOTES_BYTES) if card is not None else ""
+    except (ValueError, OSError, RuntimeError):
+        notes = ""
+    return {"id": row["id"], "revision": revision, "version": original_version, "card": body, "notes": notes or "",
             "translation": _translation(translation, config, row["id"], revision, pdf, page_count)}
