@@ -62,7 +62,10 @@ def use(pipe, script):
 
 
 @pytest.fixture
-def lib(config, registry, pdfs):
+def lib(config, registry, pdfs, monkeypatch):
+    from papermap import chat
+
+    monkeypatch.setattr(chat, "_subscription_ready", lambda config, pid: False)  # never this Mac's real sign-ins
     web, pipe, _ = client(config, registry, pdfs)
     pid = registry.paper_by_doi(OWN_DOI)["id"]
     qid = evidence.create_question(registry, "成纤维细胞小生境是否促进肿瘤进展？")

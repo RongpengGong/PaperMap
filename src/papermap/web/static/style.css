@@ -1259,3 +1259,7 @@ body.remote-touch .md, body.remote-touch .card-view { font-size:15px; }
 .sqs-role-more label:first-child { flex:1 1 380px; } .sqs-role-more textarea { width:100%; }
 .sqs-save { position:sticky; bottom:0; background:var(--bg, var(--card)); padding:8px 0; display:flex; align-items:center; gap:10px; }
 .chat-squad-simple { color:var(--warn); margin-bottom:4px; }
+.sqs-review { margin:12px 0 18px; }
+.sqs-eval { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:10px 18px; margin:8px 0; }
+.sqs-eval textarea { width:100%; }
+.sqs-proposal { border-top:1px solid var(--line); margin-top:10px; padding-top:8px; }

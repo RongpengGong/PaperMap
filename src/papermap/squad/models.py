@@ -247,12 +247,16 @@ class RoleModels:
                     found = {"key": "main", "eff": None, "label": "", "provider": self.config.effective_llm().get("provider", ""),
                              "fallback": i > 0}
                     break
+                probe = c["model"].split("|", 1)[0] in SIGN_IN_PROVIDERS
                 try:
-                    probe = c["model"].split("|", 1)[0] in SIGN_IN_PROVIDERS
                     eff = chat.resolve(self.config, c["model"], c["effort"], choices=choices(self.config, probe))
                 except ValueError:
-                    self.failed.add(c["model"])
-                    continue
+                    try:  # the model may have dropped that reasoning level: use its default instead
+                        eff = chat.resolve(self.config, c["model"], "", choices=choices(self.config, probe))
+                        c = {**c, "effort": ""}
+                    except ValueError:
+                        self.failed.add(c["model"])
+                        continue
                 label = next((x["label"] for x in choices(self.config) if x["key"] == c["model"]), c["model"])
                 found = {"key": c["model"], "eff": eff, "label": label + (f" · {c['effort']}" if c["effort"] else ""),
                          "provider": eff.get("provider", ""), "fallback": i > 0}

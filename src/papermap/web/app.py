@@ -1648,7 +1648,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       builds={r["id"]: field_tasks.establishment_state(r["id"]) for r, _ in pending},
                       all_fields=registry.active_fields(), error=error,
                       squad_runs=[r for r in _squad_store.runs(registry) if r["pending"]],
-                      translation_gaps=_translation_gaps(),
+                      translation_gaps=_translation_gaps(), model_review_pending=_model_review_pending(registry),
                       accept=float(config.classification.get("accept_confidence", 0.6)))
 
     def _translation_gaps():
@@ -2574,6 +2574,15 @@ def _tracking_badge(registry: Registry) -> int:
         return 0
 
 
+def _model_review_pending(registry: Registry) -> int:
+    from ..squad import evaluate
+
+    try:
+        return evaluate.pending_count(registry)
+    except Exception:  # noqa: BLE001 - the sidebar must render
+        return 0
+
+
 def _review_count(registry: Registry, threshold: int = 3) -> int:
     row = registry.one(
         "SELECT (SELECT count(*) FROM papers WHERE status='doi_unverified') + "
@@ -2589,7 +2598,7 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
     from ..translation_audit import flagged_count
 
     return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry) + open_count(registry) \
-        + squad_pending(registry) + flagged_count(registry)
+        + squad_pending(registry) + flagged_count(registry) + _model_review_pending(registry)
 
 
 def _safe(fn):

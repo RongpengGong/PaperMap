@@ -128,3 +128,12 @@ def test_custom_cache_price_defaults_to_input():
     assert cfg.effective_llm()["price_cache_hit_per_1m"] == 0.5
     cfg = cfgmod.from_dict({"llm": {"provider": "custom", "custom": {"price_input_per_1m": 0.5, "price_cache_hit_per_1m": 0}}})
     assert cfg.effective_llm()["price_cache_hit_per_1m"] == 0.0
+
+
+def test_json_reply_with_remarks_around_it_is_still_read():
+    from papermap.llm import _parse_json
+
+    data, err = _parse_json('Here it is:\n{"roles": {"lead": {"x": 1}}, "n": [1, 2]}\nNote: roles like {lead} matter.')
+    assert err == "" and data == {"roles": {"lead": {"x": 1}}, "n": [1, 2]}
+    assert _parse_json('```json\n{"x": 1}\n```\n\nAlso {"y": 2}')[0] == {"x": 1}
+    assert _parse_json("no json")[0] is None

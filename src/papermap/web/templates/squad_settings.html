@@ -18,6 +18,57 @@
     </table>
   </section>
 
+  {% set by_key = {} %}{% for m in roster %}{% set _ = by_key.update({m.key: m}) %}{% endfor %}
+  {% macro mlabel(c, by_key) -%}{% set m = by_key.get(c.model) %}{% if m %}{{ m.vendor }} · {{ m.model }}{% else %}{{ c.model }}{% endif %}{% if c.effort %} · {{ c.effort }}{% endif %}{%- endmacro %}
+  <section class="card sqs-review" id="model-review" data-review-id="{{ review.id if review else '' }}" data-review-status="{{ review.status if review else '' }}">
+    <div class="row"><h3>{{ _("两周模型评估") }}</h3><span class="grow"></span>
+      {% if review_due %}<span class="chip">{{ _("到期了") }}</span>{% endif %}</div>
+    <p class="muted small">{{ _("每 {n} 天一次：PaperMap 抓取下面的排名来源，评估者读排名、价格、你贴的资料和成绩单，给每个角色排候选模型并写理由。你逐个角色采纳后才生效。", n=period) }}</p>
+    <div class="sqs-eval">
+      <div><b class="small">{{ _("评估者（按顺序，前一个不可用时用下一个）") }}</b>
+        <ol class="sqs-cands" data-eval-cands>{% for c in es.evaluator %}<li data-cand data-model="{{ c.model }}" data-effort="{{ c.effort }}"></li>{% endfor %}</ol>
+        {% if not request.state.remote %}<button type="button" class="link small" data-add-eval>{{ _("＋ 加一个备选模型") }}</button>{% endif %}</div>
+      <label class="small">{{ _("排名来源（每行一个：名称 | 网址）") }}
+        <textarea rows="3" id="sqs_sources">{% for x in es.sources %}{{ x.name }} | {{ x.url }}
+{% endfor %}</textarea></label>
+      <label class="small">{{ _("本轮调研资料（可贴入你自己的调研；评估者会引用，并标为未核实的外部来源）") }}
+        <textarea rows="4" id="sqs_notes">{{ es.notes|keep }}</textarea></label>
+      <label class="small"><input type="checkbox" id="sqs_auto" {{ 'checked' if es.auto }}> {{ _("到期自动评估（只生成建议，不会自动改设置）") }}</label>
+    </div>
+    {% if not request.state.remote %}<div class="row"><span class="grow"></span>
+      <button type="button" class="ghost-btn" id="sqs_eval_save">{{ _("保存评估设置") }}</button>
+      <button type="button" id="sqs_eval_run">{{ _("立即评估") }}</button></div>{% endif %}
+
+    {% if review %}
+    <div class="sqs-proposal">
+      <h4>{{ _("最近一次评估") }} · {{ review.created_at[:16]|replace('T', ' ') }}{% if review.evaluator %} · {{ _("评估者") }}：{{ review.evaluator }}{% endif %}</h4>
+      {% if review.status == 'running' %}<p class="small">{{ _("评估中：正在抓取排名来源并等待评估者回复，通常需要一两分钟。") }}</p>
+      {% elif review.status == 'error' %}<p class="error small">{{ _("评估失败") }}：{{ review.message }}</p>
+      {% else %}
+        <p>{{ review.data.summary }}</p>
+        {% if review.data.makers %}<details class="small"><summary>{{ _("各研发方的情况") }}</summary><ul>{% for k, v in review.data.makers.items() %}<li><b>{{ k }}</b>：{{ v }}</li>{% endfor %}</ul></details>{% endif %}
+        {% if review.data.same_maker %}<p class="notice">⚠️ {{ _("评估者没能让质疑员和执笔员来自不同研发方（都是 {vendor}），采纳前请留意。", vendor=review.data.same_maker) }}</p>{% endif %}
+        {% if review.data.diversity_note %}<p class="small">{{ _("研发方分布") }}：{{ review.data.diversity_note }}</p>{% endif %}
+        {% if review.data.deprecated %}<p class="small">{{ _("即将下架或不建议用") }}：{{ review.data.deprecated|join('、') }}</p>{% endif %}
+        {% if review.data.missing %}<p class="small muted">{{ _("资料没覆盖到") }}：{{ review.data.missing|join('；') }}</p>{% endif %}
+        <p class="small muted">{{ _("来源") }}：{% for src in review.sources %}<a href="{{ src.url }}" target="_blank" rel="noopener">[{{ src.id }}] {{ src.name }}</a>{% if not src.ok %} <span class="error">（{{ _("没抓到") }} {{ src.error }}）</span>{% endif %}{{ '；' if not loop.last }}{% endfor %}</p>
+        <table class="sqs-table">
+          <thead><tr><th>{{ _("角色") }}</th><th>{{ _("现在") }}</th><th>{{ _("建议") }}</th><th>{{ _("理由") }}</th><th></th></tr></thead>
+          <tbody>{% for role in role_order if role in review.data.roles %}{% set r = review.data.roles[role] %}{% set d = review.data.decisions[role] %}
+          <tr data-review-role="{{ role }}"><td>{{ role_labels[role] }} <span class="chip tier-{{ role_tiers[role] }}">{{ tiers[role_tiers[role]] }}</span></td>
+            <td class="small">{% for c in review.data.current[role] %}{{ mlabel(c, by_key) }}{{ ' → ' if not loop.last }}{% endfor %}</td>
+            <td class="small"><b>{% for c in r.candidates %}{{ mlabel(c, by_key) }}{{ ' → ' if not loop.last }}{% endfor %}</b></td>
+            <td class="small">{{ r.reason }}</td>
+            <td>{% if d == 'pending' %}{% if not request.state.remote %}<button type="button" data-decide="adopt">{{ _("采纳") }}</button> <button type="button" class="secondary" data-decide="reject">{{ _("不采纳") }}</button>{% endif %}
+              {% else %}<span class="chip">{{ _("已采纳") if d == 'adopted' else _("未采纳") }}</span>{% endif %}</td></tr>
+          {% endfor %}</tbody>
+        </table>
+        {% if review.status == 'ready' and not request.state.remote %}<div class="row"><span class="grow"></span><button type="button" class="ghost-btn" id="sqs_adopt_all">{{ _("剩下的全部采纳") }}</button></div>{% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
   {% if warning %}<p class="notice">⚠️ {{ warning }}</p>{% endif %}
 
   <section class="card sqs-general">

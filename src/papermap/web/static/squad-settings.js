@@ -41,9 +41,9 @@
     const li = e.target.closest("[data-cand]");
     if (e.target.closest("[data-remove]") && li) { if (li.parentElement.children.length > 1) li.remove(); return; }
     if (e.target.closest("[data-up]") && li && li.previousElementSibling) { li.parentElement.insertBefore(li, li.previousElementSibling); return; }
-    const add = e.target.closest("[data-add-cand]");
+    const add = e.target.closest("[data-add-cand], [data-add-eval]");
     if (add) {
-      const ol = add.closest(".sqs-role").querySelector("[data-cands]");
+      const ol = add.matches("[data-add-eval]") ? document.querySelector("[data-eval-cands]") : add.closest(".sqs-role").querySelector("[data-cands]");
       if (ol.children.length >= 5) return;
       const n = document.createElement("li"); n.dataset.cand = ""; n.dataset.model = "main"; n.dataset.effort = "";
       ol.appendChild(n); drawCand(n);
@@ -94,6 +94,36 @@
       card.querySelectorAll("[data-enable]").forEach(cb => { cb.checked = true; }); });
     fill(roles);
   });
+  // two-week model review
+  const rev = document.getElementById("model-review");
+  const evalBody = () => ({ evaluator: [...document.querySelectorAll("[data-eval-cands] [data-cand]")].map(li => ({ model: li.dataset.model, effort: li.dataset.effort || "" })),
+                            sources: $("sqs_sources").value, notes: $("sqs_notes").value, auto: $("sqs_auto").checked });
+  $("sqs_eval_save").addEventListener("click", async () => {
+    try { await post("/api/squads/review/settings", evalBody()); $("sqs_msg").textContent = t("评估设置已保存"); }
+    catch (err) { $("sqs_msg").textContent = err.message; }
+  });
+  $("sqs_eval_run").addEventListener("click", async () => {
+    $("sqs_eval_run").disabled = true;
+    try { await post("/api/squads/review/settings", evalBody()); await post("/api/squads/review/start", {}); location.hash = "model-review"; location.reload(); }
+    catch (err) { $("sqs_msg").textContent = err.message; $("sqs_eval_run").disabled = false; }
+  });
+  rev.addEventListener("click", async e => {
+    const btn = e.target.closest("[data-decide]"), all = e.target.closest("#sqs_adopt_all");
+    if (!btn && !all) return;
+    const rows = all ? [...rev.querySelectorAll("[data-review-role]")].filter(tr => tr.querySelector("[data-decide]")) : [btn.closest("[data-review-role]")];
+    try {
+      for (const tr of rows) await post(`/api/squads/review/${rev.dataset.reviewId}/decide`, { role: tr.dataset.reviewRole, action: all ? "adopt" : btn.dataset.decide });
+      location.reload();
+    } catch (err) { $("sqs_msg").textContent = err.message; }
+  });
+  if (rev.dataset.reviewStatus === "running") {
+    const wait = async () => {
+      const j = await fetch("/api/squads/review/latest").then(r => r.json()).catch(() => null);
+      if (j && j.review && j.review.status !== "running") { location.hash = "model-review"; location.reload(); return; }
+      setTimeout(wait, 4000);
+    };
+    setTimeout(wait, 4000);
+  }
   $("sqs_refresh").addEventListener("click", async () => {
     $("sqs_refresh").disabled = true; $("sqs_msg").textContent = t("正在检查订阅…");
     try { await post("/api/squads/models/refresh", {}); location.reload(); }

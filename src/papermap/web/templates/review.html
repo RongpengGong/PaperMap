@@ -12,6 +12,10 @@
 {% for c in version_checks %}{{ vcheck(c, true) }}{% endfor %}
 {% endif %}
 
+{% if model_review_pending %}
+<h3>{{ _("小队模型评估") }}</h3>
+<p class="small">{{ _("评估者给 {n} 个角色提了换模型的建议，需要你逐个决定。", n=model_review_pending) }} <a href="/squads/settings#model-review">{{ _("去看建议") }}</a></p>
+{% endif %}
 {% if translation_gaps %}
 <h3>{{ _("可能漏译的全文译文") }}</h3>
 <p class="muted small">{{ _("本机对照 PDF 原文核对出的结果，不花翻译费用。「补译」只翻译缺少或切分改变的段落，其余沿用原译文。") }}</p>

@@ -824,6 +824,12 @@ def run_scheduler(pipeline, stop: threading.Event | None = None, interval_s: flo
         except Exception as exc:  # noqa: BLE001
             log.warning("periodic review failed: %s", exc)
             pipeline.registry.log("warning", f"Periodic review failed: {str(exc)[:200]}")
+        try:  # two-week model review for squad roles (only proposes; the researcher adopts)
+            from .squad import evaluate
+
+            evaluate.maybe_auto(pipeline)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("squad model review failed: %s", exc)
         stop.wait(interval_s)
 
 

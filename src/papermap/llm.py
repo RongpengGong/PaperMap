@@ -543,11 +543,17 @@ def _parse_json(raw: str) -> tuple[dict | None, str]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        start, end = text.find("{"), text.rfind("}")
-        try:  # models without JSON mode sometimes wrap the object in prose
-            data = json.loads(text[start:end + 1]) if 0 <= start < end else None
-        except json.JSONDecodeError:
-            data = None
+        # Models without JSON mode sometimes wrap the object in prose, or add a remark after it that
+        # contains braces too: take the largest complete object that decodes.
+        data, best = None, 0
+        decoder = json.JSONDecoder()
+        for m in list(re.finditer(r"\{", text))[:200]:
+            try:
+                obj, end = decoder.raw_decode(text, m.start())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and end - m.start() > best:
+                data, best = obj, end - m.start()
         if data is None:
             return None, f"not valid JSON ({exc.msg} at char {exc.pos})"
     if not isinstance(data, dict):

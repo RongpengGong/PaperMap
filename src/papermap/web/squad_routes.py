@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import chat, evidence
 from ..registry import now_iso
 from ..squad import proposals as props
-from ..squad import models, roles, runtime, store
+from ..squad import evaluate, models, roles, runtime, store
 
 STATUS = {"queued": "排队中", "running": "进行中", "stopping": "正在停止", "stopped": "已停止", "done": "已完成",
           "error": "出错", "cancelled": "已取消"}
@@ -341,7 +341,10 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         cards = store.scorecards(registry)
         for c in cards:
             c["role_label"] = labels.get(c["role"], c["role"])
+        review = evaluate.latest(registry)
         return render(request, "squad_settings.html", roster=roster, s=s, role_order=models.ROLE_ORDER,
+                      review=review, es=evaluate.eval_settings(config), review_due=evaluate.due(registry),
+                      period=evaluate.PERIOD_DAYS,
                       role_labels=labels, role_uses=role_uses(), tiers={k: tr(str(v)) for k, v in models.TIERS.items()},
                       role_tiers=models.ROLE_TIERS, budgets={k: tr(str(v)) for k, v in models.BUDGETS.items()},
                       optional=sorted(models.OPTIONAL), templates=[{"key": t.key, "label": tr(str(t.label)),
@@ -356,6 +359,8 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
             clean = await run_in_threadpool(models.validate, config, body)
         except ValueError as exc:
             return problem(exc)
+        if (config.raw.get("squad") or {}).get("eval"):
+            clean["eval"] = config.raw["squad"]["eval"]  # the model-review settings are saved separately
         config.raw["squad"] = clean
         config.save()
         return {"ok": True}
@@ -372,3 +377,51 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         models.forget()
         await run_in_threadpool(models.roster, config, True)
         return {"ok": True}
+
+
+    # ---------------------------------------------------------------- two-week model review
+    @app.post("/api/squads/review/settings")
+    async def squad_review_settings(request: Request):
+        local_only(request)
+        body = await json_body(request)
+        known = {m["key"]: m for m in await run_in_threadpool(models.roster, config)}
+        evaluator = []
+        for c in (body.get("evaluator") or [])[:3]:
+            key, effort = str(c.get("model") or ""), str(c.get("effort") or "")
+            if key not in known:
+                return problem("有一个角色选了还没有配置好的模型，请重新检查订阅后再选。")
+            evaluator.append({"model": key, "effort": effort if effort in known[key]["efforts"] else ""})
+        sources = []
+        for line in str(body.get("sources") or "").splitlines()[:12]:
+            name, _, url = line.rpartition("|") if "|" in line else ("", "", line)
+            url = url.strip()
+            if url.startswith(("http://", "https://")):
+                sources.append({"name": name.strip() or url, "url": url})
+        squad = dict(config.raw.get("squad") or {})
+        squad["eval"] = {"evaluator": evaluator, "sources": sources, "notes": str(body.get("notes") or "")[:20000],
+                         "auto": bool(body.get("auto", True))}
+        config.raw["squad"] = squad
+        config.save()
+        return {"ok": True}
+
+    @app.post("/api/squads/review/start")
+    async def squad_review_start(request: Request):
+        local_only(request)
+        await json_body(request)
+        return {"ok": True, "id": evaluate.start(pipeline)}
+
+    @app.get("/api/squads/review/latest")
+    def squad_review_latest():
+        rev = evaluate.latest(registry)
+        return {"ok": True, "review": rev}
+
+    @app.post("/api/squads/review/{rid}/decide")
+    async def squad_review_decide(request: Request, rid: int):
+        local_only(request)
+        body = await json_body(request)
+        try:
+            res = await run_in_threadpool(evaluate.decide, config, registry, rid, str(body.get("role") or ""),
+                                          str(body.get("action") or ""))
+        except ValueError as exc:
+            return problem(exc)
+        return {"ok": True, **res}
