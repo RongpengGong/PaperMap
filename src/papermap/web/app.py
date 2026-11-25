@@ -1275,7 +1275,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             tr["privacy_ack"] = True
             config.save()
         try:
-            pipeline.submit_translation(paper_id, sid)
+            pipeline.submit_translation(paper_id, sid, reuse=bool(body.get("reuse")))
         except (ValueError, TranslationError) as exc:
             return {"ok": False, "message": str(exc)}
         return {"ok": True}
@@ -1648,7 +1648,16 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                       builds={r["id"]: field_tasks.establishment_state(r["id"]) for r, _ in pending},
                       all_fields=registry.active_fields(), error=error,
                       squad_runs=[r for r in _squad_store.runs(registry) if r["pending"]],
+                      translation_gaps=_translation_gaps(),
                       accept=float(config.classification.get("accept_confidence", 0.6)))
+
+    def _translation_gaps():
+        from .. import translate, translation_audit
+
+        busy = {r["paper_id"] for r in registry.query("SELECT paper_id FROM jobs WHERE kind='translate' "
+                                                      "AND status IN ('queued','running')")}
+        return [{**g, "ranges": translate.page_ranges(g["pages"]), "busy": g["paper_id"] in busy}
+                for g in translation_audit.flagged(registry)]
 
     @app.post("/review/label")
     def review_label(csrf: str = Form(...), paper_id: int = Form(...), slug: str = Form(...),
@@ -2577,9 +2586,10 @@ def _review_count(registry: Registry, threshold: int = 3) -> int:
     from ..versions import open_count
 
     from ..squad.store import pending_count as squad_pending
+    from ..translation_audit import flagged_count
 
     return (int(row["n"]) if row else 0) + ready + pending_count(registry) + new_count(registry) + open_count(registry) \
-        + squad_pending(registry)
+        + squad_pending(registry) + flagged_count(registry)
 
 
 def _safe(fn):

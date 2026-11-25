@@ -789,6 +789,33 @@ def saved_translation_gaps(pdf: Path, saved: list[dict], cache: Path) -> list[in
     return sorted(missing)
 
 
+def _reuse_previous(json_path: Path, paper_id: int, options: dict, paras: list[dict], results: dict) -> int:
+    """补译: paragraphs whose source text is unchanged keep the earlier translation, so repairing an old
+    translation with omissions only pays for the passages that were missing or are split differently."""
+    try:
+        old = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return 0
+    if (not isinstance(old, dict) or old.get("paper_id", paper_id) != paper_id or not isinstance(old.get("paragraphs"), list)
+            or old.get("revision") not in (None, options["revision"]) or old.get("target", options["target"]) != options["target"]):
+        return 0
+
+    def key(text):
+        return "".join(unicodedata.normalize("NFKC", text).split())
+
+    known = {key(p["src"]): (p["tr"], p.get("via") or old.get("model") or "")
+             for p in _translated_rows(old["paragraphs"]) if p.get("kind") != "meta" and p["tr"].strip() != p["src"].strip()}
+    n = 0
+    for i, p in enumerate(paras):
+        if p["kind"] == "meta" or i in results:
+            continue
+        hit = known.get(key(p["src"]))
+        if hit:
+            results[i] = hit
+            n += 1
+    return n
+
+
 def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id: int, pdf: Path,
                     card_path: Path, taxonomy=None, service_id: str | None = None,
                     progress: Callable[[int, int], None] | None = None,
@@ -818,6 +845,7 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     terms = glossary(card, taxonomy, " ".join(p["src"] for p in paras))
     job_id = job["id"] if job else None
     terms, results = _load_parts(registry, job_id, paras, terms)
+    reused = _reuse_previous(json_path, paper_id, options, paras, results) if options.get("reuse_previous") else 0
     groups = chunks(paras)
     todo = [[i for i in group if i not in results] for group in groups]
     expected = {i for i, p in enumerate(paras) if p["kind"] != "meta"}
@@ -828,6 +856,8 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     remaining = iter(group for group in todo if group)
     errors = []
     tr = Translator(config, registry, llm, service, transport, options=options)
+    if reused:
+        tr.notes.append(f"补译：沿用旧译 {reused} 段，本次翻译 {total - reused} 段")
 
     def save(part):
         if not part.keys() <= expected or any(not text.strip() for text, _ in part.values()):

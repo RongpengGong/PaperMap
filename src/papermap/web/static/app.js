@@ -194,6 +194,12 @@
         const version = coverageButton.closest("[data-translation-version]").dataset.translationVersion;
         const reply = await api(`/paper/${id}/translation-coverage`, { version });
         message.textContent = reply.message || t("操作失败");
+        if (reply.ok && reply.pages && reply.pages.length) {
+          const patch = document.createElement("button");
+          patch.type = "button"; patch.className = "ghost-btn"; patch.dataset.patchTranslation = id;
+          patch.textContent = t("只补译漏掉的部分");
+          message.append(" ", patch);
+        }
       } catch (_) {
         message.textContent = t("操作失败");
       } finally {
@@ -731,6 +737,21 @@
     const sel = e.target.closest("[data-add-group]"); if (!sel || !sel.value) return;
     const pid = sel.closest(".panel").dataset.paper;
     api(`/api/collections/${sel.value}/add`, { paper_ids: [pid] }).then(j => { if (j.ok) { toast(t("已加入分组")); refreshSidebar(); } });
+  });
+
+  // 补译: translate only the paragraphs missing from (or split differently in) the saved translation
+  document.addEventListener("click", async e => {
+    const btn = e.target.closest("[data-patch-translation]"); if (!btn) return;
+    const pid = btn.dataset.patchTranslation;
+    btn.disabled = true;
+    let j = await api(`/paper/${pid}/translate`, { service: "", reuse: true });
+    if (j.need_ack) {
+      if (!(await dialog(t("使用 bilibili 免费翻译时，论文正文会发送到 B 站的服务器（index-translate.bilibili.com）。确定继续？以后不再询问。"), { okText: t("继续翻译") }))) { btn.disabled = false; return; }
+      j = await api(`/paper/${pid}/translate`, { service: "", reuse: true, ack: true });
+    }
+    if (!j.ok) { btn.disabled = false; toast(j.message || t("操作失败")); return; }
+    btn.textContent = t("补译中");
+    toast(t("已开始补译：只翻译漏掉的段落，完成后译文自动更新"));
   });
 
   document.addEventListener("contextmenu", e => {

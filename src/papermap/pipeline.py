@@ -793,6 +793,12 @@ class Pipeline:
         self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
         self.reindex(job["paper_id"])
         self.kb_commit(f"Translate paper #{job['paper_id']}")
+        try:  # the library-wide omission list follows the new translation
+            from . import translation_audit
+
+            translation_audit.check_paper(self, job["paper_id"])
+        except Exception as exc:  # noqa: BLE001
+            log.info("translation audit after job skipped: %s", exc)
         pages = json.loads(out.read_text(encoding="utf-8")).get("review_pages")
         return NeedsReview(translate.page_ranges(pages)) if pages else out.name
 
@@ -817,11 +823,15 @@ class Pipeline:
                               opts.get("tags", True), opts.get("notes", True), progress)
         return json.dumps(r)
 
-    def submit_translation(self, paper_id: int, service_id: str = "", *, revision: str | None = None) -> int:
+    def submit_translation(self, paper_id: int, service_id: str = "", *, revision: str | None = None,
+                           reuse: bool = False) -> int:
+        """``reuse`` = 补译: keep the earlier translation of unchanged paragraphs, translate only the rest."""
         service = service_by_id(self.config, service_id)
         require_credentials(service)
         pdf, _ = self._paper_files(paper_id, before_card=True)
         options = translation_options(self.config, service, pdf)
+        if reuse:
+            options["reuse_previous"] = True
         if revision is not None and revision != options["revision"]:
             raise ValueError("PDF revision changed")
         return self.jobs.submit("translate", paper_id, service["id"], options=options)
@@ -944,6 +954,12 @@ class Pipeline:
             log.warning("squad recovery failed: %s", exc)
         mobile_work.reap_uploads(self)
         self.reindex_all()
+        try:  # free, local: list older translations that may have skipped text (待审核)
+            from . import translation_audit
+
+            translation_audit.audit_library(self)
+        except Exception as exc:  # noqa: BLE001
+            log.info("translation audit skipped: %s", exc)
         try:
             citations.fetch_missing(self.registry, self.metadata)
         except Exception as exc:  # noqa: BLE001
