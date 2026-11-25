@@ -267,6 +267,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         return None
 
     def paper_panel_ctx(paper_id: int) -> dict | None:
+        from .card_view import cardify
+
         row = registry.get_paper(paper_id)
         if row is None:
             return None
@@ -277,7 +279,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 body = _split_front(path.read_text("utf-8"))[1]
                 body = re.sub(r"^#\s.*\n", "", body.lstrip("\n"), count=1)  # title shown in the header
                 body = re.sub(r"^##\s+(我的笔记|My notes)\s*\n(.*\n)*?(?=^##\s|\Z)", "", body, flags=re.M)
-                body_html = md_html(body)
+                body_html = cardify(md_html(body))
             if row["kb_path"].count("/") >= 2:
                 np_ = library.notes_path(config.knowledge_dir, row["kb_path"])
                 notes_text = np_.read_text("utf-8") if np_.exists() else ""
@@ -519,7 +521,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         if kind in ("highlight", "color") and not re.fullmatch(r"#[0-9a-fA-F]{3,8}", color):
             return {"ok": False, "message": _gettext("颜色无效")}
         md_text = editable_part(path.read_text("utf-8"), config.output_language)
-        spots = [m.start() for m in re.finditer(re.escape(sel), md_text)]
+        # the panel shows the title in its header, not in the card: occurrences are counted after it
+        title = re.match(r"#\s.*(\n|$)", md_text)
+        shown_from = title.end() if title else 0
+        spots = [m.start() for m in re.finditer(re.escape(sel), md_text) if m.start() >= shown_from]
         if not spots:
             return {"ok": False, "message": _gettext("选中的文字跨过了格式或链接，请用「编辑卡片」来改")}
         n = int(body.get("occurrence") or 0)

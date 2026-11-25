@@ -117,7 +117,7 @@
     const hint = () => {
       const cmd = enterMode() === "cmd";
       input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
-                                 : t("输入问题，或选中原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
+                                 : t("输入问题，或选中卡片、原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
     };
     if (enterSel) {
       enterSel.value = enterMode();

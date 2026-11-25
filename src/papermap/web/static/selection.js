@@ -1,5 +1,5 @@
 // Right-click on selected text anywhere: save it to the 收藏簿; inside a paper card also highlight,
-// colour, bold… the passage directly (no editor), saved as a new card version.
+// colour, bold… the passage directly (no editor), saved as a new card version, or ask the AI about it.
 (() => {
   const csrf = document.body.dataset.csrf;
   const t = s => (window.t ? window.t(s) : s);
@@ -33,13 +33,16 @@
     const node = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
     if (!node || !node.closest("#main_content, .ai-drawer")) return;
     const panel = node.closest(".panel"), pid = panel ? panel.dataset.paper : null;
+    // the comparison view and the card both quote into this paper's AI conversation;
+    // only the comparison view knows PDF pages, card text never carries one
     const grid = node.closest('[data-body="translation"] .bilingual');
-    const canAsk = grid && grid.contains(e.target) && panel?.querySelector("[data-paper-chat-drawer]");
+    const card = node.closest("[data-card-body]");
+    const askFrom = grid || card;
+    const canAsk = askFrom && askFrom.contains(e.target) && panel?.querySelector("[data-paper-chat-drawer]");
     if (!canAsk && text.length < 2) return;
-    const page = canAsk ? Number(node.closest("[data-quote-page]")?.dataset.quotePage) || null : null;
+    const page = canAsk && grid ? Number(node.closest("[data-quote-page]")?.dataset.quotePage) || null : null;
     e.preventDefault(); e.stopPropagation();
     close();
-    const card = node.closest("[data-card-body]");
     const inChat = node.closest(".chat-msg");
     pop = document.createElement("div");
     pop.className = "sel-pop";

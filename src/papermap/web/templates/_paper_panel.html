@@ -109,7 +109,12 @@
       <button type="button" class="ghost-btn" data-card-reset hidden title="{{ _("你以前每次编辑之前的版本，以及模型生成的版本") }}">{{ _("历史版本…") }}</button>
       <span class="muted small" data-card-status></span>
     </div>{% endif %}
-    {% if body_html %}<div class="md" data-card-body>{{ body_html|safe }}</div>
+    {% if body_html %}<div class="md card-view" data-card-body>{{ body_html|safe }}</div>
+    {% if notes_text is not none %}<section class="cc cc-notes" data-card-notes>
+      <div class="cc-notes-head"><h2 class="cc-h">{{ _("我的笔记") }}</h2><span class="grow"></span>
+        <button type="button" class="ghost-btn" data-card-notes-open>{{ _("写笔记") }}</button></div>
+      <p class="cc-notes-text" data-card-notes-text data-empty="{{ _("还没有笔记。与你研究相关的点、疑问、想法都可以写在这里，PaperMap 永远不会改动它。") }}"></p>
+    </section>{% endif %}
     {% else %}<p class="muted pad">{% if p.status in ('new','extracting') %}{{ _("正在生成卡片…") }}{% elif p.status == 'doi_unverified' %}{{ _("DOI 没有通过校验，请到「待审核」确认。") }}{% else %}{{ _("还没有卡片。") }}{% endif %}</p>{% endif %}
   </div>
   {% if notes_text is not none %}

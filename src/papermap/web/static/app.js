@@ -195,6 +195,26 @@
       if (tab.dataset.tab === "translation") translationPosition?.show();
     };
     panel.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { showTab(tab.dataset.tab); pref("pm_side_tab", tab.dataset.tab); }));
+    // the card shows the start of "My notes"; the notes tab (the user's own file) is where it is edited
+    const notesTile = panel.querySelector("[data-card-notes-text]"), notesArea = panel.querySelector("textarea.notes");
+    const showNotes = () => {
+      if (!notesTile || !notesArea) return;
+      // skip headings and the file's own "(this file is yours…)" line; keep what the user wrote
+      const plain = notesArea.value.split("\n")
+        .filter(l => !/^\s*#/.test(l) && !/^\s*[（(][^）)]*(PaperMap|程序)[^）)]*[）)]\s*$/.test(l))
+        .map(l => l.replace(/^\s*(?:[-*+]|\d+\.)\s+(\[[ xX]\]\s*)?/, "")).join(" ")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2")
+        .replace(/<[^>]+>|[*_`>]/g, "").replace(/\s+/g, " ").trim();
+      notesTile.textContent = plain ? (plain.length > 280 ? plain.slice(0, 280) + "…" : plain) : notesTile.dataset.empty;
+      notesTile.classList.toggle("muted", !plain);
+    };
+    showNotes();
+    panel.querySelector('.tab[data-tab="card"]')?.addEventListener("click", showNotes);
+    panel.querySelector("[data-card-notes-open]")?.addEventListener("click", () => {
+      showTab("notes"); pref("pm_side_tab", "notes");
+      const live = panel.querySelector("[data-notes-live]");
+      setTimeout(() => (live && live._pmEditor ? live._pmEditor.commands.focus("end") : notesArea?.focus()), 30);
+    });
     // a link such as /?id=3&tab=notes (from the review page) opens that paper on the named tab
     const urlArgs = new URLSearchParams(location.search);
     const asked = urlArgs.get("id") === String(id) ? urlArgs.get("tab") : null;

@@ -750,7 +750,8 @@ html.native-glass .sidebar,html.native-glass .settings-sidebar { background:var(
 .pm-hl { background: #fff3a3; color: #333; padding: 0 3px; border-radius: 3px; }
 .pm-fc { color: #d92d20; font-weight: 700; text-decoration: underline; text-decoration-color: #d92d20; }
 .pm-editor-host .tiptap { outline: none; min-height: 140px; }
-.md mark, .tiptap mark { background: #fff3a3; color: inherit; border-radius: 2px; padding: 0 1px; }
+/* highlight swatches are pale in every theme, so the text on them stays dark (also in dark mode) */
+.md mark, .tiptap mark { background: #fff3a3; color: #1d2430; border-radius: 2px; padding: 0 1px; }
 .notes-live { border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 12px; min-height: 320px; }
 .notes-live .tiptap { min-height: 280px; }
 .notes-live .tiptap p.is-editor-empty:first-child::before, .card-editing .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
@@ -1078,3 +1079,52 @@ a.vcheck-quote:hover { border-left-color:var(--accent); }
 .today-done a { padding-left:4px; } .today-done a::before { content:none; }
 .today-kind { font-style:normal; margin-right:5px; padding:0 4px; border-radius:4px; background:var(--accent-soft); color:var(--accent); font-size:10px; font-weight:600; }
 .today-q { margin:4px 0 0; color:var(--muted); } .today-q span { display:block; color:var(--fg); }
+
+/* Paper card as tiles (web/card_view.py). Display only: the card Markdown is unchanged. */
+.card-view { font-size:13.5px; line-height:1.65; }
+.card-view { container-type:inline-size; }
+.card-view .card-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+@container (max-width:520px) { .card-view .card-tiles { grid-template-columns:minmax(0,1fr); } }
+.card-view .cc, .cc-notes { min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:var(--card-radius); background:var(--card); }
+.card-view .cc-lead, .card-view .cc-one, .card-view .cc-question, .card-view .cc-design, .card-view .cc-findings,
+.card-view .cc-limits, .card-view .cc-fields, .card-view .cc-other, .card-view .cc-mine { grid-column:1/-1; }
+.card-view .cc-lead { font-size:12px; line-height:1.6; color:var(--muted); padding:0 2px; }
+.card-view .cc-lead p { margin:0; }
+.card-view h2.cc-h, .cc-notes h2.cc-h { margin:0 0 6px; padding:0; border:0; font-size:11.5px; font-weight:600; letter-spacing:.02em; color:var(--muted); }
+.card-view .cc-b > :first-child { margin-top:0; } .card-view .cc-b > :last-child { margin-bottom:0; }
+.card-view .cc-b p { margin:6px 0; }
+.card-view .cc-empty { padding-block:8px; } .card-view .cc-empty .cc-b { color:var(--muted); }
+/* takeaway banner */
+.card-view .cc-one { border-color:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 28%,var(--line)); background:var(--accent-soft);
+  box-shadow:inset 4px 0 0 var(--accent); padding:14px 16px 14px 20px; }
+.card-view .cc-one h2.cc-h { color:var(--accent); }
+.card-view .cc-one .cc-b { font-size:15.5px; font-weight:600; line-height:1.6; color:var(--fg); }
+.card-view .cc-question .cc-b { font-size:14px; }
+/* study design: summary line, then facts as small tiles */
+.card-view .cc-design ul { list-style:none; margin:8px 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; }
+.card-view .cc-design li { min-width:0; margin:0; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); overflow-wrap:anywhere; }
+.card-view .cc-design .cc-k { display:block; font-size:11px; font-weight:500; color:var(--muted); }
+.card-view .cc-sep { display:none; }
+.card-view .cc-design .cc-v { font-weight:600; }
+/* methods and tools as chips */
+.card-view .cc-methods ul { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+.card-view .cc-methods li { margin:0; padding:3px 10px; border-radius:999px; background:var(--accent-soft); font-size:12.5px; line-height:1.5; }
+.card-view .cc-methods li p { margin:0; }
+.card-view .cc-tools .cc-b p { display:flex; flex-wrap:wrap; gap:6px; margin:0; }
+.card-view .cc-tools code { padding:2px 9px; border:1px solid var(--line-strong); border-radius:6px; background:var(--bg); font-size:12px; }
+/* findings: numbered points */
+.card-view .cc-findings ol { list-style:none; counter-reset:cc-f; margin:0; padding:0; display:grid; gap:6px; }
+.card-view .cc-findings li { counter-increment:cc-f; position:relative; margin:0; padding:7px 10px 7px 40px; border-radius:8px; background:var(--bg); }
+.card-view .cc-findings li::before { content:counter(cc-f); position:absolute; left:11px; top:8px; width:20px; height:20px; border-radius:50%;
+  background:var(--accent); color:var(--card); font-size:11px; font-weight:700; line-height:20px; text-align:center; }
+.card-view .cc-findings li p { margin:0; }
+/* limitations and fields: quieter */
+.card-view .cc-limits { background:transparent; border-style:dashed; color:var(--muted); font-size:12.5px; }
+.card-view .cc-limits ul { margin:0; padding-left:18px; }
+.card-view .cc-fields { background:transparent; border:0; padding:2px 2px 0; font-size:12px; color:var(--muted); }
+.card-view .cc-fields ul { list-style:none; margin:0; padding:0; }
+/* "My notes" preview under the card; written in the notes tab */
+.cc-notes { margin-top:10px; border-style:dashed; }
+.cc-notes-head { display:flex; align-items:center; gap:8px; }
+.cc-notes-head h2.cc-h { margin:0; }
+.cc-notes-text { margin:6px 0 0; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
