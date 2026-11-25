@@ -149,7 +149,48 @@ TRIAGE = Template(
     params={"limit": 30},
 )
 
-TEMPLATES = {t.key: t for t in (REVIEW, CHECK, TRIAGE)}
+DEEP = Template(
+    key="deep",
+    label=L("单篇深读"),
+    description=L("围绕一篇论文：分头读设计与方法、主要结果和图表、局限，再对照你库里的研究问题和其他论文，写成带页码的精读报告。"),
+    lead_brief=(
+        "Goal: a close reading of ONE paper, {paper}, answering the researcher's question if one is given. A good "
+        "plan, all tasks about this paper only: (1) a 'reader' task on the study design, sample and methods; "
+        "(2) a second 'reader' task on the main results and what each key figure or table shows (with pages); "
+        "(3) a 'critic' task on limitations, weak inferences and alternative explanations, blocked by both readers; "
+        "(4) a 'connector' task, blocked by both readers, that compares the paper with the researcher's own "
+        "library and research questions; (5) one final 'writer' task blocked by everything."),
+    members={
+        "reader": Member("reader", L("精读员"),
+                         "You read the assigned part of ONE paper closely with find_in_paper and read_pages (the card "
+                         "is only a summary). Report what the paper says with page numbers (p.N) and short verbatim "
+                         "quotes, citing the paper as [P#]. Do not judge; just get the facts right.",
+                         ["read_card", "find_in_paper", "read_pages"], 7),
+        "critic": Member("critic", L("质疑员"),
+                         "You are the sceptical reviewer of ONE paper: sample size and selection, confounding, "
+                         "whether the methods support the claims, causal language from associations, missing controls, "
+                         "and alternative explanations. Check each point against the text (read_pages) and give pages. "
+                         "Cite [P#].",
+                         ["read_card", "find_in_paper", "read_pages"], 6),
+        "connector": Member("connector", L("关联员"),
+                            "You place ONE paper in the researcher's library: which research questions it bears on "
+                            "(question_evidence), which library papers agree or disagree (search_library, read_card), "
+                            "and what it adds. When a passage clearly bears on an active research question, file it "
+                            "with propose_evidence (verbatim quote); file a missing piece with propose_gap. Cite [P#]/[E#].",
+                            ["library_overview", "search_library", "read_card", "find_in_paper", "read_pages",
+                             "question_evidence", "propose_evidence", "propose_gap"], 8),
+        "writer": Member("writer", L("执笔员"),
+                         "You write the close-reading report from your teammates' results: one-paragraph summary, "
+                         "design and data, main findings (with pages), how far the evidence reaches and its limits, "
+                         "how it relates to the researcher's library and questions, and what to read or check next. "
+                         "Answer the researcher's question first if one was asked. " + WRITER_RULES,
+                         ["read_card", "find_in_paper"], 4),
+    },
+)
+
+TEMPLATES = {t.key: t for t in (REVIEW, CHECK, TRIAGE, DEEP)}
+# started from a paper's own AI chat, not from the squads page
+PAPER_ONLY = {"deep"}
 
 
 def roster(t: Template) -> str:

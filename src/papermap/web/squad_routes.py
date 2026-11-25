@@ -40,7 +40,7 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
     def templates_view() -> list[dict]:
         return [{"key": t.key, "label": tr(str(t.label)), "description": tr(str(t.description)),
                  "members": [tr(str(roles.LEAD))] + [tr(str(m.label)) for m in t.members.values()]}
-                for t in roles.TEMPLATES.values()]
+                for t in roles.TEMPLATES.values() if t.key not in roles.PAPER_ONLY]
 
     def params_from(body: dict) -> tuple[str, str, str, dict]:
         key = body.get("template")
@@ -56,6 +56,12 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
             params["max_papers"] = max(2, min(12, int(body.get("max_papers") or 8)))
             params["external"] = bool(body.get("external", True))
             title = goal.splitlines()[0][:80]
+        elif key == "deep":
+            row = registry.get_paper(int(body.get("paper_id") or 0))
+            if row is None or row["status"] != "done":
+                raise ValueError("这篇论文还没有卡片，暂时不能精读。")
+            params["paper_id"] = row["id"]
+            title = tr("单篇深读") + "：" + (row["title"] or "")[:70]
         elif key == "check":
             ids = [int(x) for x in (body.get("question_ids") or []) if str(x).isdigit()][:5]
             rows = registry.query(f"SELECT id, title FROM evidence_questions WHERE status='active' AND id IN "
@@ -227,16 +233,35 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         if not text or len(text) > 2000:
             return problem("请写下要交给小队的问题（最多 2000 字）。")
         path = chat.page_store(config.data_dir, key)
+        plan = page_plan(key, str(body.get("search") or ""), text, str(body.get("title") or ""),
+                         str(body.get("page_text") or ""))
+        return await chat_squad(path, text, plan, {"chat_key": key}, body)
+
+    @app.post("/api/paper/{paper_id}/chat/squad")
+    async def paper_squad(paper_id: int, request: Request):
+        """Deep reading of one paper from its own AI chat; the report joins that paper's conversation."""
+        local_only(request)
+        body = await json_body(request)
+        text = str(body.get("text") or "").strip()
+        if not text or len(text) > 2000:
+            return problem("请写下要交给小队的问题（最多 2000 字）。")
+        try:
+            _, card = pipeline._paper_files(paper_id)  # noqa: SLF001
+        except ValueError:
+            return problem("这篇论文还没有卡片，暂时不能精读。")
+        plan = {"template": "deep", "goal": text, "paper_id": paper_id}
+        return await chat_squad(chat.chat_path(card), text, plan, {"chat_paper": paper_id}, body)
+
+    async def chat_squad(path, text: str, plan: dict, link: dict, body: dict):
+        """Shared by the page drawer and the paper chat: follow-up to a running squad, preview, or start."""
         running = active_run(path)
-        if running:  # while a squad works, the drawer talks to its lead
+        if running:  # while a squad works, the chat talks to its lead
             try:
                 await run_in_threadpool(runtime.follow_up, pipeline, running, "lead", text)
             except ValueError as exc:
                 return problem(exc)
             chat.append(path, {"role": "user", "content": text, "at": now_iso(), "squad_to": running})
             return {"ok": True, "followed": running}
-        plan = page_plan(key, str(body.get("search") or ""), text, str(body.get("title") or ""),
-                         str(body.get("page_text") or ""))
         try:
             tkey, title, goal, params = params_from({**plan, "parallel": 4})
         except (ValueError, TypeError) as exc:
@@ -258,7 +283,7 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
                 raise ValueError
         except (TypeError, ValueError):
             return problem("费用上限需要在 0–50 美元之间。")
-        params["chat_key"] = key
+        params.update(link)
         rid = store.create_run(registry, tkey, text.splitlines()[0][:80] if tkey == "review" else title, goal,
                                params, cap, est["usd"])
         chat.append(path, {"role": "user", "content": text, "at": now_iso(), "squad_to": rid},

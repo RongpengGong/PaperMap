@@ -396,3 +396,64 @@ def test_page_plan_picks_the_squad_for_the_page(lib, registry):
 
     assert web.post("/api/page-chat/squad", json={**base, "key": "/map"},
                     headers={remote_web.HEADER: remote_web.SECRET}).status_code == 403
+
+
+def test_deep_reading_squad_from_the_paper_chat(lib, registry, config):
+    web, pipe, pid, qid = lib
+    from papermap import chat
+
+    plan = {"note": "分头精读", "add_tasks": [
+        {"key": "r1", "member": "reader", "title": "设计与方法"},
+        {"key": "r2", "member": "reader", "title": "结果与图表"},
+        {"key": "c1", "member": "critic", "title": "局限", "blocked_by": ["r1", "r2"]},
+        {"key": "k1", "member": "connector", "title": "对照文献库", "blocked_by": ["r1", "r2"]},
+        {"key": "w1", "member": "writer", "title": "精读报告", "blocked_by": ["c1", "k1"], "final": True}]}
+
+    def reader(task, step, user, s):
+        assert f"[P{pid}]" in s.lead_system  # the lead was told which paper
+        if step == 0:
+            return {"actions": [{"tool": "read_pages", "args": {"paper_id": pid, "start": 1, "end": 1}}]}
+        return {"done": True, "result": {"summary": f"用了 Visium p.1 [P{pid}]"}}
+
+    def critic(task, step, user, s):
+        return {"done": True, "result": {"summary": f"样本量小 [P{pid}]"}}
+
+    def connector(task, step, user, s):
+        if step == 0:
+            return {"actions": [{"tool": "propose_evidence", "args": {
+                "question_id": qid, "paper_id": pid, "quote": SENTENCE, "stance": "supports", "dimension": "methods",
+                "note": "方法相关"}}]}
+        return {"done": True, "result": {"summary": f"和问题 Q{qid} 相关 [P{pid}]"}}
+
+    def writer(task, step, user, s):
+        return {"done": True, "result": {"summary": f"## 精读\n\n这篇用空间转录组定位了成纤维细胞小生境 [P{pid}]。"}}
+
+    script = Script([plan], {"reader": reader, "critic": critic, "connector": connector, "writer": writer})
+    original = script.create
+
+    def create(**kw):
+        if kw["messages"][0]["content"].startswith("You lead"):
+            script.lead_system = kw["messages"][0]["content"]
+        return original(**kw)
+
+    use(pipe, SimpleNamespace(create=create))
+    tok = _token(web)
+    body = {"csrf": tok, "text": "这篇的结论站得住吗？"}
+    prev = web.post(f"/api/paper/{pid}/chat/squad", json=body).json()
+    assert prev["ok"] and prev["template"] == "deep" and "关联员" in prev["members"]
+    started = web.post(f"/api/paper/{pid}/chat/squad", json={**body, "confirm": True, "cap_usd": 0}).json()
+    rid = started["id"]
+    for _ in range(100):
+        if store.get_run(registry, rid)["status"] in ("done", "error"):
+            break
+        time.sleep(0.1)
+    run = store.get_run(registry, rid)
+    assert run["status"] == "done", run["message"]
+    assert {p["kind"] for p in store.proposals(registry, rid)} == {"evidence"}
+    _, card = pipe._paper_files(pid)
+    msgs = chat.load(chat.chat_path(card))["messages"]
+    assert [m["role"] for m in msgs] == ["user", "squad"] and "小生境" in msgs[1]["content"]
+    got = web.get(f"/api/paper/{pid}/chat").json()
+    assert got["messages"][1]["run_id"] == rid
+    # the squads page does not offer it as a type of its own (it needs a paper)
+    assert "单篇深读" not in web.get("/squads").text.split("运行记录")[0]

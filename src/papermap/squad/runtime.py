@@ -100,6 +100,8 @@ def estimate(config, template: str, params: dict, available: int = 0) -> dict:
         calls = 6 + params.get("max_papers", 8) * 4 + 5 + 3
     elif template == "check":
         calls = len(params.get("question_ids") or [1]) * (5 + params.get("max_papers", 6) * 5 + 5) + 4
+    elif template == "deep":
+        calls = 7 + 7 + 6 + 8 + 4
     else:
         n = min(params.get("limit", 30), available) if available else params.get("limit", 30)
         calls = math.ceil(max(n, 1) / 10) * 4 + 2
@@ -300,11 +302,16 @@ class Squad:
                 f"SELECT id, title FROM evidence_questions WHERE id IN ({','.join('?' * len(p.get('question_ids') or []))})",
                 tuple(p.get("question_ids") or []))) if p.get("question_ids") else "",
             "limit": p.get("limit", 30),
+            "paper": self._paper_label(p.get("paper_id")),
             "scope": (f"Focus on the library papers of the field '{p['field']}' (list_papers with field=\"{p['field']}\")."
                       if p.get("field") else ""),
             "available": p.get("available", "?"),
         }
         return self.t.lead_brief.format(**extra)
+
+    def _paper_label(self, pid) -> str:
+        row = self.reg.get_paper(int(pid)) if pid else None
+        return f"[P{row['id']}] {row['title']} ({row['first_author'] or '?'} {row['year'] or ''})" if row else ""
 
     def lead_turn(self, wave_end: bool = False) -> tuple[int, bool]:
         reg = self.reg
@@ -479,12 +486,21 @@ class Squad:
         store.set_run(reg, self.run_id, status="done", result_md=body, result_path=rel, dropped=dropped,
                       finished_at=now_iso(), message="")
         store.log(reg, self.run_id, "system", "done", M.DONE, data={"path": rel, "pending": n_prop})
+        store_path = None
         if self.params.get("chat_key"):
             from .. import chat
 
+            store_path = chat.page_store(self.config.data_dir, self.params["chat_key"])
+        elif self.params.get("chat_paper"):
+            from .. import chat
+
             try:
-                chat.set_squad_result(chat.page_store(self.config.data_dir, self.params["chat_key"]), self.run_id,
-                                      text + (f"\n\n（{n_prop} 条提议待确认）" if n_prop else ""))
+                store_path = chat.chat_path(self.pipeline._paper_files(int(self.params["chat_paper"]))[1])  # noqa: SLF001
+            except ValueError:
+                store_path = None
+        if store_path is not None:
+            try:
+                chat.set_squad_result(store_path, self.run_id, text + (f"\n\n（{n_prop} 条提议待确认）" if n_prop else ""))
             except OSError:
                 pass
         try:

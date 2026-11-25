@@ -132,7 +132,7 @@
         bubble({ role: "error", content: j.message || t("发送失败") }); scroll(); return;
       }
       const r = bubble(j.reply);
-      if (isPage && squadBtn && !squadBtn.hidden && BIG.test(text)) {
+      if (squadBtn && !squadBtn.hidden && (BIG.test(text) || (!isPage && DEEP.test(text)))) {
         const tip = document.createElement("div");
         tip.className = "chat-squad-hint small";
         tip.innerHTML = esc(t("这个问题适合交给智能体小队：几名成员分头查库、精读、挑错，再写成带出处的报告。"))
@@ -144,6 +144,8 @@
     }
 
     // ---- agent squad from the page drawer: preview with cost, confirm, then a live card in the log
+    const squadUrl = isPage ? "/api/page-chat/squad" : `/api/paper/${pid}/chat/squad`;
+    const DEEP = /精读|站得住|可信|局限|方法.*(对|靠谱)|设计.*(合理|问题)|和我.*库|robust|limitation|critique/i;
     const BIG = /比较|对比|综述|梳理|核对|汇总|系统地|所有|哪些研究|哪些论文|compare|review|systematic|which (studies|papers)|all (studies|papers)/i;
     const squadBtn = box.querySelector("[data-chat-squad]"), sqBar = box.querySelector("[data-chat-squad-confirm]");
     const sqPlan = box.querySelector("[data-chat-squad-plan]"), sqCap = box.querySelector("[data-chat-squad-cap]");
@@ -160,7 +162,7 @@
     const squadBody = (text, more) => ({ text, search: location.search, ...extra(), ...more });
     async function squadAsk(text) {
       busy(true);
-      const j = await post("/api/page-chat/squad", squadBody(text, { confirm: false }));
+      const j = await post(squadUrl, squadBody(text, { confirm: false }));
       busy(false);
       if (!j.ok) { say(j.message || t("发送失败")); return; }
       if (j.followed) {  // a squad is working here: this goes to its lead
@@ -205,7 +207,11 @@
     const hint = () => {
       const cmd = enterMode() === "cmd";
       if (figure) { input.placeholder = t("想问这张图的哪个部分？"); return; }
-      if (isPage && box.classList.contains("squad-mode")) { input.placeholder = t("把一个大问题交给小队，例如：比较这些研究对成纤维细胞作用的结论"); return; }
+      if (box.classList.contains("squad-mode")) {
+        input.placeholder = isPage ? t("把一个大问题交给小队，例如：比较这些研究对成纤维细胞作用的结论")
+                                   : t("让小队精读这篇，例如：这篇的结论站得住吗？和我库里的研究有什么不同？");
+        return;
+      }
       input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
                                  : t("输入问题，或选中卡片、原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
     };
@@ -217,7 +223,7 @@
       });
     }
     hint();
-    if (squadBtn && isPage && !document.body.classList.contains("remote-touch")) {
+    if (squadBtn && !document.body.classList.contains("remote-touch")) {
       squadBtn.hidden = false;
       squadBtn.addEventListener("click", () => setSquad(!squadOn()));
       let saved = false;
@@ -228,7 +234,7 @@
         const text = sqPending || input.value.trim();
         if (!text || box.classList.contains("chat-busy")) return;
         busy(true);
-        const j = await post("/api/page-chat/squad", squadBody(text, { confirm: true, cap_usd: sqCap.value }));
+        const j = await post(squadUrl, squadBody(text, { confirm: true, cap_usd: sqCap.value }));
         busy(false);
         if (!j.ok) { say(j.message || t("发送失败")); return; }
         sqBar.hidden = true; sqPending = ""; input.value = "";
