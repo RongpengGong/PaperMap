@@ -20,7 +20,31 @@ from typing import Callable
 
 log = logging.getLogger(__name__)
 
-_state = {"quitting": False, "window": None, "on_files": None}
+_state = {"quitting": False, "window": None, "on_files": None, "shutdown": None}
+
+
+def exit_now(cleanup: Callable[[], None] | None = None, code: int = 0) -> None:
+    """Stop the app ourselves instead of letting AppKit call C exit() or Python finalize.
+
+    Either way MuPDF drops its per-thread contexts after Python has stopped serving callbacks:
+    pending PDF warnings then call PyMuPDF's Python warning handler without the interpreter
+    (crash reports with fz_drop_context -> SwigDirector_DiagnosticCallback, one per quit).
+    Everything the library needs is already on disk (SQLite commits, atomic file writes),
+    so after an orderly stop the process ends at once.
+    """
+    try:
+        if cleanup is not None:
+            cleanup()
+    except Exception:  # noqa: BLE001 - never block quitting
+        log.exception("cleanup before exit failed")
+    finally:
+        logging.shutdown()
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:  # noqa: BLE001
+                pass
+        os._exit(code)
 
 
 def available() -> bool:
@@ -115,7 +139,10 @@ def _install_mac_delegate() -> None:
 
         def applicationShouldTerminate_(self, app):
             _state["quitting"] = True  # let the window's close handler allow closing
-            return objc.super(PaperMapAppDelegate, self).applicationShouldTerminate_(app)
+            answer = objc.super(PaperMapAppDelegate, self).applicationShouldTerminate_(app)
+            if answer:  # Cmd+Q / Quit from the Dock: end here, not through AppKit's exit()
+                exit_now(_state["shutdown"])
+            return answer
 
         def applicationShouldHandleReopen_hasVisibleWindows_(self, app, flag):
             show_window()
@@ -224,14 +251,24 @@ def run(cfg, reg, pipe, background: bool, start_page: str = "/") -> int:
     if os.name == "nt":  # Windows: hidden window lives in the notification area
         tray_icon = _windows_tray(base, cfg, quit_app)
 
-    try:
-        webview.start(menu=menu, private_mode=False, storage_path=str(cfg.data_dir / "webview"))
-    finally:
+    web_thread = next((t for t in threading.enumerate() if t.name == "web"), None)
+
+    def shutdown():
         _state["quitting"] = True
         server.should_exit = True
         watcher.stop()
         if tray_icon is not None:
             tray_icon.stop()
+        if web_thread is not None:
+            web_thread.join(timeout=3)  # let requests in flight finish
+
+    _state["shutdown"] = shutdown
+    try:
+        webview.start(menu=menu, private_mode=False, storage_path=str(cfg.data_dir / "webview"))
+    except BaseException:  # noqa: BLE001 - logged, then the same orderly exit
+        log.exception("window loop ended with an error")
+        exit_now(shutdown, 1)
+    exit_now(shutdown)
     return 0
 
 
