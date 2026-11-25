@@ -51,8 +51,15 @@
     function bubble(m) {
       const el = document.createElement("div");
       el.className = "chat-msg " + m.role;
+      if (m.role === "squad") {
+        el.className = "chat-msg assistant chat-squad-card";
+        el.dataset.run = m.run_id;
+        el.innerHTML = `<div class="muted small">${esc(t("智能体小队"))} · …</div>`;
+        log.appendChild(el); count += 1; watchSquad(el);
+        return el;
+      }
       if (m.role === "user") {
-        el.innerHTML = (m.quote ? `<blockquote class="chat-q">${m.page ? `<a href="#" class="chat-page" data-page="${+m.page}">p.${+m.page}</a> ` : ""}${esc(m.quote)}</blockquote>` : "")
+        el.innerHTML = (m.squad_to ? `<div class="chat-squad-tag small">${esc(t("交给小队"))}</div>` : "") + (m.quote ?`<blockquote class="chat-q">${m.page ? `<a href="#" class="chat-page" data-page="${+m.page}">p.${+m.page}</a> ` : ""}${esc(m.quote)}</blockquote>` : "")
           + `<div>${esc(m.content).replace(/\n/g, "<br>")}</div>`;
       } else if (m.role === "assistant") {
         el.innerHTML = `<div class="md">${m.html}</div><div class="chat-meta muted small">${esc(m.model || "")}</div>`;
@@ -99,6 +106,7 @@
       if (!loaded && !(await load())) return;
       const text = input.value.trim();
       if ((!text && !quote) || box.classList.contains("chat-busy")) return;
+      if (squadOn()) { squadAsk(text); return; }
       if (!count && log.querySelector(".chat-empty")) log.innerHTML = "";
       const u = bubble({ role: "user", content: text || t("请解释这段。"), quote: quote && quote.text, page: quote && quote.page });
       const wait = document.createElement("div"); wait.className = "chat-msg assistant pending"; wait.innerHTML = `<span class="chat-dots"><i></i><i></i><i></i></span>`;
@@ -108,7 +116,72 @@
       const j = await post(base, body);
       busy(false); wait.remove();
       if (!j.ok) { u.remove(); input.value = text; if (body.quote) setQuote({ text: body.quote, page: body.page }); bubble({ role: "error", content: j.message || t("发送失败") }); scroll(); return; }
-      bubble(j.reply); scroll();
+      const r = bubble(j.reply);
+      if (isPage && squadBtn && !squadBtn.hidden && BIG.test(text)) {
+        const tip = document.createElement("div");
+        tip.className = "chat-squad-hint small";
+        tip.innerHTML = esc(t("这个问题适合交给智能体小队：几名成员分头查库、精读、挑错，再写成带出处的报告。"))
+          + ` <button type="button" class="link">${esc(t("交给小队试试"))}</button>`;
+        tip.querySelector("button").addEventListener("click", () => { setSquad(true); input.value = text; squadAsk(text); tip.remove(); });
+        r.appendChild(tip);
+      }
+      scroll();
+    }
+
+    // ---- agent squad from the page drawer: preview with cost, confirm, then a live card in the log
+    const BIG = /比较|对比|综述|梳理|核对|汇总|系统地|所有|哪些研究|哪些论文|compare|review|systematic|which (studies|papers)|all (studies|papers)/i;
+    const squadBtn = box.querySelector("[data-chat-squad]"), sqBar = box.querySelector("[data-chat-squad-confirm]");
+    const sqPlan = box.querySelector("[data-chat-squad-plan]"), sqCap = box.querySelector("[data-chat-squad-cap]");
+    let sqPending = "";
+    const squadOn = () => !!squadBtn && !squadBtn.hidden && squadBtn.getAttribute("aria-pressed") === "true";
+    function setSquad(on) {
+      if (!squadBtn) return;
+      squadBtn.setAttribute("aria-pressed", String(on));
+      box.classList.toggle("squad-mode", on);
+      try { localStorage.setItem("pm_chat_squad", on ? "1" : "0"); } catch (e) { /* private mode */ }
+      if (!on) { sqBar.hidden = true; sqPending = ""; }
+      hint();
+    }
+    const squadBody = (text, more) => ({ text, search: location.search, ...extra(), ...more });
+    async function squadAsk(text) {
+      busy(true);
+      const j = await post("/api/page-chat/squad", squadBody(text, { confirm: false }));
+      busy(false);
+      if (!j.ok) { say(j.message || t("发送失败")); return; }
+      if (j.followed) {  // a squad is working here: this goes to its lead
+        input.value = "";
+        if (!count && log.querySelector(".chat-empty")) log.innerHTML = "";
+        bubble({ role: "user", content: text, squad_to: j.followed }); scroll();
+        say(t("已转给队长，它会在下一轮处理"));
+        return;
+      }
+      sqPending = text;
+      const scope = j.questions.length ? `${esc(t("研究问题"))}：${j.questions.map(esc).join("；")}`
+        : j.field ? `${esc(t("学科"))}：${esc(j.field)}` : "";
+      const cost = j.subscription ? t("订阅模型：约 {n} 次调用，计入订阅额度").replace("{n}", j.calls)
+        : t("预计约 {n} 次调用，约 ${usd}").replace("{n}", j.calls).replace("{usd}", j.usd.toFixed(3));
+      sqPlan.innerHTML = `<b>${esc(j.label)}</b> · ${j.members.map(esc).join(" · ")}<br>${esc(j.description)}`
+        + (scope ? `<br>${scope}` : "") + `<br><span class="muted">${esc(cost)}</span>`;
+      sqBar.hidden = false; scroll();
+    }
+    const MARK = { queued: "○", running: "◔", done: "●", error: "✕", cancelled: "–" };
+    async function watchSquad(el) {
+      const j = await fetch(`/api/squads/${el.dataset.run}/brief`).then(r => r.json()).catch(() => null);
+      if (!el.isConnected) return;
+      if (!j || !j.ok) { el.innerHTML = `<div class="muted small">${esc(t("小队记录已不存在"))}</div>`; return; }
+      const active = ["queued", "running", "stopping"].includes(j.status);
+      const tasks = j.tasks.map(x => `<li class="sq-t-${esc(x.status)}"><span>${MARK[x.status] || "·"}</span> <b>${esc(x.member)}</b> ${esc(x.title)}</li>`).join("");
+      const money = `$${j.spent_usd.toFixed(3)}` + (j.cap_usd > 0 ? ` / $${j.cap_usd.toFixed(2)}` : "");
+      let html = `<div class="chat-squad-head small"><b>✦ ${esc(t("智能体小队"))}</b> · ${esc(j.template_label)}`
+        + ` <span class="chip sq-${esc(j.status)}">${esc(j.status_label)}</span> <span class="muted">${money}</span></div>`;
+      if (j.message) html += `<div class="muted small">${esc(j.message)}</div>`;
+      if (j.result_html) html += `<div class="md">${j.result_html}</div>`;
+      else html += tasks ? `<ul class="chat-squad-tasks small">${tasks}</ul>` : `<div class="muted small">${esc(t("队长正在拆分任务…"))}</div>`;
+      html += `<div class="chat-squad-foot small"><a href="/squad/${+j.id}">${esc(t("打开任务板"))}</a>`;
+      if (j.pending) html += ` · <a href="/squad/${+j.id}#proposals"><b>${esc(t("有 {n} 条提议等你确认。").replace("{n}", j.pending))}</b></a>`;
+      if (active) html += ` · <span class="muted">${esc(t("在这里继续输入，会转给队长"))}</span>`;
+      el.innerHTML = html + "</div>";
+      if (active) setTimeout(() => watchSquad(el), 2500);
     }
     sendBtn.addEventListener("click", send);
     // Enter to send (Shift+Enter = new line) or ⌘/Ctrl+Enter to send; never while an input method is composing
@@ -116,6 +189,7 @@
     const enterMode = () => { try { return localStorage.getItem("pm_chat_enter") || "enter"; } catch (e) { return "enter"; } };
     const hint = () => {
       const cmd = enterMode() === "cmd";
+      if (isPage && box.classList.contains("squad-mode")) { input.placeholder = t("把一个大问题交给小队，例如：比较这些研究对成纤维细胞作用的结论"); return; }
       input.placeholder = isPage ? t(cmd ? "问问这个页面的内容…… ⌘↩ 发送" : "问问这个页面的内容…… ↩ 发送，⇧↩ 换行")
                                  : t("输入问题，或选中卡片、原文、译文后点「问 AI」。") + " " + t(cmd ? "⌘↩ 发送" : "↩ 发送，⇧↩ 换行");
     };
@@ -127,6 +201,26 @@
       });
     }
     hint();
+    if (squadBtn && isPage && !document.body.classList.contains("remote-touch")) {
+      squadBtn.hidden = false;
+      squadBtn.addEventListener("click", () => setSquad(!squadOn()));
+      let saved = false;
+      try { saved = localStorage.getItem("pm_chat_squad") === "1"; } catch (e) { /* private mode */ }
+      if (saved) setSquad(true);
+      box.querySelector("[data-chat-squad-cancel]").addEventListener("click", () => { sqBar.hidden = true; sqPending = ""; });
+      box.querySelector("[data-chat-squad-go]").addEventListener("click", async () => {
+        const text = sqPending || input.value.trim();
+        if (!text || box.classList.contains("chat-busy")) return;
+        busy(true);
+        const j = await post("/api/page-chat/squad", squadBody(text, { confirm: true, cap_usd: sqCap.value }));
+        busy(false);
+        if (!j.ok) { say(j.message || t("发送失败")); return; }
+        sqBar.hidden = true; sqPending = ""; input.value = "";
+        if (!count && log.querySelector(".chat-empty")) log.innerHTML = "";
+        bubble({ role: "user", content: text, squad_to: j.id });
+        bubble({ role: "squad", run_id: j.id }); scroll();
+      });
+    }
     input.addEventListener("keydown", e => {
       if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
       const cmd = e.metaKey || e.ctrlKey;

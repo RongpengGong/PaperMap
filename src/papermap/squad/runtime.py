@@ -300,6 +300,8 @@ class Squad:
                 f"SELECT id, title FROM evidence_questions WHERE id IN ({','.join('?' * len(p.get('question_ids') or []))})",
                 tuple(p.get("question_ids") or []))) if p.get("question_ids") else "",
             "limit": p.get("limit", 30),
+            "scope": (f"Focus on the library papers of the field '{p['field']}' (list_papers with field=\"{p['field']}\")."
+                      if p.get("field") else ""),
             "available": p.get("available", "?"),
         }
         return self.t.lead_brief.format(**extra)
@@ -348,6 +350,8 @@ class Squad:
         user = "\n".join([
             f"GOAL FROM THE RESEARCHER: {run['goal'] or '(see assignment)'}",
             f"MONEY SPENT SO FAR: ${run['spent_usd']:.3f} of cap {cap}",
+            *([f"", f"THE RESEARCHER ASKED THIS WHILE LOOKING AT THE PAGE \"{self.params.get('page_title', '')}\":",
+               str(self.params["page_context"])[:4000]] if self.params.get("page_context") else []),
             "", "LIBRARY:", tools.library_overview(tools.Ctx(self.pipeline, self.run_id), {})[:6000],
             "", "TASK BOARD:", self._board_text(),
             *(["", "FOLLOW-UP MESSAGES FROM THE RESEARCHER (newest last):"] + [f"- {m}" for m in msgs] if msgs else []),
@@ -475,6 +479,14 @@ class Squad:
         store.set_run(reg, self.run_id, status="done", result_md=body, result_path=rel, dropped=dropped,
                       finished_at=now_iso(), message="")
         store.log(reg, self.run_id, "system", "done", M.DONE, data={"path": rel, "pending": n_prop})
+        if self.params.get("chat_key"):
+            from .. import chat
+
+            try:
+                chat.set_squad_result(chat.page_store(self.config.data_dir, self.params["chat_key"]), self.run_id,
+                                      text + (f"\n\n（{n_prop} 条提议待确认）" if n_prop else ""))
+            except OSError:
+                pass
         try:
             self.pipeline.kb_commit(f"Squad run #{self.run_id}")
         except Exception:  # noqa: BLE001 - optional

@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from datetime import date
+from urllib.parse import parse_qs
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import evidence
+from .. import chat, evidence
+from ..registry import now_iso
 from ..squad import proposals as props
 from ..squad import roles, runtime, store
 
@@ -186,3 +188,95 @@ def mount_squads(app, config, registry, pipeline, render, json_body, md_html, tr
         except ValueError as exc:
             return problem(exc)
         return {"ok": True, **res}
+
+    # ---------------------------------------------------------------- from the page "Ask AI" drawer
+    def page_plan(key: str, search: str, text: str, title: str, page_text: str) -> dict:
+        """Which squad fits the page the researcher is on, and with what parameters."""
+        qs = parse_qs(search.lstrip("?"))
+        base = {"template": "review", "goal": text, "max_papers": 6, "external": True}
+        if key.startswith("/evidence"):
+            qid = qs.get("question", [""])[0]
+            rows = evidence.questions(registry)
+            q = next((r for r in rows if str(r["id"]) == qid), rows[0] if rows else None)
+            if q is not None:
+                base = {"template": "check", "goal": text, "question_ids": [q["id"]], "max_papers": 6}
+        elif key.startswith("/field/"):
+            base["field"] = key.split("/")[2]
+        elif key.startswith("/tracking"):
+            base = {"template": "triage", "goal": text, "limit": 30}
+        base["page_title"] = title[:200]
+        base["page_context"] = page_text[:4000]
+        return base
+
+    def active_run(store_path) -> int | None:
+        data = chat.load(store_path)
+        for m in reversed(data["messages"]):
+            if m.get("role") == "squad":
+                run = store.get_run(registry, int(m.get("run_id") or 0))
+                return run["id"] if run and run["status"] in store.ACTIVE else None
+        return None
+
+    @app.post("/api/page-chat/squad")
+    async def page_squad(request: Request):
+        local_only(request)
+        body = await json_body(request)
+        key = str(body.get("key") or "").split("?")[0][:200]
+        if not key.startswith("/"):
+            raise HTTPException(400)
+        text = str(body.get("text") or "").strip()
+        if not text or len(text) > 2000:
+            return problem("请写下要交给小队的问题（最多 2000 字）。")
+        path = chat.page_store(config.data_dir, key)
+        running = active_run(path)
+        if running:  # while a squad works, the drawer talks to its lead
+            try:
+                await run_in_threadpool(runtime.follow_up, pipeline, running, "lead", text)
+            except ValueError as exc:
+                return problem(exc)
+            chat.append(path, {"role": "user", "content": text, "at": now_iso(), "squad_to": running})
+            return {"ok": True, "followed": running}
+        plan = page_plan(key, str(body.get("search") or ""), text, str(body.get("title") or ""),
+                         str(body.get("page_text") or ""))
+        try:
+            tkey, title, goal, params = params_from({**plan, "parallel": 4})
+        except (ValueError, TypeError) as exc:
+            return problem(exc)
+        params.update({k: plan[k] for k in ("field", "page_title", "page_context") if plan.get(k)})
+        t = roles.TEMPLATES[tkey]
+        est = runtime.estimate(config, tkey, params, params.get("available", 0))
+        if not body.get("confirm"):
+            questions = [r["title"] for r in registry.query(
+                f"SELECT title FROM evidence_questions WHERE id IN ({','.join('?' * len(params.get('question_ids') or []))})",
+                tuple(params.get("question_ids") or []))] if params.get("question_ids") else []
+            return {"ok": True, "preview": True, "template": tkey, "label": tr(str(t.label)),
+                    "description": tr(str(t.description)), "questions": questions, "field": params.get("field", ""),
+                    "members": [tr(str(roles.LEAD))] + [tr(str(m.label)) for m in t.members.values()], **est,
+                    "cap_usd": 0.5}
+        try:
+            cap = float(body.get("cap_usd") if body.get("cap_usd") not in (None, "") else 0.5)
+            if not 0 <= cap <= 50:
+                raise ValueError
+        except (TypeError, ValueError):
+            return problem("费用上限需要在 0–50 美元之间。")
+        params["chat_key"] = key
+        rid = store.create_run(registry, tkey, text.splitlines()[0][:80] if tkey == "review" else title, goal,
+                               params, cap, est["usd"])
+        chat.append(path, {"role": "user", "content": text, "at": now_iso(), "squad_to": rid},
+                    {"role": "squad", "run_id": rid, "content": "", "at": now_iso()})
+        await run_in_threadpool(runner.start, rid)
+        return {"ok": True, "id": rid, "url": f"/squad/{rid}"}
+
+    @app.get("/api/squads/{rid}/brief")
+    def squad_brief(rid: int):
+        """A compact view for the chat drawer's progress card."""
+        run = get_run(rid)
+        t = roles.TEMPLATES.get(run["template"])
+        label = (lambda k: tr(str(t.members[k].label)) if t and k in t.members else k)
+        tasks = [{"key": x["key"], "member": label(x["member"]), "title": x["title"], "status": x["status"]}
+                 for x in store.tasks(registry, rid)]
+        pending = len(store.proposals(registry, rid, "pending"))
+        return {"ok": True, "id": rid, "status": run["status"], "status_label": tr(STATUS.get(run["status"], run["status"])),
+                "template_label": tr(str(t.label)) if t else run["template"], "title": run["title"],
+                "spent_usd": run["spent_usd"], "cap_usd": run["cap_usd"], "message": tr(run["message"]) if run["message"] else "",
+                "tasks": tasks, "pending": pending,
+                "result_html": chat.page_links(md_html(run["result_md"])) if run["result_md"] else ""}

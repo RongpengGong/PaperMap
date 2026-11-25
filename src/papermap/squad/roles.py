@@ -48,7 +48,7 @@ REVIEW = Template(
         "blocked by the search, each returning the paper's design, main findings with page numbers and "
         "limitations as they bear on the topic; (3) one 'critic' task blocked by all readers that looks for "
         "disagreements, weak evidence, open gaps and missing key works; (4) one final 'writer' task blocked by "
-        "everything that writes the review. {external}"),
+        "everything that writes the review. {external} {scope}"),
     members={
         "searcher": Member("searcher", L("检索员"),
                            "You find the literature for the topic: search the library with several phrasings "

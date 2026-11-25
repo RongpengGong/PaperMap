@@ -3,6 +3,7 @@
     <div class="chat-top">
       <select data-chat-model title="{{ _("用哪个模型讨论（在设置里配置过的都可以选）") }}"></select>
       <select data-chat-effort hidden title="{{ _("推理强度：越高越仔细，也越慢、越耗额度") }}"></select>
+      <button type="button" class="ghost-btn chat-squad-btn" data-chat-squad hidden aria-pressed="false" title="{{ _("把问题交给智能体小队：队长拆任务，几名成员并行查库、精读、挑错，再写成带出处的报告。比普通回答慢，调用次数也多得多。") }}">{{ _("小队") }}</button>
       <span class="grow"></span>
       <button type="button" class="ghost-btn" data-chat-history hidden title="{{ _("已经结束的讨论，原样保留") }}">{{ _("以前的讨论") }} <i data-chat-history-n></i></button>
       <button type="button" class="ghost-btn" data-chat-new title="{{ _("把这次对话收进「以前的讨论」，重新开始") }}">{{ _("新对话") }}</button>
@@ -20,6 +21,15 @@
     </div>
     <div class="chat-log" data-chat-log></div>
     <div class="chat-compose">
+      <div class="chat-squad-confirm" data-chat-squad-confirm hidden>
+        <div class="small" data-chat-squad-plan></div>
+        <div class="chat-squad-confirm-foot">
+          <label class="small">{{ _("费用上限") }} $<input type="number" min="0" max="50" step="0.1" value="0.5" data-chat-squad-cap></label>
+          <span class="grow"></span>
+          <button type="button" class="ghost" data-chat-squad-cancel>{{ _("取消") }}</button>
+          <button type="button" data-chat-squad-go>{{ _("交给小队") }}</button>
+        </div>
+      </div>
       <div class="chat-quote" data-chat-quote hidden><span data-chat-quote-text></span><button type="button" class="icon-btn" data-chat-quote-x title="{{ _("去掉引用") }}">×</button></div>
       <div class="chat-input">
         <textarea rows="2" data-chat-text placeholder="{{ _("输入问题，或选中卡片、原文、译文后点「问 AI」。") }}"></textarea>

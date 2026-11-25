@@ -25,7 +25,7 @@ def mount_chat(app, config, registry, pipeline, md_html, json_body, pdf_file, ba
         return row, card
 
     def render(m: dict) -> dict:
-        out = {k: m.get(k) for k in ("role", "content", "model", "at", "quote", "page")}
+        out = {k: m.get(k) for k in ("role", "content", "model", "at", "quote", "page", "run_id", "squad_to")}
         out["html"] = chat.page_links(md_html(m["content"])) if m["role"] == "assistant" else ""
         return out
 

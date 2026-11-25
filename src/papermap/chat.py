@@ -227,6 +227,26 @@ def archive(store: Path, summary: str | None = None) -> bool:
         return True
 
 
+def append(store: Path, *msgs: dict) -> None:
+    with _LOCK:
+        data = load(store)
+        data["messages"] += list(msgs)
+        save(store, data)
+
+
+def set_squad_result(store: Path, run_id: int, text: str) -> None:
+    """A squad started from this conversation finished: its report becomes part of the discussion."""
+    with _LOCK:
+        data = load(store)
+        hit = False
+        for m in data["messages"]:
+            if m.get("role") == "squad" and m.get("run_id") == run_id:
+                m["content"] = text
+                hit = True
+        if hit:
+            save(store, data)
+
+
 def clear(store: Path) -> None:
     """New chat: same as ending without a summary; the old conversation stays in the archive."""
     archive(store)
@@ -309,8 +329,10 @@ def converse(config: Config, llm: LLMClient, store: Path, system: str, text: str
     eff = resolve(config, key, effort)
     with _LOCK:
         data = load(store)
-    history = [{"role": m["role"], "content": _user_content(m) if m["role"] == "user" else m["content"]}
-               for m in data["messages"][-MAX_HISTORY:]]
+    # a squad's finished report (role "squad") counts as an answer the reader can discuss further
+    history = [{"role": "user" if m["role"] == "user" else "assistant",
+                "content": _user_content(m) if m["role"] == "user" else m["content"]}
+               for m in data["messages"][-MAX_HISTORY:] if m["role"] != "squad" or m.get("content")]
     msg = {"role": "user", "content": text, "at": _now()}
     if quote:
         msg["quote"] = quote

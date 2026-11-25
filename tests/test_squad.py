@@ -336,3 +336,63 @@ def test_review_squad_lead_follow_up_tasks_and_outside_search_failure(lib, regis
     assert run["status"] == "done", run["message"]
     assert [t["key"] for t in store.tasks(registry, rid)] == ["s", "r", "w"]
     assert "小生境" in run["result_md"]
+
+
+def test_squad_from_the_page_drawer(lib, registry, config):
+    web, pipe, pid, qid = lib
+    from papermap import chat
+
+    script = check_script(pid, qid)
+    use(pipe, script)
+    tok = _token(web)
+    body = {"csrf": tok, "key": "/evidence", "search": f"?question={qid}", "title": "证据笔记",
+            "page_text": "成纤维细胞小生境 页面文字", "text": "这些证据够不够支持这个问题？"}
+    prev = web.post("/api/page-chat/squad", json=body).json()
+    assert prev["ok"] and prev["preview"] and prev["template"] == "check" and prev["questions"]
+    assert not store.runs(registry)  # nothing starts before the researcher confirms
+    started = web.post("/api/page-chat/squad", json={**body, "confirm": True, "cap_usd": 0}).json()
+    rid = started["id"]
+    msgs = chat.load(chat.page_store(config.data_dir, "/evidence"))["messages"]
+    assert [m["role"] for m in msgs] == ["user", "squad"] and msgs[1]["run_id"] == rid
+    for _ in range(100):
+        if store.get_run(registry, rid)["status"] == "done":
+            break
+        time.sleep(0.1)
+    run = store.get_run(registry, rid)
+    assert run["status"] == "done" and run["params"]["page_context"].startswith("成纤维细胞")
+    lead_prompt = next(u for r, u in script.calls if r == "lead")
+    assert "页面文字" in lead_prompt
+    brief = web.get(f"/api/squads/{rid}/brief").json()
+    assert brief["status"] == "done" and brief["result_html"] and brief["pending"] == 2
+    # the report joined the conversation, so a normal follow-up question can discuss it
+    msgs = chat.load(chat.page_store(config.data_dir, "/evidence"))["messages"]
+    assert "小生境" in msgs[1]["content"]
+    got = web.get("/api/page-chat?key=/evidence").json()
+    assert got["messages"][1]["role"] == "squad" and got["messages"][1]["run_id"] == rid
+    # while a squad runs, the drawer talks to its lead instead of starting another one
+    store.set_run(registry, rid, status="running")
+    real_start = runtime.SquadRunner.start
+    runtime.SquadRunner.start = lambda self, run_id: None
+    try:
+        fol = web.post("/api/page-chat/squad", json={**body, "text": "多看人类样本"}).json()
+    finally:
+        runtime.SquadRunner.start = real_start
+    assert fol["followed"] == rid and store.pending_messages(registry, rid, "lead")
+    assert len(store.runs(registry)) == 1
+
+
+def test_page_plan_picks_the_squad_for_the_page(lib, registry):
+    web, pipe, pid, qid = lib
+    tok = _token(web)
+    base = {"csrf": tok, "title": "t", "page_text": "", "text": "比较这个学科里的研究"}
+    field = registry.query("SELECT slug FROM fields WHERE status='active' LIMIT 1")[0]["slug"]
+    r = web.post("/api/page-chat/squad", json={**base, "key": f"/field/{field}"}).json()
+    assert r["template"] == "review" and r["field"] == field
+    r = web.post("/api/page-chat/squad", json={**base, "key": "/tracking"}).json()
+    assert not r["ok"]  # no candidates yet: a clear message instead of an empty squad
+    r = web.post("/api/page-chat/squad", json={**base, "key": "/map"}).json()
+    assert r["template"] == "review"
+    from papermap import remote_web
+
+    assert web.post("/api/page-chat/squad", json={**base, "key": "/map"},
+                    headers={remote_web.HEADER: remote_web.SECRET}).status_code == 403
