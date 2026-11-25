@@ -24,6 +24,7 @@ _REVIEW = "这份 PDF 需要在电脑的待审核页中核对。"
 _SELECTION = "这篇论文已不在电脑文献库，或电脑上的 PDF 已换版。"
 _MODEL = "请在电脑设置中配置可用的主模型，并检查模型额度。"
 _TRANSLATOR = "请在电脑设置中配置默认翻译服务，并完成所需的授权。"
+_TRANSLATION_REVIEW = "译文存在待核对页，请在桌面查看。"
 _CHANGED = "电脑端 PDF 版本已变化，请重新核对共享范围。"
 _GENERIC = "处理失败，请在电脑的任务记录中查看详情，再重试。"
 _HOLD = "电脑端批量导入正在等待确认，请在电脑首页处理后重试。"
@@ -235,6 +236,8 @@ class MobileWork:
             return self.pipe.jobs.submit("mobile_card", pid, rev), ""
         if material["translation"]["state"] == "ready":
             return 0, ""
+        if material["translation"].get("needsReview"):
+            return 0, _TRANSLATION_REVIEW
         try:
             svc = translate.service_by_id(self.pipe.config, None)
             if ((svc["kind"] == "bilibili" and not self.pipe.config.raw["translation"].get("privacy_ack"))
@@ -256,6 +259,8 @@ class MobileWork:
                 job = self.pipe.registry.one("SELECT status,message FROM jobs WHERE id=?", (jid,))
                 if not job:
                     state, message = "failed", _GENERIC
+                elif job["status"] == "needs_review":
+                    state, message = "failed", _TRANSLATION_REVIEW
                 elif job["status"] == "error":
                     safe = next((text for text in (_REVIEW, _MODEL, _CHANGED, _SELECTION, _HOLD, _CHECKSUM, _UNREADABLE)
                                  if job["message"] == "ValueError: " + text), _GENERIC)

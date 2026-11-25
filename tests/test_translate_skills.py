@@ -76,6 +76,103 @@ def test_ocr_reference_section_inside_page_preserves_both_sides(tmp_path, monkey
     ]
 
 
+def test_margin_line_number_and_out_of_order_caption(tmp_path):
+    path = tmp_path / "proof.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        page.insert_text((60, 50), "The observations agree with Smith et al., 2023 in the article.")
+        page.insert_text((62, 400), "REFERENCES AND NOTES", fontsize=15, fontname="hebo")
+        page.insert_text((38, 400), "498", fontsize=6)
+        page.insert_text((60, 430), "1 Smith, J. The first bibliography entry is excluded.")
+        page.insert_text((60, 220), "Figure 10. This caption was drawn above the reference list.")
+        page = doc.new_page()
+        page.insert_text((60, 70), "2 The reference list continues on the following page.")
+        doc.save(path)
+    text = " ".join(p["src"] for p in tr.paragraphs(path))
+    assert "et al., 2023" in text and "Figure 10. This caption" in text
+    assert "first bibliography entry" not in text and "following page" not in text
+
+
+def test_mixed_ocr_bibliography_preserves_star_methods_and_only_caption(tmp_path, monkeypatch):
+    path = make_pdf(tmp_path / "ocr.pdf", ["placeholder"])
+    text = ["The prose with a citation (Lee et al., 2022) stays intact.", "References", "1.",
+            "Brown, A. A citation in a numbered bibliography.", "Figure 8. An actual caption.",
+            "Its second line also belongs to the figure.", "[2] Another hidden reference.",
+            "STAR★Methods", "The observations were compared across both groups."]
+    words = [[0, i*15, 280, i*15+10, ln, i] for i, ln in enumerate(text)]
+    monkeypatch.setattr(tr.ocr, "page_words", lambda *_args, **_kwargs: words)
+    result = " ".join(p["src"] for p in tr.paragraphs(path, cache=tmp_path))
+    assert all(t in result for t in (text[0], *text[4:6], *text[-2:]))
+    assert "numbered bibliography" not in result and "hidden reference" not in result
+
+
+def test_supplemental_captions_in_one_bibliography_block(tmp_path, monkeypatch):
+    path = make_pdf(tmp_path / "supplement.pdf", ["placeholder"])
+    text = ["References", "[1] First bibliography entry that should be omitted.",
+            "SUPPLEMENTARY FIGURE 1", "The full caption continues in a separate line.",
+            "Fig. S10. A second caption has its own paragraph.", "Table S2. Additional measurements.",
+            "[2] The bibliography resumes here and should be omitted."]
+    words = [[0, i*15, 300, i*15+10, ln, i] for i, ln in enumerate(text)]
+    monkeypatch.setattr(tr.ocr, "page_words", lambda *_args, **_kwargs: words)
+    assert [p["src"] for p in tr.paragraphs(path, cache=tmp_path)] == [" ".join(text[2:4]), *text[4:6]]
+
+
+def test_label_only_small_captions_and_later_small_type_methods(tmp_path):
+    path = tmp_path / "typesetting.pdf"
+    with pymupdf.open() as doc:
+        for i in range(4):
+            page = doc.new_page()
+            main = ("The main article is set in larger type. " * 10) + chr(65+i)
+            page.insert_textbox(pymupdf.Rect(60, 40, 480, 200), main, fontsize=12)
+            page.insert_text((60, 220), f"FIGURE {i+1}", fontsize=7)
+            page.insert_text((60, 233), f"Small caption describing individual observations in sample {chr(65+i)}.", fontsize=7)
+        page = doc.new_page()
+        page.insert_text((60, 60), "Methods", fontsize=8)
+        page.insert_text((60, 85), "Measurements were grouped by site and sampling interval.", fontsize=8)
+        page = doc.new_page()
+        page.insert_text((60, 60), "Samples from the remaining sites were assessed in smaller type.", fontsize=8)
+        page.insert_text((60, 240), "(See figure on previous page.)", fontsize=7)
+        page.insert_text((60, 248), "Fig. 6 Stability across the sites is shown in this caption.", fontsize=7)
+        doc.save(path)
+    result = tr.paragraphs(path)
+    assert all(any(p["page"] == i and f"FIGURE {i+1}" in p["src"] and "Small caption" in p["src"]
+                   for p in result) for i in range(4))
+    assert any(p["page"] == 5 and "remaining sites" in p["src"] for p in result)
+    assert any("Fig. 6 Stability" in p["src"] for p in result)
+
+
+def test_same_type_caption_continues_across_native_blocks(tmp_path):
+    path = tmp_path / "wrapped-caption.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        main = "The article provides detailed observations in this larger typeface. " * 7
+        page.insert_textbox(pymupdf.Rect(60, 40, 480, 200), main, fontsize=12)
+        page.insert_text((60, 250), "Fig. 8. The two groups showed variation in", fontsize=8)
+        page.insert_text((60, 264), "measurements collected over several months.", fontsize=8)
+        doc.save(path)
+    result = " ".join(p["src"] for p in tr.paragraphs(path))
+    assert "variation in measurements collected over several months." in result
+
+
+def test_reporting_form_and_full_translation_past_page_eighty(tmp_path):
+    path = tmp_path / "long.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        page.insert_text((60, 60), "Reporting summary")
+        page.insert_text((60, 90), "Further information on the study is available in the reporting summary.")
+        page = doc.new_page()
+        page.insert_text((60, 60), "nature portfolio | reporting summary")
+        page.insert_text((60, 90), "This publisher questionnaire is not part of the article.")
+        for _ in range(78):
+            doc.new_page()
+        doc.new_page().insert_text((60, 60), "This last page of the article is part of the full-text translation.")
+        doc.save(path)
+    result = tr.paragraphs(path)
+    assert any(p["page"] == 0 and "Further information" in p["src"] for p in result)
+    assert not any(p["page"] == 1 for p in result)
+    assert any(p["page"] == 80 and "last page" in p["src"] for p in result)
+
+
 def test_prompt_follows_index_translate_format():
     p = tr.build_prompt("[1] Seurat was used.\n\n[2] ABCA8 fibroblasts.", "zh", "translate", "", ["Seurat", "ABCA8"], True)
     assert p.startswith("请将以下论文文本翻译成中文，并且严格遵循所有约束要求。")

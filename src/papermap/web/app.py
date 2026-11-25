@@ -1211,6 +1211,33 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             return {"ok": False, "message": f"翻译失败：{type(exc).__name__}: {str(exc)[:200]}"}
         return {"ok": True, "translation": out, "model": via}
 
+    @app.post("/paper/{paper_id}/translation-coverage")
+    async def paper_translation_coverage(paper_id: int, request: Request):
+        from .. import translate
+        from ..evidence import document_revision
+
+        body = await json_body(request)
+
+        def check():
+            pdf, card = pipeline._paper_files(paper_id, before_card=True)
+            content = card.with_suffix(".translation.json").read_bytes()
+            if hashlib.sha256(content).hexdigest() != body.get("version"):
+                return {"ok": False, "message": _gettext("译文已更新，请重新打开这篇论文。")}
+            saved = json.loads(content)
+            if not isinstance(saved, dict) or not isinstance(saved.get("paragraphs"), list):
+                raise ValueError("invalid translation")
+            if saved.get("revision") and saved["revision"] != document_revision(pdf):
+                return {"ok": False, "message": _gettext("当前 PDF 与生成译文时的版本不同。")}
+            gaps = translate.saved_translation_gaps(pdf, saved["paragraphs"], ocr.cache_for(pdf, config.data_dir))
+            msg = (_gettext("PDF 第 {pages} 页可能漏译，请对照原文核对。", pages=translate.page_ranges(gaps))
+                   if gaps else _gettext("在可提取的正文中未发现漏译。"))
+            return {"ok": True, "pages": gaps, "message": msg}
+
+        try:
+            return await run_in_threadpool(check)
+        except (ValueError, OSError, RuntimeError, translate.TranslationError):
+            return {"ok": False, "message": _gettext("无法核对这篇论文的 PDF 和译文。")}
+
     @app.post("/paper/{paper_id}/translate")
     async def paper_translate(paper_id: int, request: Request):
         from ..translate import TranslationError

@@ -93,7 +93,7 @@
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="card" type="button">{{ _("卡片") }}</button>
       {% if notes_text is not none %}<button class="tab" data-tab="notes" type="button">{{ _("我的笔记") }}</button>{% endif %}
-      {% if translation %}<button class="tab" data-tab="translation" type="button">{{ _("译文对照") }}</button>{% endif %}
+      {% if translation %}<button class="tab" data-tab="translation" type="button">{{ _("译文对照") }}{% if translation.review_pages %} · {{ _("待核对") }}{% endif %}</button>{% endif %}
       {% for o in skill_outputs %}<button class="tab" data-tab="skill-{{ o.id }}" type="button">{{ o.label }}</button>{% endfor %}
       {% if has_pdf and p.status == 'done' %}<button class="tab" data-tab="updates" type="button" title="{{ _("这篇论文对你的研究问题改变了什么") }}">{{ _("变化") }}{% if update_pending %} <b class="badge">{{ update_pending }}</b>{% endif %}</button>{% endif %}
       {% if has_pdf and p.status == 'done' %}<button class="tab" data-tab="figures" type="button">{{ _("图片") }}</button>{% endif %}
@@ -130,6 +130,10 @@
   {% if translation %}
   <div class="tab-body" data-body="translation" data-translation-version="{{ translation_version }}" hidden>
     <p class="muted small">{{ _("由") }} {{ translation.service }}（{{ translation.model }}{{ _("）翻译，") }}{{ translation.generated }}{{ _("。仅供阅读参考，引用以原文为准。") }}{% for n in translation.notes %}<br>⚠️ {{ n }}{% endfor %}</p>
+    {% if has_pdf %}
+    <button type="button" class="ghost-btn" data-check-translation>{{ _("核对漏译") }}</button>
+    <span class="small" role="status" data-coverage-message>{% if translation.review_pages %}{{ _("PDF 第 {pages} 页可能漏译，请对照原文核对。", pages=translation.review_pages|join(", ")) }}{% endif %}</span>
+    {% endif %}
     <div class="bilingual">
       {% for para in translation.paragraphs %}
       {% set page = para.page + 1 if translation_pages_current and para.page is integer and para.page >= 0 and para.endPage == para.page else none %}

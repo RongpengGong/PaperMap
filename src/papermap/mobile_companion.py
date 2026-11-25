@@ -100,6 +100,8 @@ def _translation(path, config, paper_id, revision, pdf, page_count):
         source_revision = data.get("revision")
         if source_revision and source_revision != revision:
             return {"state": "differentRevision", "paragraphs": []}
+        if data.get("review_pages"):
+            return {"state": "unverified", "paragraphs": [], "needsReview": True}
         paras = data.get("paragraphs")
         if (not isinstance(paras, list) or not paras or
                 not all(isinstance(p, dict) and p.get("kind") in ("heading", "meta", "para")

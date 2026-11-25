@@ -8,12 +8,18 @@ import logging
 import os
 import sqlite3
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from .registry import Registry, now_iso
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NeedsReview:
+    message: str
 
 
 def _worker_lock(db: Path, name: str = "jobs"):
@@ -41,7 +47,7 @@ def _worker_lock(db: Path, name: str = "jobs"):
 
 
 class JobRunner:
-    def __init__(self, registry: Registry, handlers: dict[str, Callable[[dict, Callable[[int, int], None]], str]]):
+    def __init__(self, registry: Registry, handlers: dict[str, Callable[[dict, Callable[[int, int], None]], str | NeedsReview]]):
         self.registry = registry
         self.handlers = handlers
 
@@ -119,8 +125,9 @@ class JobRunner:
                     msg = self.handlers[row["kind"]](dict(row), lambda done, total:
                                                      self._set(jid, progress=done, total=total))
                     with self.registry.transaction() as conn:
-                        conn.execute("UPDATE jobs SET status='done', message=?, updated_at=? WHERE id=?",
-                                     (msg or "", now_iso(), jid))
+                        status, message = ("needs_review", msg.message) if isinstance(msg, NeedsReview) else ("done", msg)
+                        conn.execute("UPDATE jobs SET status=?, message=?, updated_at=? WHERE id=?",
+                                     (status, message or "", now_iso(), jid))
                         if row["kind"] == "translate":
                             conn.execute("DELETE FROM translation_parts WHERE job_id=?", (jid,))
                             conn.execute("DELETE FROM translation_inputs WHERE job_id=?", (jid,))

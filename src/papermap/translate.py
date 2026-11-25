@@ -15,8 +15,11 @@ import logging
 import re
 import threading
 import time
+import unicodedata
 from collections import Counter
+from difflib import SequenceMatcher
 from datetime import date
+from itertools import groupby
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
@@ -29,8 +32,8 @@ from .config import Config, OFFICIAL_TRANSLATION_SERVICES, SIGN_IN_PROVIDERS, ef
 from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
-from .pdf_extract import MAX_PAGES_FOR_LLM
 from .registry import Registry
+from .translation_coverage import coverage_gaps, reporting_form_page
 
 log = logging.getLogger(__name__)
 
@@ -78,9 +81,16 @@ def _is_heading(t: str) -> bool:
             and t[:1].isupper() and not re.search(r"\b(19|20)\d{2}\b", t))
 
 
-_LEGEND_RE = re.compile(r"^(extended data )?(fig(ure)?\.?|table)\s*\d+", re.I)
-_REFS_HEAD = re.compile(r"(references|bibliography|literature cited)", re.I)
-_AFTER_REFS = re.compile(r"(online )?methods|materials and methods|data availability|code availability|"
+_CAPTION_ID = (r"(?:(?:extended\s+data|supplementary|supplemental|suppl\.?)\s+)?"
+               r"(?:fig(?:ure)?\.?|table)\s*(?:S\s*[-.]?\s*)?\d+[a-z]?\b")
+_LEGEND_RE = re.compile(_CAPTION_ID, re.I)
+_CAPTION_ONLY = re.compile(_CAPTION_ID + r"(?:\s*\(continued\))?[.:|]?", re.I)
+_REFS_HEAD = re.compile(r"(?:\d+(?:\.\d+)*[.)]?\s+)?(?:references(?:\s+(?:and|&)\s+notes)?"
+                        r"|bibliography|literature cited)[.:]?", re.I)
+_METHODS = r"(?:(?:\d+(?:\.\d+)*[.)]?\s+)?(?:online methods|materials (?:and|&) methods|experimental procedures|star\s*[★⋆*☆]?\s*methods|methods))"
+_METHODS_HEAD = re.compile(_METHODS + r"[.:]?", re.I)
+_CAPTION_LOCATION = re.compile(r"\(?see (?:the )?(?:figure|table) on (?:the )?(?:previous|next|following) page[.)]*", re.I)
+_AFTER_REFS = re.compile(_METHODS + r"|data availability|code availability|"
                          r"acknowledg(e)?ments|author contributions|supplementary information|extended data", re.I)
 
 
@@ -93,16 +103,61 @@ class _Line(NamedTuple):
     reference_cell: bool = False
 
 
-def _has_horizontal_neighbor(line: dict, siblings: list[dict]) -> bool:
-    """PyMuPDF emits each cell of a table header as a separate line in one block."""
-    x0, y0, x1, y1 = line["bbox"]
-    for other in siblings:
-        left, top, right, bottom = other["bbox"]
-        if right <= x0 or left >= x1:
-            overlap = min(y1, bottom) - max(y0, top)
-            if overlap > 0.7 * min(y1 - y0, bottom - top):
-                return True
-    return False
+def _mark_reference_cells(lines: list[_Line], boxes: list[tuple]) -> list[_Line]:
+    """A label beside another cell/page number differs from a heading beside a marginal line number."""
+    for i, line in enumerate(lines):
+        if not _REFS_HEAD.fullmatch(line.text.strip()):
+            continue
+        x0, y0, x1, y1 = boxes[i]
+        for other, (left, top, right, bottom) in zip(lines, boxes):
+            if right > x0 and left < x1:
+                continue
+            if right <= x0 and other.text.strip().isdigit() and bottom - top < 0.75 * (y1 - y0):
+                continue  # Small line numbers in the left margin of a numbered manuscript.
+            if min(y1, bottom) - max(y0, top) > 0.7 * min(y1 - y0, bottom - top):
+                lines[i] = line._replace(reference_cell=True)
+                break
+    return lines
+
+
+def _ocr_lines(words: list) -> list[_Line]:
+    lines = [_Line(line, False) for line in ocr.lines(words)]
+    if any(_REFS_HEAD.fullmatch(line.text.strip()) for line in lines):
+        boxes = []
+        for _, group in groupby(words, key=lambda word: word[5]):
+            box = pymupdf.Rect()
+            for word in group:
+                box |= pymupdf.Rect(word[:4])
+            boxes.append(tuple(box))
+        _mark_reference_cells(lines, boxes)
+    return lines
+
+
+def _caption_lead(lines: list[_Line]) -> str:
+    first = lines[0].text.strip()
+    if len(lines) > 1 and _CAPTION_LOCATION.fullmatch(first):
+        return lines[1].text.strip()
+    return first
+
+
+def _continues_caption(previous: dict, block: dict) -> bool:
+    lead = _caption_lead(previous["lines"])
+    if not (previous.get("caption_continuation") or _LEGEND_RE.match(lead)):
+        return False
+    first = _caption_lead(block["lines"])
+    if block["chars"] < 25 or _LEGEND_RE.match(first):
+        return False
+    left, top, _, _ = block["bbox"]
+    x0, _, _, bottom = previous["bbox"]
+    size = max(previous["size"], block["size"])
+    if abs(left - x0) > 2 * size or not -0.4 * size <= top - bottom <= 1.5 * size:
+        return False
+    if len(previous["lines"]) == 1 and _CAPTION_ONLY.fullmatch(lead):
+        return True
+    # An unfinished caption may wrap into another PDF block of the same type.
+    return (abs(previous["size"] - block["size"]) <= 0.4 and top - bottom <= size
+            and not re.search(r"[.!?。！？][)”’]?$", previous["lines"][-1].text.rstrip())
+            and (first[:1].islower() or first.startswith("(")))
 
 
 def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool = True) -> list[list[dict]]:
@@ -110,19 +165,19 @@ def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool =
     pages = []
     with pymupdf.open(pdf) as doc:
         auto = automatic_ocr and cache is not None and ocr.scanned_document(doc)
-        for i in range(min(doc.page_count, MAX_PAGES_FOR_LLM)):
+        for i in range(doc.page_count):
             blocks = []
             page = doc[i]
             found = ocr.page_words(page, cache, automatic=auto) if cache else None
             if found:
-                text = ocr.lines(found)
-                pages.append([{"lines": [_Line(line, False) for line in text], "size": 11., "bold": False,
-                               "chars": sum(map(len, text))}])
+                lines = _ocr_lines(found)
+                pages.append([{"lines": lines, "size": 11., "bold": False,
+                               "chars": sum(len(line.text) for line in lines)}])
                 continue
             for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES).get("blocks", []):
                 if b.get("type") != 0:
                     continue
-                lines, sizes, bold = [], Counter(), 0
+                lines, boxes, sizes, bold = [], [], Counter(), 0
                 native_lines = b.get("lines", [])
                 for ln in native_lines:
                     text = "".join(sp["text"] for sp in ln.get("spans", []))
@@ -134,13 +189,22 @@ def _blocks(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: bool =
                         sizes[round(sp["size"], 1)] += n
                         if sp.get("flags", 0) & 16 or re.search(r"bold|semibold|black|heavy", sp.get("font", ""), re.I):
                             lb += n
-                    reference_cell = bool(_REFS_HEAD.fullmatch(text.strip()) and _has_horizontal_neighbor(ln, native_lines))
-                    lines.append(_Line(text, lb >= max(1, len(text.strip())) * 0.6, reference_cell))
+                    boxes.append(ln["bbox"])
+                    lines.append(_Line(text, lb >= max(1, len(text.strip())) * 0.6))
                     bold += lb
                 total = sum(sizes.values())
                 if total:
-                    blocks.append({"lines": lines, "size": sizes.most_common(1)[0][0],
-                                   "bold": bold >= total * 0.6, "chars": total})
+                    block = {"lines": _mark_reference_cells(lines, boxes), "size": sizes.most_common(1)[0][0],
+                             "bold": bold >= total * 0.6, "chars": total, "bbox": b["bbox"]}
+                    if blocks and _continues_caption(blocks[-1], block):
+                        previous = blocks[-1]
+                        if len(previous["lines"]) == 1 and _CAPTION_ONLY.fullmatch(_caption_lead(previous["lines"])):
+                            blocks.pop()
+                            block["lines"] = previous["lines"] + block["lines"]
+                            block["chars"] += previous["chars"]
+                        else:
+                            block["caption_continuation"] = True
+                    blocks.append(block)
             pages.append(blocks)
     return pages
 
@@ -155,46 +219,65 @@ _ENTRY_START = re.compile(
 )
 
 
+_ENTRY_NUMBER = re.compile(r"(?:\[\d+\]|\d+[.)])")
+_CAPTION_LABEL = re.compile(_CAPTION_ID + r"(?:$|[.:|–—]|\s+[|–—])", re.I)
+
+
+def _after_bibliography(text: str, styled: bool, block_lead: bool) -> bool:
+    section = _AFTER_REFS.match(text)
+    if not section:
+        return False
+    tail = text[section.end():].strip()
+    return (not tail or tail[:1] in (":", ".", "–", "—", "|")
+            or (block_lead and (styled or bool(_APPENDIX_LEAD.match(text)))))
+
+
 def _article_blocks(pages: list[list[dict]], body: float) -> list[list[dict]]:
-    """Exclude confirmed bibliographies while keeping tables and post-reference sections."""
-    blocks = [(page_no, block) for page_no, page in enumerate(pages) for block in page if block["lines"]]
+    """Exclude the bibliography, retaining later sections and captions emitted out of visual order."""
+    blocks = [(p, b) for p, page in enumerate(pages) for b in page if b["lines"]]
     article: list[list[dict]] = [[] for _ in pages]
     in_refs = False
+    methods = False
     for index, (page_no, block) in enumerate(blocks):
         lines = block["lines"]
-        if _END_RE.match(lines[0].text.strip()):
-            break
-        start = 0
+        start = None if in_refs and not block.get("caption_continuation") else 0
         for i, line in enumerate(lines):
             text = line.text.strip()
             if in_refs:
-                section = _AFTER_REFS.match(text)
-                if not section:
-                    continue
-                tail = text[section.end():].strip()
-                standalone = not tail or tail[:1] in (":", ".", "–", "—", "|")
-                styled_lead = line.bold or block["size"] > body + 0.8
-                if standalone or (i == 0 and (styled_lead or _APPENDIX_LEAD.match(text))):
+                if _after_bibliography(text, line.bold or block["size"] > body + 0.8, i == 0):
                     in_refs = False
+                    methods = bool(_METHODS_HEAD.fullmatch(text))
+                    if start is None:
+                        start = i
+                elif _CAPTION_LABEL.match(text):
+                    # One PDF block may hold a list of separate supplemental captions.
+                    if start is not None and start < i:
+                        article[page_no].append(dict(block, lines=lines[start:i], methods=methods))
                     start = i
+                elif start is not None and (_ENTRY_NUMBER.fullmatch(text) or _ENTRY_START.match(text)):
+                    # OCR can put the next citation in the same block as the caption.
+                    article[page_no].append(dict(block, lines=lines[start:i], methods=methods))
+                    start = None
                 continue
+            if (i == 0 or line.bold or "bbox" not in block) and _METHODS_HEAD.fullmatch(text):
+                methods = True
             if line.reference_cell or not _REFS_HEAD.fullmatch(text):
                 continue
-            # A table may have a References column at any position. An isolated
-            # section heading or a following citation identifies the actual list.
-            isolated_heading = len(lines) == 1
-            if i + 1 < len(lines):
-                following = lines[i + 1].text
-            elif index + 1 < len(blocks):
-                following = blocks[index + 1][1]["lines"][0].text
-            else:
-                following = ""
-            if isolated_heading or _ENTRY_START.match(following.strip()):
-                if start < i:
-                    article[page_no].append(dict(block, lines=lines[start:i]))
+            # A PDF can place a heading, an editorial note, a separate number
+            # and its citation in one block. OCR similarly groups a whole page.
+            following = lines[i+1:i+3]
+            if len(following) < 2 and index + 1 < len(blocks):
+                following += blocks[index + 1][1]["lines"][:2-len(following)]
+            if (len(lines) == 1 or line.bold
+                    or any(_ENTRY_NUMBER.fullmatch(n.text.strip()) or _ENTRY_START.match(n.text.strip())
+                           for n in following)):
+                if start is not None and start < i:
+                    article[page_no].append(dict(block, lines=lines[start:i], methods=methods))
+                start = None
                 in_refs = True
-        if not in_refs:
-            article[page_no].append(dict(block, lines=lines[start:]))
+                methods = False
+        if start is not None:
+            article[page_no].append(dict(block, lines=lines[start:], methods=methods))
     return article
 
 
@@ -205,6 +288,7 @@ def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: boo
     inside figures (axis labels etc.); keeps figure legends.
     """
     pages = _blocks(pdf, cache, automatic_ocr=automatic_ocr)
+    pages = [[] if reporting_form_page(line.text for b in page for line in b["lines"]) else page for page in pages]
     sizes = Counter()
     for page in pages:
         for b in page:
@@ -224,16 +308,27 @@ def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: boo
     if repeated:
         for page in pages:
             for block in page:
-                block["lines"] = [line for line in block["lines"] if key(line.text) not in repeated]
+                block["lines"] = [line for line in block["lines"]
+                                  if key(line.text) not in repeated or _LEGEND_RE.match(line.text.strip())]
     out: list[dict] = []
+    method_type_size = None
     for page_number, page in enumerate(_article_blocks(pages, body)):
         for b in page:
             raw = "\n".join(line.text for line in b["lines"])
             first = b["lines"][0].text.strip()
-            legend = bool(_LEGEND_RE.match(first))
-            if not legend and b["size"] < body - 1.4:
+            legend = bool(b.get("caption_continuation") or _LEGEND_RE.match(_caption_lead(b["lines"])))
+            method_heading = len(b["lines"]) == 1 and bool(_METHODS_HEAD.fullmatch(first))
+            # Journals often typeset the complete methods section in smaller type.
+            if not b["methods"] or _METHODS_HEAD.fullmatch(first):
+                method_type_size = None
+            method_text = False
+            if b["methods"] and len(re.findall(r"\b[^\W\d_]{2,}\b", raw)) >= 5:
+                if method_type_size is None and not b["bold"]:
+                    method_type_size = b["size"]
+                method_text = method_type_size is not None and b["size"] >= method_type_size - 0.6
+            if not legend and not method_heading and not method_text and b["size"] < body - 1.4:
                 continue  # text inside figures, footnotes, small print
-            heading_like = (b["bold"] or b["size"] > body + 0.8) and len(raw) < 160 and not raw.rstrip().endswith(".")
+            heading_like = (method_heading or b["bold"] or b["size"] > body + 0.8) and len(raw) < 160 and not raw.rstrip().endswith(".")
             if heading_like and not legend:
                 t = _clean(raw)
                 if 6 <= len(t) <= 160 and re.search(r"[A-Za-z]{3,}", t):  # not panel letters like "d e"
@@ -250,9 +345,6 @@ def paragraphs(pdf: str | Path, cache: Path | None = None, *, automatic_ocr: boo
                 if len(t) >= 25:
                     out.append({"kind": "para", "src": t, "page": page_number, "endPage": page_number})
     return [dict(p, kind="meta") if p["kind"] in ("para", "heading") and is_meta(p["src"]) else p for p in _merge(out)]
-
-
-_END_RE = re.compile(r"(nature portfolio )?reporting summary\b|(nature research )?reporting summary\b", re.I)
 
 
 def _merge(out: list[dict]) -> list[dict]:
@@ -356,7 +448,7 @@ def build_prompt(text: str, target: str, mode: str, custom: str, terms: list[str
 def parse_numbered(answer: str, ids: list[int]) -> dict[int, str] | None:
     parts = re.split(r"(?m)^\s*\[(\d+)\]\s*", "\n" + answer.strip())
     found = {int(parts[i]): parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
-    return found if set(found) == set(ids) and all(found.values()) else None
+    return found if len(parts) == 2 * len(ids) + 1 and set(found) == set(ids) and all(found.values()) else None
 
 
 # --------------------------------------------------------------- services
@@ -593,6 +685,10 @@ def render_md(meta: dict, result: dict, language: str) -> str:
             else f"> Machine translation by {result['service']} ({result['model']}); cite the original."), ""]
     for note in result.get("notes", []):
         out += [f"> ⚠️ {note}", ""]
+    if result.get("review_pages"):
+        pages = page_ranges(result["review_pages"])
+        out += [f"> PDF 第 {pages} 页可能漏译，请对照原文核对。" if zh
+                else f"> Check PDF pages {pages} for possible omissions.", ""]
     for p in result["paragraphs"]:
         if p["kind"] == "meta":
             out += [p["src"], ""]
@@ -635,14 +731,62 @@ def _load_parts(registry, job_id, paras, terms):
         previous = conn.execute("SELECT * FROM translation_inputs WHERE job_id=?", (job_id,)).fetchone()
         if previous and previous["paragraphs_digest"] == digest:
             terms = json.loads(previous["glossary_json"])
-            for part in conn.execute("SELECT * FROM translation_parts WHERE job_id=?", (job_id,)):
-                results[part["paragraph"]] = (part["text"], part["model"])
+            for part in conn.execute("SELECT * FROM translation_parts WHERE job_id=?", (job_id,)).fetchall():
+                i = part["paragraph"]
+                if 0 <= i < len(paras) and paras[i]["kind"] != "meta" and part["text"].strip():
+                    results[i] = (part["text"], part["model"])
+                else:
+                    conn.execute("DELETE FROM translation_parts WHERE job_id=? AND paragraph=?", (job_id, i))
         else:
             # OCR or extraction can change paragraph numbers even for the same PDF.
             conn.execute("DELETE FROM translation_parts WHERE job_id=?", (job_id,))
             conn.execute("INSERT OR REPLACE INTO translation_inputs VALUES (?,?,?)",
                          (job_id, digest, json.dumps(terms, ensure_ascii=False)))
     return terms, results
+
+
+def page_ranges(pages: list[int]) -> str:
+    """Compact sorted, 1-based physical page numbers for the reader."""
+    ranges: list[list[int]] = []
+    for page in sorted(set(pages)):
+        if ranges and page == ranges[-1][-1] + 1:
+            ranges[-1][1] = page
+        else:
+            ranges.append([page, page])
+    return ", ".join(str(start) if start == end else f"{start}–{end}" for start, end in ranges)
+
+
+def _translated_rows(saved):
+    return [p for p in saved if isinstance(p, dict) and isinstance(p.get("src"), str) and p["src"].strip()
+            and isinstance(p.get("tr"), str) and p["tr"].strip()]
+
+
+def saved_translation_gaps(pdf: Path, saved: list[dict], cache: Path) -> list[int]:
+    """Check legacy files even when they carry no page offsets or have different paragraph breaks."""
+    translated = _translated_rows(saved)
+    missing = set(coverage_gaps(pdf, translated, cache=cache))
+    expected = [p for p in paragraphs(pdf, cache=cache, automatic_ocr=False) if p["kind"] != "meta"]
+    if not expected:
+        raise TranslationError("无法从 PDF 提取可核对的正文。")
+
+    def key(text):
+        return "".join(unicodedata.normalize("NFKC", text).split())
+
+    original = [key(p["src"]) for p in translated if p.get("kind") != "meta"]
+    current = [key(p["src"]) for p in expected]
+    for op, a, b, c, d in SequenceMatcher(None, original, current, autojunk=False).get_opcodes():
+        if op in ("equal", "delete"):
+            continue
+        # Accept split or joined paragraphs, in order, without reusing the same saved passage twice.
+        fragment = "".join(original[a:b])
+        offset = 0
+        for i in range(c, d):
+            at = fragment.find(current[i], offset)
+            if at >= 0:
+                offset = at + len(current[i])
+            else:
+                missing.update(range(expected[i]["page"] + 1, expected[i]["endPage"] + 2))
+    return sorted(missing)
 
 
 def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id: int, pdf: Path,
@@ -653,16 +797,31 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     row = registry.get_paper(paper_id)
     service, options = _translation_settings(config, registry, pdf, service_id, job)
     target = options["target"]
-    paras = paragraphs(pdf, cache=ocr.cache_for(pdf, config.data_dir))
+    cache = ocr.cache_for(pdf, config.data_dir)
+    paras = paragraphs(pdf, cache=cache)
     if not paras:
         raise TranslationError("no text found in the PDF (scanned image?)")
+    review_pages = coverage_gaps(pdf, paras, cache=cache)
+    json_path = card_path.with_suffix(".translation.json")
+    if review_pages and json_path.exists():
+        try:
+            old = json.loads(json_path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError):
+            old = None
+        if (isinstance(old, dict) and old.get("paper_id", paper_id) == paper_id
+                and old.get("revision") in (None, options["revision"]) and isinstance(old.get("paragraphs"), list)):
+            translated = _translated_rows(old["paragraphs"])
+            newly_missing = set(review_pages).difference(coverage_gaps(pdf, translated, cache=cache)) if translated else set()
+            if newly_missing:
+                raise TranslationError(f"此次提取可能漏掉 PDF 第 {page_ranges(sorted(newly_missing))} 页的内容，已保留原译文。")
     card = json.loads(row["card_json"] or "{}")
     terms = glossary(card, taxonomy, " ".join(p["src"] for p in paras))
     job_id = job["id"] if job else None
     terms, results = _load_parts(registry, job_id, paras, terms)
     groups = chunks(paras)
     todo = [[i for i in group if i not in results] for group in groups]
-    total = sum(len(group) for group in groups)
+    expected = {i for i, p in enumerate(paras) if p["kind"] != "meta"}
+    total = len(expected)
     if progress:
         progress(len(results), total)
     mutex = threading.Lock()
@@ -671,6 +830,8 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     tr = Translator(config, registry, llm, service, transport, options=options)
 
     def save(part):
+        if not part.keys() <= expected or any(not text.strip() for text, _ in part.values()):
+            raise TranslationError("翻译服务返回了缺失或无效的译文段落。")
         if job_id is not None:
             with registry.transaction() as conn:
                 conn.executemany("INSERT INTO translation_parts(job_id,paragraph,text,model) VALUES (?,?,?,?)",
@@ -705,6 +866,8 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
             thread.join()
     if errors:
         raise errors[0]
+    if results.keys() != expected:
+        raise TranslationError(f"段落校验未通过：应有 {total} 段译文，实有 {len(results)} 段。")
     if document_revision(current_pdf() if current_pdf else pdf) != options["revision"]:
         raise TranslationError("翻译期间 PDF 已经改变，请重新提交翻译。")
     vias = Counter(results[i][1] for i in sorted(results))
@@ -713,11 +876,11 @@ def translate_paper(config: Config, registry: Registry, llm: LLMClient, paper_id
     result = {
         "paper_id": paper_id, "service": service.get("name"), "model": vias.most_common(1)[0][0] if vias else tr.model,
         "target": target, "revision": options["revision"], "generated": date.today().isoformat(), "glossary": terms, "notes": tr.notes,
-        "paragraphs": [dict(p, tr=results[i][0], via=results[i][1]) if i in results else dict(p, tr=p["src"], via="")
+        "review_pages": review_pages,
+        "paragraphs": [dict(p, tr=p["src"], via="") if p["kind"] == "meta" else dict(p, tr=results[i][0], via=results[i][1])
                        for i, p in enumerate(paras)],
     }
     stem = card_path.stem
-    json_path = card_path.with_name(f"{stem}.translation.json")
     atomic_write(json_path, json.dumps(result, ensure_ascii=False, indent=1))
     meta = {"title": row["title"], "doi": row["doi"]}
     atomic_write(card_path.with_name(f"{stem}.translation.md"), render_md(meta, result, options["output_language"]))

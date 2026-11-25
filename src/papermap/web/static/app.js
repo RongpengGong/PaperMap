@@ -185,6 +185,21 @@
     const id = panel.dataset.paper;
     if (window.pmPanelEditors) window.pmPanelEditors(panel);
     const translationPosition = window.pmTranslationPosition?.attach(panel);
+    const coverageButton = panel.querySelector("[data-check-translation]");
+    coverageButton?.addEventListener("click", async () => {
+      const message = panel.querySelector("[data-coverage-message]");
+      coverageButton.disabled = true;
+      message.textContent = t("正在核对 PDF…");
+      try {
+        const version = coverageButton.closest("[data-translation-version]").dataset.translationVersion;
+        const reply = await api(`/paper/${id}/translation-coverage`, { version });
+        message.textContent = reply.message || t("操作失败");
+      } catch (_) {
+        message.textContent = t("操作失败");
+      } finally {
+        coverageButton.disabled = false;
+      }
+    });
     // right-hand tabs; the last one used is remembered across papers
     const showTab = name => {
       const tab = panel.querySelector(`.tab[data-tab="${name}"]`) || panel.querySelector(".tab");

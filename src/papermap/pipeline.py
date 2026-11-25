@@ -778,8 +778,9 @@ class Pipeline:
             raise ValueError("no PDF file found for this paper")
         return pdf, card
 
-    def _job_translate(self, job: dict, progress) -> str:
+    def _job_translate(self, job: dict, progress):
         from . import translate
+        from .jobs import NeedsReview
 
         pdf, card = self._paper_files(job["paper_id"], before_card=True)
         try:
@@ -792,7 +793,8 @@ class Pipeline:
         self.registry.log("info", f"Translation written: {out.with_suffix('.md').name}", job["paper_id"])
         self.reindex(job["paper_id"])
         self.kb_commit(f"Translate paper #{job['paper_id']}")
-        return out.name
+        pages = json.loads(out.read_text(encoding="utf-8")).get("review_pages")
+        return NeedsReview(translate.page_ranges(pages)) if pages else out.name
 
     def _job_skill(self, job: dict, progress) -> str:
         from . import skills_runtime as sr
