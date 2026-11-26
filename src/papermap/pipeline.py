@@ -444,7 +444,7 @@ class Pipeline:
             self.config.knowledge_dir, meta, json.loads(row["card_json"]),
             self.registry.paper_file_paths(paper_id),
             [dict(r) for r in self.registry.paper_dois(paper_id)],
-            self.config.output_language, fallback, existing_rel_path=row["kb_path"],
+            self.config.content_language, fallback, existing_rel_path=row["kb_path"],
             fields=[dict(r) for r in self.registry.paper_field_rows(paper_id)],
             collections=[self.registry.collection_path(c["id"]) for c in self.registry.paper_collections(paper_id)],
             reading={"read_status": row["read_status"], "starred": row["starred"],

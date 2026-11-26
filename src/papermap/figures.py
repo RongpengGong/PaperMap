@@ -4,12 +4,14 @@ from the page render (works for vector figures too), explained by a vision model
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from pathlib import Path
 
 import pymupdf
 
 from .config import Config
 from .evidence import document_revision
+from .i18n import L
 from .llm import LLMClient
 from .pdf_import import staged_file
 from .registry import Registry, now_iso
@@ -96,6 +98,44 @@ def find(pdf: Path) -> list[dict]:
         num = int(re.search(r"\d+", f["label"]).group(0))
         return (ext, num)
     return sorted(out, key=order)
+
+
+# Plot types named in figure legends, for filtering the gallery when looking for drawing references.
+# Matched on the legend text only (free, no model); a figure can show several types.
+FIGURE_TYPES: list[tuple[str, object, re.Pattern]] = [
+    (k, L(lbl), re.compile(rx, re.I)) for k, lbl, rx in [
+        ("embedding", "UMAP / t-SNE", r"\b(u-?map|t-?sne|tsne|force-directed|phate)\b"),
+        ("spatial", "空间分布图", r"\bspatial(ly)?\b|visium|xenium|cosmx|stereo-seq|merfish|slide-seq|\bniche"),
+        ("heatmap", "热图", r"heat\s?-?maps?|clustermap|correlation matri"),
+        ("dotplot", "气泡 / 点图", r"\bdot\s?-?plots?|bubble\s?(plot|chart)"),
+        ("violin", "小提琴 / 箱线图", r"violin|box\s?-?(plots?|and-whisker)|boxplots?|whiskers"),
+        ("bar", "柱状图", r"\bbar\s?(plots?|graphs?|charts?)|histograms?"),
+        ("volcano", "火山图", r"volcano|ma\s?-?plot"),
+        ("enrichment", "通路 / 富集", r"enrichment|\bgsea\b|gene ontology|\bgo terms?|kegg|reactome|hallmark|pathway"),
+        ("survival", "生存曲线", r"kaplan|survival|hazard ratio|\bcox\b"),
+        ("forest", "森林图", r"forest\s?plot|odds ratio|mendelian randomi"),
+        ("roc", "ROC / 校准", r"\broc\b|\bauc\b|receiver operating|calibration curve|decision curve|nomogram"),
+        ("trajectory", "轨迹 / 拟时序", r"trajector|pseudotime|pseudo-time|rna velocity|monocle|lineage"),
+        ("network", "网络 / 细胞通讯", r"\bnetwork|ligand|receptor pair|cell-cell (communication|interaction)|cellchat|cellphonedb|circos|chord"),
+        ("sankey", "桑基 / 冲积图", r"sankey|alluvial|river plot"),
+        ("composition", "细胞比例", r"proportion|composition|abundance|fraction of cells|stacked bar"),
+        ("staining", "染色 / 显微图像", r"immunohisto|\bihc\b|immunofluoresc|\bif\b staining|h&e|haematoxylin|hematoxylin|microscop|"
+                                       r"confocal|staining|stained|scale bars?|\bimc\b|codex|multiplex(ed)? imag"),
+        ("blot", "Western / 凝胶", r"western blot|immunoblot|\bgel\b|\bblots?\b"),
+        ("flow", "流式", r"flow cytometr|\bfacs\b|gating"),
+        ("schematic", "示意图 / 流程图", r"schemati|overview of (the|our)|workflow|study design|graphical|illustrat|diagram|cartoon|model of"),
+        ("genome", "基因组轨道 / 曼哈顿", r"manhattan|locuszoom|genome browser|coverage track|\bigv\b|chromatin accessib|atac-seq track"),
+    ]
+]
+
+
+def figure_types(legend: str | None) -> list[str]:
+    return list(_types(legend or ""))
+
+
+@lru_cache(maxsize=8192)
+def _types(text: str) -> tuple[str, ...]:
+    return tuple(k for k, _, rx in FIGURE_TYPES if rx.search(text))
 
 
 FIGURE_ROWS = "SELECT f.*, s.signature AS revision FROM figures f JOIN figures_state s ON s.paper_id=f.paper_id"

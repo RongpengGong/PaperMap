@@ -73,7 +73,7 @@ def notes_path(knowledge_dir: Path, kb_path: str) -> Path:
 def ensure_notes(knowledge_dir: Path, kb_path: str, title: str, language: str, body: str = "") -> Path:
     p = notes_path(knowledge_dir, kb_path)
     if not p.exists():
-        tpl = NOTES_TEMPLATE["en" if language == "en" else "zh"]
+        tpl = NOTES_TEMPLATE["en" if language in ("en", "de") else "zh"]
         p.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(p, tpl.format(title=(title or "")[:120], body=body.strip()))
     return p

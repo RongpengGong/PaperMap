@@ -192,7 +192,7 @@ def generate(config, registry: Registry, llm: LLMClient, paper_id: int, pdf: Pat
             data["comparability_note"] = str(data.get("comparability_note", "")).strip()[:600]
             return []
 
-        rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"])
+        rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"])
         res = llm.chat_json(_load_prompt(PROMPT_VERSION).replace("{language_rule}", rule), "\n".join(lines),
                             validate, purpose="update", paper_id=paper_id, max_tokens=3000)
     d = res.data

@@ -80,6 +80,88 @@
     const input = e.target; if (input.files.length) upload(input.files); input.value = "";
   });
 
+  // ------------------------------------------------ add papers by DOI / PMID / PMCID / arXiv
+  const idsDialog = document.getElementById("ids_dialog");
+  const idsText = document.getElementById("ids_text");
+  const idsResults = document.getElementById("ids_results");
+  const idsPreview = document.getElementById("ids_preview");
+  const looksLikeIds = s => /10\.\d{4,9}\/\S|\bPMC\s?\d{4,}|pubmed|arxiv|PMID|^\s*\d{5,9}(\s*[,;\n]\s*\d{5,9})*\s*$/i.test(s || "");
+  const idStatus = () => ({
+    downloading: [t("下载中"), "ok", t("找到开放获取全文，正在导入")],
+    wanted: [t("待下载"), "warn", t("没有找到合法的开放获取全文，已放进「新文献 → 待下载」")],
+    already: [t("已在库里"), "", ""], deleted: [t("已删除"), "warn", t("在回收站里，可在论文列表「已删除」中恢复")],
+    not_found: [t("没找到"), "warn", t("OpenAlex 和 Crossref 都没有这个编号")], error: [t("出错"), "warn", ""],
+  });
+  function openIds(prefill) {
+    if (!idsDialog) return;
+    if (prefill !== undefined) idsText.value = prefill;
+    idsResults.hidden = true; idsResults.innerHTML = ""; idsPreview.textContent = "";
+    if (!idsDialog.open) idsDialog.showModal();
+    idsText.focus(); previewIds();
+  }
+  let previewTimer;
+  function previewIds() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      if (!idsText.value.trim()) { idsPreview.textContent = ""; return; }
+      const r = await fetch("/api/import-ids", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csrf, text: idsText.value, preview: true }) });
+      const j = await r.json();
+      const n = (j.ids || []).length;
+      idsPreview.textContent = n ? `${t("识别到")} ${n} ${t("个编号：")}` + j.ids.slice(0, 8).map(x => x.id).join(", ") + (n > 8 ? " …" : "")
+        : t("没有找到 DOI、PMID、PMCID 或 arXiv 编号");
+    }, 250);
+  }
+  function renderIdItem(it) {
+    const [label, cls, hint] = idStatus()[it.status] || [it.status, "", ""];
+    const li = document.createElement("li");
+    const st = document.createElement("span"); st.className = "ids-st " + cls; st.textContent = label;
+    const txt = document.createElement("span"); txt.className = "ids-t";
+    txt.textContent = it.title ? `${it.author || ""} ${it.year || ""} · ${it.title}` : it.id;
+    txt.title = [it.title || it.id, hint, it.message || ""].filter(Boolean).join("\n");
+    li.append(st, txt);
+    if (it.paper_id) { const a = document.createElement("a"); a.href = "/?id=" + it.paper_id; a.textContent = t("打开"); li.append(a); }
+    else if (it.status === "wanted" && it.landing) {
+      const a = document.createElement("a"); a.href = it.landing; a.target = "_blank"; a.rel = "noopener"; a.textContent = t("出版商页面"); li.append(a);
+    }
+    return li;
+  }
+  idsText?.addEventListener("input", previewIds);
+  idsDialog?.querySelector("[data-close]")?.addEventListener("click", () => idsDialog.close());
+  idsDialog?.querySelector("form")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = document.getElementById("ids_submit"); btn.disabled = true;
+    try {
+      const r = await fetch("/api/import-ids", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csrf, text: idsText.value }) });
+      let j = await r.json();
+      if (!j.ok) { idsPreview.textContent = t(j.message || "添加失败"); return; }
+      idsResults.hidden = false; idsResults.innerHTML = "";
+      let shown = 0, imported = false;
+      while (true) {
+        for (; shown < j.items.length; shown++) {
+          idsResults.append(renderIdItem(j.items[shown]));
+          if (j.items[shown].status === "downloading") imported = true;
+        }
+        idsPreview.textContent = `${j.done} / ${j.total}`;
+        if (j.finished) break;
+        await new Promise(res => setTimeout(res, 800));
+        j = await (await fetch("/api/import-ids/" + encodeURIComponent(j.token))).json();
+      }
+      idsPreview.textContent = t("完成。");
+      if (imported) { refreshList(); startPolling(); }
+    } catch (err) { idsPreview.textContent = t("添加失败：") + err; }
+    finally { btn.disabled = false; }
+  });
+  document.addEventListener("click", e => { if (e.target.closest("#add_ids_btn")) openIds(""); });
+  document.addEventListener("paste", e => {
+    const el = e.target;
+    if (!idsDialog || idsDialog.open || (el && (el.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true']")))) return;
+    const text = e.clipboardData && e.clipboardData.getData("text/plain");
+    if (!looksLikeIds(text)) return;
+    e.preventDefault(); openIds(text.trim());
+  });
+
   const overlay = document.getElementById("drop_overlay");
   let depth = 0;
   // a note editor takes its own drops (pictures); everywhere else a dropped file is a PDF to import
@@ -388,6 +470,7 @@
   // ---------------------------------------------------------- live refresh
   let polling = null, lastEvent = null;
   async function poll() {
+    if (document.hidden) return;  // a hidden window catches up when it is shown again
     try {
       const s = await (await fetch("/api/state")).json();
       const ver = s.last_event + "|" + (s.jobs_version || "");
@@ -407,6 +490,7 @@
     } catch (e) { /* server restarting */ }
   }
   function startPolling() { if (!polling) { poll(); polling = setInterval(poll, 2500); } }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && polling) poll(); });
   if (list) startPolling();
   window.pmStartPolling = startPolling;
   window.pmOpenPaper = openPaper;

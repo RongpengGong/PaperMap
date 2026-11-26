@@ -73,7 +73,57 @@ HEADINGS = {
         "fields_todo": "(not classified yet)",
         "method_axis": "Methods", "topic_axis": "Topics", "suggested": "needs review", "primary": "primary",
     },
+    "zh-TW": {
+        "one": "一句話結論",
+        "question": "研究問題",
+        "design": "研究設計 / 資料",
+        "methods": "核心方法與工具",
+        "tools": "軟體 / 工具包",
+        "findings": "主要發現",
+        "limits": "局限性",
+        "mine": "我的筆記",
+        "fields": "所屬學科",
+        "nodoi": "⚠️ 無 DOI",
+        "sample": "樣本量",
+        "species": "物種",
+        "tissues": "組織",
+        "platforms": "平台",
+        "cohorts": "佇列",
+        "mine_hint": "（在這裡寫你自己的筆記，程式更新卡片時不會改動這一節。）",
+        "fields_todo": "（尚未分類）",
+        "method_axis": "方法學", "topic_axis": "主題", "suggested": "待審核", "primary": "主要",
+    },
+    "de": {
+        "one": "Kernaussage",
+        "question": "Forschungsfrage",
+        "design": "Studiendesign / Daten",
+        "methods": "Zentrale Methoden",
+        "tools": "Software / Werkzeuge",
+        "findings": "Wichtigste Ergebnisse",
+        "limits": "Einschränkungen",
+        "mine": "Meine Notizen",
+        "fields": "Fachgebiete",
+        "nodoi": "⚠️ Keine DOI",
+        "sample": "Stichprobengröße",
+        "species": "Spezies",
+        "tissues": "Gewebe",
+        "platforms": "Plattformen",
+        "cohorts": "Kohorten",
+        "mine_hint": "(Hier stehen deine eigenen Notizen; PaperMap überschreibt diesen Abschnitt nie.)",
+        "fields_todo": "(noch nicht eingeordnet)",
+        "method_axis": "Methoden", "topic_axis": "Themen", "suggested": "zu prüfen", "primary": "primär",
+    },
 }
+MINE_HEADINGS = tuple(dict.fromkeys(h["mine"] for h in HEADINGS.values()))
+
+
+def _family(language: str) -> str:
+    return "en" if language in ("en", "de") else "zh"
+
+
+def headings(language: str) -> dict:
+    """Card headings: exact language when there is a set for it, else its family (bilingual -> zh)."""
+    return HEADINGS.get(language) or HEADINGS[_family(language)]
 
 
 def card_filename(meta: dict, fallback_id: str) -> str:
@@ -112,7 +162,7 @@ def render_card(
     reading: dict | None = None,
     override: str | None = None,
 ) -> str:
-    h = HEADINGS["en" if language == "en" else "zh"]
+    h = headings(language)
     authors = [a.get("name", "") for a in meta.get("authors") or [] if a.get("name")]
     front = {
         "doi": meta.get("doi"),
@@ -182,12 +232,11 @@ def render_card(
 
 def editable_part(text: str, language: str) -> str:
     """The part of a card the user may edit: everything above the "My notes" section."""
-    h = HEADINGS["en" if language == "en" else "zh"]
     body = text
     if text.startswith("---"):
         end = text.find("\n---", 3)
         body = text[end + 4:] if end != -1 else text
-    m = re.search(rf"^##\s+({re.escape(h['mine'])}|My notes|我的笔记)\s*$", body, flags=re.M)
+    m = re.search(rf"^##\s+({'|'.join(map(re.escape, MINE_HEADINGS))})\s*$", body, flags=re.M)
     return (body[:m.start()] if m else body).strip()
 
 
@@ -196,7 +245,8 @@ def _tail(out: list[str], h: dict, stem, has_pdf, user_section, language, fields
         out.extend([f"## {title}", "", body.strip() or "—", ""])
 
     if stem:  # notes live in their own file next to the card; embedded for Obsidian
-        hint = "（在 {f} 里写，PaperMap 永远不会改动它）" if language != "en" else "(edit {f}; PaperMap never changes it)"
+        hint = {"en": "(edit {f}; PaperMap never changes it)", "de": "(in {f} bearbeiten; PaperMap ändert sie nie)",
+                "zh-TW": "（在 {f} 裡寫，PaperMap 永遠不會改動它）"}.get(language, "（在 {f} 里写，PaperMap 永远不会改动它）")
         out.extend([f"## {h['mine']}", "", f"![[{stem}.notes]]", "", hint.format(f=f"{stem}.notes.md"), ""])
         if has_pdf:
             out.extend([f"📄 [[{stem}.pdf]]", ""])
@@ -214,13 +264,13 @@ def _fields_block(fields: list[dict], h: dict, language: str) -> str:
         for f in fields:
             if f["axis"] != axis or f["status"] == "rejected":
                 continue
-            name = f["name_en"] if language == "en" else f["name_zh"]
+            name = f["name_en"] if _family(language) == "en" else f["name_zh"]
             tag = []
             if f.get("is_primary") and axis == "method":
                 tag.append(h["primary"])
             if f["status"] == "suggested":
                 tag.append(h["suggested"])
-            suffix = f"（{'，'.join(tag)}）" if tag and language != "en" else (f" ({', '.join(tag)})" if tag else "")
+            suffix = f"（{'，'.join(tag)}）" if tag and _family(language) != "en" else (f" ({', '.join(tag)})" if tag else "")
             items.append(f"[[fields/{f['slug']}|{name}]]{suffix}")
         if items:
             lines.append(f"- **{title}**: " + " · ".join(items))

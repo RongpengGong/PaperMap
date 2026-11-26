@@ -146,7 +146,7 @@ def suggest(llm: LLMClient, config, registry: Registry, slug: str) -> list[dict]
         data["questions"] = clean
         return []
 
-    rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"])
+    rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"])
     res = llm.chat_json(_load_prompt(PROMPT_VERSION).replace("{language_rule}", rule), user, validate,
                         purpose="questions", max_tokens=2048)
     existing = []  # current titles plus what the model first proposed (user may have rewritten it)

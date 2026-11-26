@@ -184,7 +184,7 @@ def generate(llm: LLMClient, config: Config, registry: Registry, slug: str) -> s
     refs = paper_refs(registry, field["id"])
     if not refs:
         raise ValueError(f"field '{slug}' has no processed papers yet")
-    rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"])
+    rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"])
     system = _load_prompt(PROMPT_VERSION).replace("{language_rule}", rule)
     res = llm.chat_json(system, build_user(field, refs), make_validator({r["ref"] for r in refs}),
                         purpose="handbook", max_tokens=8192)

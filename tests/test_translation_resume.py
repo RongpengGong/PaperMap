@@ -56,6 +56,9 @@ def test_restart_resumes_durable_out_of_order_group(config, registry, pdfs, monk
     pipe, _ = make_pipeline(config, registry)
     pipe.handle_path(pdfs["paper"])
     config.raw["llm"].update(api_key="fake-private-key", model="old-model")
+    # the child process sees the real system language; fix the languages so both sides agree
+    config.raw["output_language"] = "zh"
+    config.raw["translation"]["target_language"] = "zh"
     config.save()
     ctx = multiprocessing.get_context("spawn")
     quit_requested = ctx.Event()

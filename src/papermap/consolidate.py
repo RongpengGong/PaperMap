@@ -158,7 +158,7 @@ def run(llm: LLMClient, config: Config, registry: Registry, slug: str) -> dict:
     refs = refs_for(registry, field["id"])
     if len(refs) < 2:
         raise ValueError(f"field '{slug}' needs at least 2 papers to consolidate")
-    rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"])
+    rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"])
     res = llm.chat_json(_load_prompt(PROMPT_VERSION).replace("{language_rule}", rule), build_user(field, refs),
                         make_validator({r["ref"] for r in refs}), purpose="consolidate", max_tokens=6144)
     # store refs as paper ids so later renders survive renumbering

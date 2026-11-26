@@ -14,6 +14,7 @@ from .config import Config
 from .kb_writer import atomic_write
 from .llm import LLMClient
 from .registry import Registry, now_iso
+from .i18n import prose_language
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clips (
@@ -105,7 +106,7 @@ def digest(config: Config, registry: Registry, llm: LLMClient, scope: str = "all
         who = f" — {r['first_author'] or '?'} {r['year'] or ''}" if r["paper_id"] else ""
         note = f" (my note: {r['note']})" if r["note"] else ""
         lines.append(f"[C{r['id']}]{who}: {r['text']}{note}")
-    language = {"en": "English"}.get(config.output_language, "Simplified Chinese (keep technical terms in English)")
+    language = prose_language(config)
     system = "\n".join([
         "You organise a researcher's clippings notebook: sentences they saved while reading papers.",
         f"Write in {language}, as Markdown.",

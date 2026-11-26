@@ -868,6 +868,11 @@ def candidates(registry: Registry, status: str = "new", limit: int = 200) -> lis
         "SELECT id, openalex_id, first_author, year FROM papers WHERE openalex_id IS NOT NULL")}
     gaps = {r["id"]: r for r in registry.query("SELECT g.id, g.text, q.title AS question, q.id AS qid FROM question_gaps g "
                                                "JOIN evidence_questions q ON q.id=g.question_id")}
+    hits_by: dict[int, list] = {}
+    if rows:  # one query for every candidate's hits instead of one per candidate
+        for h in registry.query(f"SELECT candidate_id, watch_id, source FROM track_hits WHERE candidate_id IN "
+                                f"({','.join('?' * len(rows))}) ORDER BY found_at", tuple(c["id"] for c in rows)):
+            hits_by.setdefault(h["candidate_id"], []).append(h)
     out = []
     for c in rows:
         d = dict(c)
@@ -877,7 +882,7 @@ def candidates(registry: Registry, status: str = "new", limit: int = 200) -> lis
         refs = [lib_by_oa[x] for x in json.loads(d.pop("lib_refs_json")) if x in lib_by_oa]
         if refs:
             reasons.append({"kind": "cites", "text": L("引用了你库里的"), "papers": refs[:6], "n": len(refs)})
-        hits = registry.query("SELECT watch_id, source FROM track_hits WHERE candidate_id=? ORDER BY found_at", (c["id"],))
+        hits = hits_by.get(c["id"], [])
         by_watch: dict[int, list[str]] = {}
         for h in hits:
             by_watch.setdefault(h["watch_id"], []).append(SOURCE_NAMES.get(h["source"], h["source"]))

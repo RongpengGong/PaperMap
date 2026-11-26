@@ -310,7 +310,7 @@ DEFAULTS: dict[str, Any] = {
         "monthly_budget_usd": 5,
         "timeout_s": 180,
     },
-    "output_language": "zh",
+    "output_language": "auto",  # auto = follow the interface language; see i18n.OUTPUT_LANGUAGES
     "metadata": {
         "contact_email": "",
         "openalex_api_key": "",
@@ -336,7 +336,7 @@ DEFAULTS: dict[str, Any] = {
             {"id": "main", "name": "用主模型翻译", "kind": "main", "mode": "translate", "prompt": ""},
             *OFFICIAL_TRANSLATION_SERVICES.values(),
         ],
-        "target_language": "zh",
+        "target_language": "auto",  # see i18n.TRANSLATION_TARGETS
         "fallback_to_main": True,  # use the main LLM when the translation service fails
         "privacy_ack": False,  # user confirmed that text goes to the free service
         "auto_new_papers": False,
@@ -426,7 +426,18 @@ class Config:
 
     @property
     def output_language(self) -> str:
-        return self.raw.get("output_language", "zh")
+        """Structure language of generated pages: zh, en or bilingual (German counts as en,
+        Traditional Chinese as zh). Prose follows `content_language`."""
+        from .i18n import family
+
+        return family(self.content_language)
+
+    @property
+    def content_language(self) -> str:
+        """Exact language of generated prose: zh, zh-TW, en, de or bilingual."""
+        from .i18n import content_language
+
+        return content_language(self)
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -485,8 +496,10 @@ class Config:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
     def validate(self) -> None:
-        if self.output_language not in ("zh", "en", "bilingual"):
-            raise ConfigError("output_language must be zh, en or bilingual")
+        from .i18n import OUTPUT_LANGUAGES
+
+        if (self.raw.get("output_language") or "auto") not in OUTPUT_LANGUAGES:
+            raise ConfigError("output_language must be one of " + ", ".join(OUTPUT_LANGUAGES))
         if not isinstance(self.raw.get("inbox_dirs"), list):
             raise ConfigError("inbox_dirs must be a list of folders")
         provider = self.llm.get("provider", "deepseek")

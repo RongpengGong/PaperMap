@@ -26,6 +26,7 @@ from .pdf_extract import extract_full_text
 from .plugins import _linked
 from . import ocr
 from .registry import Registry
+from .i18n import prose_language
 
 SCRIPT_SUFFIXES = {".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".rb", ".pl", ".bat", ".ps1", ".exe", ".command"}
 MAX_REFERENCE_CHARS = 60000
@@ -220,9 +221,7 @@ def run(skill: Skill, config: Config, registry: Registry, llm: LLMClient, paper_
     if not skill.supported:
         raise ValueError(skill.reason)
     row = registry.get_paper(paper_id)
-    language = {"zh": "Simplified Chinese (keep gene, software and technical terms in English)",
-                "en": "English", "bilingual": "Simplified Chinese with English key terms in parentheses"}.get(
-        config.output_language, "Simplified Chinese")
+    language = prose_language(config)
     system = [
         f'You are running the agent skill "{skill.name}" inside PaperMap, a local literature app.',
         "Environment limits: you cannot run tools, scripts or searches, and cannot open files. Ignore any "

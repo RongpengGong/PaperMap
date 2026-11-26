@@ -177,8 +177,9 @@
 <section class="settings-panel" data-settings-panel="processing" aria-label="{{ _("论文处理") }}" {% if settings_section != 'processing' %}hidden{% endif %}>
   <label for="output_language">{{ _("卡片语言") }}</label>
   <select id="output_language" name="output_language">
-    {% for l, name in [('zh',_('中文')),('en','English'),('bilingual',_('中文 + 英文术语'))] %}<option value="{{ l }}" {{ 'selected' if l == cfg.output_language }}>{{ name }}</option>{% endfor %}
+    {% set cur_out = cfg.raw.get('output_language') or 'auto' %}{% for l, name in output_languages.items() %}<option value="{{ l }}" {{ 'selected' if l == cur_out }}>{{ name }}</option>{% endfor %}
   </select>
+  <p class="muted small">{{ _("论文卡片、学科页、手册、问答和 AI 对话的语言。默认跟随界面语言；改了以后，新生成的内容用新语言，已有卡片在「重新生成」后更新。") }}</p>
   <label for="budget">{{ _("每月预算（美元，0") }} = {{ _("不限）") }}</label>
   <input type="number" id="budget" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
   <p class="muted small">{{ _("美元预算用于按量付费的 API。订阅调用遵循服务商的套餐额度，不因这里的 API 预算用完而暂停。") }}</p>
@@ -213,7 +214,8 @@
   </div>
   {% endfor %}
   <label for="tr_target">{{ _("翻译成") }}</label>
-  <select id="tr_target" name="tr_target"><option value="zh" {{ 'selected' if tr.target_language == 'zh' }}>{{ _("中文") }}</option><option value="en" {{ 'selected' if tr.target_language == 'en' }}>{{ _("英文") }}</option></select>
+  {% set cur_tr = tr.target_language or 'auto' %}<select id="tr_target" name="tr_target">{% for code, name in translation_targets.items() %}<option value="{{ code }}" {{ 'selected' if cur_tr == code }}>{{ name }}</option>{% endfor %}</select>
+  <p class="muted small">{{ _("全文对照翻译和划词翻译的目标语言。bilibili 与主模型支持全部语言；小牛、腾讯等官方接口按各自支持的语种翻译。") }}</p>
   <p><label class="inline"><input type="checkbox" name="tr_fallback" value="1" {{ 'checked' if tr.fallback_to_main }}> {{ _("翻译服务出错时，自动改用主模型翻译") }}</label><br>
      <label class="inline"><input type="checkbox" name="tr_auto" value="1" {{ 'checked' if tr.auto_new_papers }}> {{ _("新论文生成卡片后自动翻译全文") }}</label></p>
   <details>
@@ -338,8 +340,9 @@
   <p class="muted small">{{ _("「跟随系统」会随 macOS 的浅色 / 深色自动切换；「纯黑」是更暗的夜间模式，适合晚上看文献。") }}</p>
   <h3>{{ _("界面语言") }}</h3>
   <div class="seg" role="radiogroup" aria-label="{{ _("界面语言") }}">
-    {% for code, label in ui_languages.items() %}<button type="button" class="{{ 'on' if ui_lang() == code }}" data-lang-pick="{{ code }}" role="radio" aria-checked="{{ 'true' if ui_lang() == code else 'false' }}" lang="{{ code }}">{{ label }}</button>{% endfor %}
+    {% set picked = ui_lang_choice %}<button type="button" class="{{ 'on' if picked == 'system' }}" data-lang-pick="system" role="radio" aria-checked="{{ 'true' if picked == 'system' else 'false' }}">{{ _("跟随系统") }}</button>{% for code, label in ui_languages.items() %}<button type="button" class="{{ 'on' if picked == code }}" data-lang-pick="{{ code }}" role="radio" aria-checked="{{ 'true' if picked == code else 'false' }}" lang="{{ code }}">{{ label }}</button>{% endfor %}
   </div>
+  <p class="muted small">{{ _("「跟随系统」使用 macOS / Windows 的首选语言；系统语言不在列表里时显示英文。") }}</p>
   <p class="muted small">{{ _("菜单、按钮和提示的语言。论文卡片、学科页等生成内容的语言在「模型」里的「输出语言」设置；你自己写的笔记不会被翻译。") }}</p>
 </section>
 

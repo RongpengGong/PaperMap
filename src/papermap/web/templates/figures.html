@@ -1,23 +1,71 @@
 {% extends "base.html" %}
 {% block title %}{{ _("图片库 - PaperMap") }}{% endblock %}
+{% macro qs(over) -%}
+{%- set p = {"scope": scope, "kind": kind, "q": q, "main": main or "", "paper": paper or ""} -%}
+{%- set _x = p.update(over) -%}
+/figures?{% for k, v in p.items() if v %}{{ k }}={{ v|urlencode }}{% if not loop.last %}&{% endif %}{% endfor %}
+{%- endmacro %}
 {% block content %}
 <h2>{{ _("图片库") }}</h2>
 <p class="muted">{{ _("按图注自动找出的论文图（含 Extended Data）。点开看大图和完整图注，可以让模型逐个面板讲解，讲解还能一键加到那篇论文的笔记里。") }}</p>
-{% set ns = namespace(cur=None) %}
-{% for r in rows %}
-{% if r.paper_id != ns.cur %}{% if ns.cur is not none %}</div>{% endif %}{% set ns.cur = r.paper_id %}
-<h3 class="fig-paper"><a href="/?id={{ r.paper_id }}">{{ r.first_author or '?' }} {{ r.year or '' }}</a> <span class="muted small">{{ r.title }}</span></h3>
-<div class="fig-grid wide">
-{% endif %}
-<a href="#" class="fig-card" data-fig='{{ {"id": r.id, "label": r.label, "page": r.page, "legend": r.legend, "paper_id": r.paper_id, "paper": (r.first_author or "?") ~ " " ~ (r.year or "")}|tojson|forceescape }}'><img loading="lazy" src="/api/figure/{{ r.id }}.png?scale=1" alt=""><span>{{ r.label }}</span></a>
-{% if loop.last %}</div>{% endif %}
-{% else %}<p class="muted">{{ _("还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。") }}</p>{% endfor %}
+<div class="fig-filters">
+  <div class="chips-row" role="group" aria-label="{{ _("按论文筛选") }}">
+    <span class="label muted">{{ _("论文") }}</span>
+    <a class="fchip {{ 'on' if not scope }}" href="{{ qs({'scope': ''}) }}">{{ _("全部") }}</a>
+    {% if starred_n %}<a class="fchip {{ 'on' if scope == 'star' }}" href="{{ qs({'scope': 'star'}) }}">★ {{ _("星标") }} <i>{{ starred_n }}</i></a>{% endif %}
+    {% for u in purpose_counts %}<a class="fchip {{ 'on' if scope == 'u:' ~ u.tag }}" href="{{ qs({'scope': 'u:' ~ u.tag}) }}">{{ u.label }} <i>{{ u.n }}</i></a>{% endfor %}
+    <select class="fchip-select" data-nav aria-label="{{ _("分组或学科") }}">
+      <option value="{{ qs({'scope': ''}) }}">{{ _("分组 / 学科…") }}</option>
+      {% if groups %}<optgroup label="{{ _("分组") }}">{% for g in groups %}<option value="{{ qs({'scope': 'c:' ~ g.id}) }}" {{ 'selected' if scope == 'c:' ~ g.id }}>{{ '　' * g.depth }}{{ g.name }}</option>{% endfor %}</optgroup>{% endif %}
+      {% for axis, axis_label in [('method', _('方法学')), ('topic', _('主题'))] %}{% set fs = fields|selectattr('axis', 'equalto', axis)|list %}{% if fs %}<optgroup label="{{ axis_label }}">{% for f in fs %}<option value="{{ qs({'scope': 'f:' ~ f.slug}) }}" {{ 'selected' if scope == 'f:' ~ f.slug }}>{{ fname(f) }} ({{ f.n }})</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
+    </select>
+  </div>
+  <div class="chips-row" role="group" aria-label="{{ _("按图的类型筛选") }}">
+    <span class="label muted">{{ _("图型") }}</span>
+    <a class="fchip {{ 'on' if not kind }}" href="{{ qs({'kind': ''}) }}">{{ _("全部") }}</a>
+    {% for k, lbl, n in type_options if n %}<a class="fchip {{ 'on' if kind == k }}" href="{{ qs({'kind': k}) }}">{{ lbl }} <i>{{ n }}</i></a>{% endfor %}
+  </div>
+  <form method="get" action="/figures" class="row fig-search">
+    {% for k, v in {"scope": scope, "kind": kind, "paper": paper or ""}.items() if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <input type="search" name="q" value="{{ q|keep }}" placeholder="{{ _("在图注里搜索，例如 macrophage、CD8、Visium") }}" aria-label="{{ _("在图注里搜索") }}">
+    <label class="inline small"><input type="checkbox" name="main" value="1" {{ 'checked' if main }} onchange="this.form.submit()"> {{ _("只看正文图") }}</label>
+    <button>{{ _("筛选") }}</button>
+  </form>
+  <p class="muted small">{{ total }} {{ _("张图") }}{% if scope or kind or q or main or paper %} · <a href="/figures">{{ _("清除筛选") }}</a>{% endif %} · {{ _("图型按图注里的词自动判断，可能有遗漏。") }}</p>
+</div>
+<div id="fig_list">
+{% include "_figure_cards.html" %}
+</div>
+{% if not total %}<p class="muted">{% if scope or kind or q or main or paper %}{{ _("没有符合筛选条件的图。") }}{% else %}{{ _("还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。") }}{% endif %}</p>{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
-document.addEventListener("click", e => {
+document.addEventListener("click", async e => {
+  const more = e.target.closest("[data-more]");
+  if (more) {
+    more.disabled = true;
+    const u = new URL(location.href); u.searchParams.set("offset", more.dataset.more); u.searchParams.set("fragment", "1");
+    const html = await (await fetch(u)).text();
+    const tpl = document.createElement("template"); tpl.innerHTML = html;
+    const list = document.getElementById("fig_list");
+    // a paper continued from the previous page: append its cards to the existing grid
+    const firstGrid = tpl.content.querySelector(".fig-grid");
+    const lastGrid = [...list.querySelectorAll(".fig-grid")].pop();
+    if (firstGrid && lastGrid && firstGrid.dataset.paper === lastGrid.dataset.paper) {
+      tpl.content.querySelector(`.fig-paper[data-paper="${firstGrid.dataset.paper}"]`)?.remove();
+      lastGrid.append(...firstGrid.children); firstGrid.remove();
+    }
+    more.remove(); list.append(tpl.content);
+    return;
+  }
   const a = e.target.closest("[data-fig]"); if (!a) return; e.preventDefault();
   pmOpenFigure(JSON.parse(a.dataset.fig));
 });
+document.querySelectorAll("select[data-nav]").forEach(s => s.addEventListener("change", () => { location.href = s.value; }));
+// keep loading as the reader scrolls
+const io = "IntersectionObserver" in window && new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting) en.target.click(); }), { rootMargin: "600px" });
+if (io) new MutationObserver(() => document.querySelectorAll("[data-more]:not([data-watched])").forEach(b => { b.dataset.watched = 1; io.observe(b); }))
+  .observe(document.getElementById("fig_list"), { childList: true, subtree: true });
+document.querySelectorAll("[data-more]").forEach(b => { b.dataset.watched = 1; io && io.observe(b); });
 </script>
 {% endblock %}

@@ -74,4 +74,4 @@ def test_switch_language_and_keep_user_text(config, registry):
     c.post("/api/appearance", json={"csrf": tok, "language": "zh-TW"})
     assert "介面語言" in c.get("/settings?section=appearance").text or "界面語言" in c.get("/settings?section=appearance").text
     c.post("/api/appearance", json={"csrf": tok, "language": "xx"})
-    assert config.raw["appearance"]["language"] == "zh-CN"
+    assert config.raw["appearance"]["language"] == "system"

@@ -119,7 +119,7 @@ def store(registry: Registry, paper_id: int, items: list[dict]) -> int:
     return len(items)
 
 
-def rows(registry: Registry, kind: str = "", role: str = "", paper_ids: list[int] | None = None) -> list:
+def rows(registry: Registry, kind: str = "", role: str = "", paper_ids: list[int] | None = None, q: str = "") -> list:
     ensure_schema(registry)
     sql = ("SELECT r.*, p.title, p.first_author, p.year, p.journal FROM data_resources r "
            "JOIN papers p ON p.id=r.paper_id WHERE p.status != 'ignored'")
@@ -135,6 +135,10 @@ def rows(registry: Registry, kind: str = "", role: str = "", paper_ids: list[int
     if paper_ids is not None:
         sql += f" AND r.paper_id IN ({','.join('?' * len(paper_ids)) or 'NULL'})"
         params += paper_ids
+    for w in [w for w in (q or "").split() if w][:6]:  # accession, title, author, journal or sentence
+        sql += (" AND (r.accession LIKE ? OR r.context LIKE ? OR p.title LIKE ? OR p.first_author LIKE ? "
+                "OR p.journal LIKE ?)")
+        params += [f"%{w}%"] * 5
     return registry.query(sql + " ORDER BY p.year DESC, p.id, r.kind, r.accession", tuple(params))
 
 

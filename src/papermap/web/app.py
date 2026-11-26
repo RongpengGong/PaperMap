@@ -42,6 +42,7 @@ import contextvars
 _PDF_VERSION: contextvars.ContextVar[int | None] = contextvars.ContextVar("pdf_version", default=None)
 from ..taxonomy import BUILTIN, TaxonomyError, builtin_text, parse_text, resolve_path
 from ..i18n import L
+from ..kb_writer import MINE_HEADINGS
 
 HERE = Path(__file__).parent
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -283,7 +284,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             if path.exists():
                 body = _split_front(path.read_text("utf-8"))[1]
                 body = re.sub(r"^#\s.*\n", "", body.lstrip("\n"), count=1)  # title shown in the header
-                body = re.sub(r"^##\s+(我的笔记|My notes)\s*\n(.*\n)*?(?=^##\s|\Z)", "", body, flags=re.M)
+                body = re.sub(rf"^##\s+({'|'.join(map(re.escape, MINE_HEADINGS))})\s*\n(.*\n)*?(?=^##\s|\Z)", "",
+                              body, flags=re.M)
                 body_html = cardify(md_html(body))
             if row["kb_path"].count("/") >= 2:
                 np_ = library.notes_path(config.knowledge_dir, row["kb_path"])
@@ -834,15 +836,64 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         background("reindex", pipeline.reindex, f["paper_id"])
         return {"ok": True}
 
+    FIGURES_PAGE = 60
+
     @app.get("/figures", response_class=HTMLResponse)
-    def figures_page(request: Request, paper: int | None = None):
+    def figures_page(request: Request, paper: int | None = None, scope: str = "", kind: str = "", q: str = "",
+                     main: int = 0, offset: int = 0, fragment: int = 0):
+        """Figure gallery. Filters: papers (star / purpose / group / field), plot type named in the
+        legend, legend words, main figures only. Pages of 60 so large libraries stay quick."""
         from .. import figures as figmod
+        from .. import purposes as purp
+        from .. import qa as qamod
 
         figmod.ensure_schema(registry)
-        sql = ("SELECT f.id, f.label, f.page, f.legend, f.paper_id, p.first_author, p.year, p.title FROM figures f "
+        sql = ("SELECT f.id, f.label, f.page, f.legend, f.paper_id, s.signature AS revision, p.first_author, p.year, "
+               "p.title FROM figures f JOIN figures_state s ON s.paper_id=f.paper_id "
                "JOIN papers p ON p.id=f.paper_id WHERE p.status != 'ignored'")
-        rows = registry.query(sql + (" AND f.paper_id=?" if paper else "") + " ORDER BY p.id DESC, f.id", (paper,) if paper else ())
-        return render(request, "figures.html", rows=rows, paper=paper)
+        params: list = []
+        if paper:
+            sql += " AND f.paper_id=?"
+            params.append(paper)
+        ids = qamod.scope_paper_ids(registry, scope) if scope else None
+        if ids is not None:
+            sql += f" AND f.paper_id IN ({','.join('?' * len(ids))})"
+            params += ids
+        if main:
+            sql += " AND f.label NOT LIKE 'Extended%' AND f.label NOT LIKE 'Supplementary%'"
+        words = [w for w in q.split() if w][:6]
+        for w in words:
+            sql += " AND f.legend LIKE ?"
+            params.append(f"%{w}%")
+        rows = registry.query(sql + " ORDER BY p.id DESC, f.id", tuple(params))
+        typed = [(r, figmod.figure_types(r["legend"])) for r in rows]
+        type_counts: dict[str, int] = {}
+        for _, ts in typed:
+            for t in ts:
+                type_counts[t] = type_counts.get(t, 0) + 1
+        if kind:
+            typed = [(r, ts) for r, ts in typed if kind in ts]
+        offset = max(0, offset)
+        shown = typed[offset:offset + FIGURES_PAGE]
+        ctx = dict(rows=[r for r, _ in shown], types={r["id"]: ts for r, ts in shown}, total=len(typed),
+                   offset=offset, next_offset=offset + FIGURES_PAGE if offset + FIGURES_PAGE < len(typed) else None,
+                   paper=paper, scope=scope, kind=kind, q=q, main=main,
+                   type_options=[(k, lbl, type_counts.get(k, 0)) for k, lbl, _ in figmod.FIGURE_TYPES],
+                   type_labels={k: lbl for k, lbl, _ in figmod.FIGURE_TYPES})
+        if fragment:
+            return render(request, "_figure_cards.html", **ctx)
+        pipeline.taxonomy()
+        starred_n = registry.one("SELECT count(*) AS n FROM papers WHERE starred=1 AND status!='ignored'")["n"]
+        return render(request, "figures.html", **ctx, starred_n=starred_n, purpose_counts=purp.counts(registry),
+                      groups=_flat_tree(registry.collection_tree()), fields=fields_with("figures"))
+
+    def fields_with(table: str) -> list:
+        """Active fields that have papers with rows in `table` (figures / data_resources), with counts."""
+        counts = {r["field_id"]: r["n"] for r in registry.query(
+            f"SELECT pf.field_id, count(DISTINCT pf.paper_id) AS n FROM paper_fields pf "
+            f"JOIN papers p ON p.id=pf.paper_id AND p.status='done' "
+            f"WHERE pf.status='accepted' AND pf.paper_id IN (SELECT paper_id FROM {table}) GROUP BY pf.field_id")}
+        return [dict(f, n=counts[f["id"]]) for f in registry.active_fields() if counts.get(f["id"])]
 
     # ----------------------------------------------------------------- Zotero
     @app.get("/zotero", response_class=HTMLResponse)
@@ -911,26 +962,38 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     # --------------------------------------------------------- data resources
     @app.get("/resources", response_class=HTMLResponse)
-    def resources_page(request: Request, kind: str = "", role: str = "", scope: str = ""):
+    def resources_page(request: Request, kind: str = "", role: str = "", scope: str = "", q: str = ""):
+        from .. import purposes as purp
         from .. import qa as qamod
         from .. import resources as res
 
-        items = res.rows(registry, kind, role, qamod.scope_paper_ids(registry, scope) if scope else None)
-        counts = {r["kind"]: r["n"] for r in registry.query("SELECT kind, count(*) AS n FROM data_resources GROUP BY kind")}
+        ids = qamod.scope_paper_ids(registry, scope) if scope else None
+        items = res.rows(registry, "", role, ids, q)
+        counts: dict[str, int] = {}
+        for r in items:  # counts follow the other filters, so each chip says what clicking it shows
+            counts[r["kind"]] = counts.get(r["kind"], 0) + 1
+        role_counts: dict[str, int] = {}
+        for r in (items if not kind else [x for x in items if x["kind"] == kind]):
+            role_counts[r["role"] or "_none"] = role_counts.get(r["role"] or "_none", 0) + 1
+        if kind:
+            items = [r for r in items if r["kind"] == kind]
         pipeline.taxonomy()
-        return render(request, "resources.html", items=items, kind=kind, role=role, scope=scope,
-                      kinds=[(k, lbl) for k, lbl, _, _ in res.PATTERNS], counts=counts, roles=res.ROLE_LABELS,
-                      groups=_flat_tree(registry.collection_tree()),
-                      fields=[f for f in registry.active_fields() if registry.field_paper_rows(f["id"])])
+        res.ensure_schema(registry)
+        starred_n = registry.one("SELECT count(DISTINCT r.paper_id) AS n FROM data_resources r JOIN papers p "
+                                 "ON p.id=r.paper_id WHERE p.starred=1 AND p.status!='ignored'")["n"]
+        return render(request, "resources.html", items=items, kind=kind, role=role, scope=scope, q=q,
+                      kinds=[(k, lbl) for k, lbl, _, _ in res.PATTERNS], counts=counts, role_counts=role_counts,
+                      roles=res.ROLE_LABELS, starred_n=starred_n, purpose_counts=purp.counts(registry),
+                      groups=_flat_tree(registry.collection_tree()), fields=fields_with("data_resources"))
 
     @app.get("/resources.csv")
-    def resources_csv(kind: str = "", role: str = "", scope: str = ""):
+    def resources_csv(kind: str = "", role: str = "", scope: str = "", q: str = ""):
         from fastapi.responses import Response
 
         from .. import qa as qamod
         from .. import resources as res
 
-        items = res.rows(registry, kind, role, qamod.scope_paper_ids(registry, scope) if scope else None)
+        items = res.rows(registry, kind, role, qamod.scope_paper_ids(registry, scope) if scope else None, q)
         return Response(res.to_csv(items), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="papermap-data-resources.csv"'})
 
@@ -1221,7 +1284,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 return {"ok": False, "need_ack": True}
             trc["privacy_ack"] = True
             config.save()
-        target = trc.get("target_language") or "zh"
+        target = i18n.translation_target(config)
         translator = tr.Translator(config, registry, pipeline.llm, svc)
         try:
             with translator.http:
@@ -1427,6 +1490,26 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
             background("import", run_import)
         return {"ok": True, "count": len(saved), "skipped": len(items) - len(saved)}
+
+    @app.post("/api/import-ids")
+    async def api_import_ids(request: Request):
+        """DOIs / PMIDs / PMC IDs / arXiv IDs pasted into the add dialog: open-access PDFs are fetched."""
+        from .. import id_import
+
+        body = await json_body(request)
+        text = str(body.get("text", ""))[:20000]
+        if body.get("preview"):
+            return {"ok": True, "ids": [{"kind": k, "id": v} for k, v in id_import.parse_ids(text)]}
+        job = id_import.start(pipeline, text)
+        if not job["total"]:
+            return {"ok": False, "message": _gettext("没有找到 DOI、PMID、PMCID 或 arXiv 编号")}
+        return {"ok": True, **job}
+
+    @app.get("/api/import-ids/{token}")
+    def api_import_ids_status(token: str):
+        from .. import id_import
+
+        return id_import.status(token)
 
     @app.post("/bulk/start")
     def bulk_start(csrf: str = Form(...)):
@@ -2027,6 +2110,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             tr_services.append(public)
         return render(
             request, "settings.html", cfg=config, saved=saved, langs=LANGS,
+            output_languages=i18n.OUTPUT_LANGUAGES, translation_targets=i18n.TRANSLATION_TARGETS,
+            ui_lang_choice=(config.raw.get("appearance") or {}).get("language")
+            if (config.raw.get("appearance") or {}).get("language") in i18n.LANGUAGES else "system",
             providers=PROVIDERS, protocols=PROTOCOLS, provider=llm.get("provider", "deepseek"),
             eff=eff, custom=custom, presets=config.model_presets(), preset_state=llm.get("presets") or {},
             official_key_state=("env" if os.environ.get(official_env) else "local" if llm.get("api_key") else ""),
@@ -2070,7 +2156,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         custom_multiplier: float = Form(1.0),
         custom_peak: str = Form(""),
         custom_billing: str = Form(""),
-        output_language: str = Form("zh"),
+        output_language: str = Form("auto"),
         monthly_budget_usd: float = Form(5),
         inbox_dirs: str = Form(""),
         exclude_dirs: str = Form(""),
@@ -2083,7 +2169,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         tracking_digest: str = Form(""),
         tr_default: str = Form("bilibili"),
         tr_bilibili_model: str = Form("Index-Translate-35B-A3B"),
-        tr_target: str = Form("zh"),
+        tr_target: str = Form("auto"),
         tr_fallback: str = Form(""),
         tr_auto: str = Form(""),
         new_field_threshold: int = Form(3),
@@ -2121,7 +2207,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                         svc.pop(field, None)
                     elif value:
                         svc[field] = value
-        tr["target_language"] = tr_target if tr_target in ("zh", "en") else "zh"
+        tr["target_language"] = tr_target if tr_target in i18n.TRANSLATION_TARGETS else "auto"
         tr["fallback_to_main"] = bool(tr_fallback)
         tr["auto_new_papers"] = bool(tr_auto)
         raw["new_field_threshold"] = max(1, new_field_threshold)
@@ -2196,7 +2282,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         elif custom_api_key.strip():
             c["api_key"] = custom_api_key.strip()
         llm["monthly_budget_usd"] = max(0.0, monthly_budget_usd)
-        if output_language in LANGS:
+        if output_language in i18n.OUTPUT_LANGUAGES:
             raw["output_language"] = output_language
         raw["inbox_dirs"] = [ln.strip() for ln in inbox_dirs.splitlines() if ln.strip()]
         raw["exclude"]["dir_names"] = _csv(exclude_dirs)

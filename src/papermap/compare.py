@@ -79,7 +79,7 @@ def summarize(config: Config, llm: LLMClient, items: list[dict]) -> tuple[str, f
     for it in items:
         blocks.append(f"[{it['ref']}] {it['who']} — {it['paper']['title']}\n" + "\n".join(
             f"{lbl}: {_cell(it[k])}" for k, lbl in COLUMNS))
-    rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"]).replace("all string values", "the text")
+    rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"]).replace("all string values", "the text")
     res = llm.chat_text(_load_prompt("compare_v1").replace("{language_rule}", rule), "\n\n".join(blocks),
                         purpose="compare", max_tokens=3000)
     valid = {it["ref"]: it["who"] for it in items}

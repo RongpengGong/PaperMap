@@ -55,7 +55,15 @@ def keywords(llm: LLMClient, question: str) -> list[str]:
 
 
 def scope_paper_ids(registry: Registry, scope: str) -> list[int] | None:
-    """'' = whole library; 'c:<id>' a group (with subgroups); 'f:<slug>' a field."""
+    """'' = whole library; 'c:<id>' a group (with subgroups); 'f:<slug>' a field;
+    'star' starred papers; 'u:<tag>' a purpose tag."""
+    if scope == "star":
+        return [r["id"] for r in registry.query("SELECT id FROM papers WHERE starred=1")] or [-1]
+    if scope.startswith("u:"):
+        from . import purposes
+
+        purposes.ensure_schema(registry)
+        return [r["paper_id"] for r in registry.query("SELECT paper_id FROM paper_purposes WHERE tag=?", (scope[2:],))] or [-1]
     if scope.startswith("c:") and scope[2:].isdigit():
         ids = registry.collection_descendants(int(scope[2:]))
         rows = registry.query(f"SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN ({','.join('?' * len(ids))})", tuple(ids))
@@ -142,7 +150,7 @@ def ask(config: Config, registry: Registry, llm: LLMClient, question: str, scope
         answer, sources, cited, model, cost = "在你的文献库里没有找到和这个问题相关的内容。", [], [], "", 0.0
     else:
         sources, context = build_sources(items)
-        rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"]).replace("all string values", "the answer")
+        rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"]).replace("all string values", "the answer")
         system = _load_prompt(PROMPT_VERSION).replace("{language_rule}", rule)
         res = llm.chat_text(system, f"QUESTION: {question}\n\nSOURCES:\n\n{context}", purpose="qa", max_tokens=4000)
         answer, cited = clean_answer(res.raw, {s["id"] for s in sources})

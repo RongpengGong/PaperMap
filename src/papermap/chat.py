@@ -22,6 +22,7 @@ from .evidence import document_revision
 from .kb_writer import atomic_write
 from .llm import LLMClient
 from .registry import Registry
+from .i18n import prose_language
 
 MAX_PAPER_CHARS = 120000
 MAX_HISTORY = 24  # earlier turns sent with each message
@@ -289,8 +290,7 @@ def paper_text(pdf: Path, data_dir: Path, limit: int = MAX_PAPER_CHARS) -> str:
 
 
 def _language(config: Config) -> str:
-    return {"en": "English", "bilingual": "Simplified Chinese with English key terms in parentheses"}.get(
-        config.output_language, "Simplified Chinese (keep gene, software and technical terms in English)")
+    return prose_language(config)
 
 
 def _system(config: Config, row, card_text: str, notes: str, text: str, *, with_figure: bool = False) -> str:

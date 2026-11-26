@@ -21,6 +21,7 @@ from . import docx_out
 from .doi import normalize as norm_doi
 from .llm import LLMClient
 from .registry import Registry, now_iso
+from .i18n import prose_language
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cite_runs (
@@ -353,8 +354,7 @@ def stop(run_id: int) -> None:
 
 def _run(pipeline, run_id: int, stop_ev: threading.Event) -> None:
     registry, config = pipeline.registry, pipeline.config
-    language = {"en": "English", "zh": "Simplified Chinese", "bilingual": "Simplified Chinese"}.get(
-        config.output_language, "Simplified Chinese")
+    language = prose_language(config)
     try:
         groups = registry.query("SELECT para, sent, sentence FROM cite_items WHERE run_id=? AND verdict='pending' "
                                 "GROUP BY para, sent ORDER BY para, sent", (run_id,))

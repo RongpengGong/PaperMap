@@ -47,9 +47,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("Aborted; existing config kept.")
         return 1
     inbox = _ask("Inbox folder to watch (PDFs from Zotero or downloads)", str(Path.cwd() / "inbox"))
-    lang = _ask("Card language: zh / en / bilingual", "zh")
-    while lang not in ("zh", "en", "bilingual"):
-        lang = _ask("Please type zh, en or bilingual", "zh")
+    from .i18n import OUTPUT_LANGUAGES
+
+    choices = " / ".join(OUTPUT_LANGUAGES)
+    lang = _ask(f"Card language ({choices}; auto = same as the interface)", "auto")
+    while lang not in OUTPUT_LANGUAGES:
+        lang = _ask(f"Please type one of: {choices}", "auto")
     print("\nLLM provider:\n  1) DeepSeek official (just paste your API key)\n  2) Custom (OpenAI Chat/Responses, Anthropic or Gemini compatible endpoint)")
     choice = _ask("Choose 1 or 2", "1")
     llm: dict = {}

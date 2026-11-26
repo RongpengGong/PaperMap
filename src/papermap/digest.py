@@ -23,6 +23,7 @@ from . import i18n
 from .i18n import L
 from .kb_writer import atomic_write
 from .registry import Registry, now_iso
+from .i18n import prose_language
 
 log = logging.getLogger(__name__)
 
@@ -697,7 +698,7 @@ def _facts(act: dict) -> tuple[list[str], dict[str, str]]:
 
 
 def summary_system(config) -> str:
-    language = {"en": "English"}.get(config.output_language, "Simplified Chinese (keep technical terms in English)")
+    language = prose_language(config)
     return "\n".join([
         "You write a short periodic review of a researcher's own reading records.",
         f"Write in {language}, as Markdown: 3-6 bullets on what they worked on and learned in this period.",

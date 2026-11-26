@@ -15,6 +15,10 @@ LANGUAGE_RULES = {
     "en": "Write all string values in English.",
     "bilingual": "Write all string values in Simplified Chinese, adding the English "
     "term in parentheses for key concepts; keep gene names and software in English.",
+    "zh-TW": "Write all string values in Traditional Chinese (Taiwan usage); keep gene names, software, "
+    "platform and technical terms in English.",
+    "de": "Write all string values in German; keep gene names, software, platform and technical "
+    "terms in English.",
 }
 
 _STR_LIST_KEYS = ("methods", "tools", "key_findings", "limitations")
@@ -82,7 +86,7 @@ def build_user_message(meta: dict, paper_text: str) -> str:
 def extract_paper(
     llm: LLMClient, config: Config, meta: dict, paper_text: str, paper_id: int | None
 ) -> LLMResult:
-    rule = LANGUAGE_RULES.get(config.output_language, LANGUAGE_RULES["zh"])
+    rule = LANGUAGE_RULES.get(config.content_language, LANGUAGE_RULES["zh"])
     system = load_prompt().replace("{language_rule}", rule)
     user = build_user_message(meta, paper_text)
     return llm.chat_json(system, user, validate, purpose="extract", paper_id=paper_id)

@@ -34,6 +34,7 @@ from .kb_writer import atomic_write
 from .llm import LLMClient, LLMHTTPError, compute_cost, make_client, strip_think
 from .registry import Registry
 from .translation_coverage import coverage_gaps, reporting_form_page
+from .i18n import translation_target
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,11 @@ BILIBILI_MODELS = {
     "Index-Translate-2B": "Index-Translate-2B（最快）",
     "Index-Nailong-9B": "Index-Nailong-9B（长文档，术语前后一致）",
 }
-LANG_NAMES = {"zh": "中文", "en": "英文"}
+LANG_NAMES = {"zh": "中文", "zh-TW": "繁体中文（台湾用语）", "en": "英文", "de": "德文", "ja": "日文",
+              "ko": "韩文", "fr": "法文", "es": "西班牙文"}
+# Official text-translation APIs name some languages differently.
+NIUTRANS_CODES = {"zh-TW": "cht"}
+TENCENT_CODES = {"zh-TW": "zh-Hant"}
 MODES = {"translate": "翻译", "polish": "润色", "custom": "自定义 prompt"}
 CHUNK_CHARS = 3000
 WORKERS = 2
@@ -435,7 +440,8 @@ def build_prompt(text: str, target: str, mode: str, custom: str, terms: list[str
         constraints.append("【硬性要求】专名/术语对照: " + "、".join(f"{t}→{t}" for t in terms))
     if numbered:
         constraints.append("【硬性要求】保留每段开头的方括号编号（如 [3]），逐段对应输出，段落数量和顺序不变，不要合并或拆分段落")
-    constraints.append("【注意】这是生物医学论文，使用规范的学术中文；基因名、蛋白名、软件名和数据库名保持原文" if target == "zh"
+    constraints.append(f"【注意】这是生物医学论文，使用规范的学术{'中文' if target == 'zh' else '繁体中文'}；基因名、蛋白名、软件名和数据库名保持原文"
+                       if target in ("zh", "zh-TW")
                        else "【注意】This is a biomedical paper; keep gene, protein, software and database names unchanged")
     if mode == "polish":
         head = f"请润色以下学术文本，使其更通顺准确，输出语言为{tgt}，并且严格遵循所有约束要求。"
@@ -502,7 +508,7 @@ def translation_options(config: Config, service: dict, pdf: Path) -> dict:
     options = {"service": {k: service[k] for k in ("id", "name", "kind", "model", "mode", "prompt", "provider")
                            if k in service},
                "revision": document_revision(pdf), "route": _route(service), "prompt_version": PROMPT_VERSION,
-               "target": config.raw["translation"].get("target_language") or "zh",
+               "target": translation_target(config),
                "output_language": config.output_language}
     if kind in OFFICIAL_TRANSLATION_SERVICES:
         options["service"]["model"] = OFFICIAL_TRANSLATION_SERVICES[kind]["model"]
@@ -599,10 +605,11 @@ class Translator:
         kind = self.service["kind"]
         key = self.service["api_key"]
         if kind == "niutrans":
-            out = niutrans.translate(source, target, self.service["app_id"], key, client=self.http, terms=terms)
+            out = niutrans.translate(source, NIUTRANS_CODES.get(target, target), self.service["app_id"], key,
+                                     client=self.http, terms=terms)
             pt, ct = 0, 0  # This service meters characters rather than tokens.
         elif kind == "tencent":
-            out, pt, ct = translation_models.tencent_translate(self.http, source, target, key, terms)
+            out, pt, ct = translation_models.tencent_translate(self.http, source, TENCENT_CODES.get(target, target), key, terms)
         else:
             out, pt, ct = translation_models.zhipu_translate(self.http, prompt, key)
         billing = "token" if kind == "zhipu" else "external"

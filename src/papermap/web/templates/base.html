@@ -17,6 +17,7 @@
 {%- elif name == 'citations' %}<path d="M7 7h4v4H7zM13 13h4v4h-4zM11 9h2a2 2 0 0 1 2 2v2"/><circle cx="18" cy="6" r="2"/><path d="M11 7l5.3-1"/>
 {%- elif name == 'figures' %}<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>
 {%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
+{%- elif name == 'hash' %}<path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16"/>
 {%- elif name == 'folder' %}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 {%- elif name == 'phone' %}<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/>
 {%- elif name == 'inbox' %}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
@@ -68,7 +69,7 @@
 <aside class="sidebar" aria-label="{{ _("PaperMap 侧栏") }}">
   <div class="brand"><img src="/static/icon.png?v={{ static_v }}" alt=""><span>PaperMap</span></div>
   <form class="side-search" method="get" action="/search" role="search"><input type="search" name="q" aria-label="{{ _("全文搜索") }}" placeholder="{{ _("全文搜索…") }}" value="{{ request.query_params.get('q', '') if path == '/search' else '' }}"><kbd class="side-kbd" data-jump title="{{ _("快速跳转（⌘K）") }}">⌘K</kbd></form>
-  <button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>{{ _("导入 PDF") }}</span></button>
+  <div class="import-row"><button class="import-btn" id="import_btn" type="button">{{ icon('plus') }}<span>{{ _("导入 PDF") }}</span></button><button class="import-id-btn secondary" id="add_ids_btn" type="button" title="{{ _("粘贴 DOI、PMID、PMCID 或 arXiv 编号添加论文（⌘V）") }}" aria-label="{{ _("按编号添加论文") }}">{{ icon('hash') }}</button></div>
   <input type="file" id="import_input" accept="application/pdf,.pdf" multiple hidden>
   {%- set cur_c = request.query_params.get('c', '') -%}
   <nav class="nav" aria-label="{{ _("文献与研究") }}">
@@ -136,6 +137,16 @@
 </aside>
 {% endif %}
 <div id="drop_overlay" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><p>{{ _("松开以导入 PDF") }}</p><span>{{ _("会复制进你的文献库，原文件不动") }}</span></div></div>
+<dialog id="ids_dialog" class="evidence-dialog ids-dialog" aria-labelledby="ids_title">
+  <form>
+    <h2 id="ids_title">{{ _("按编号添加论文") }}</h2>
+    <p class="muted small">{{ _("粘贴一个或多个 DOI、PubMed ID、PMC ID、arXiv 编号或它们的链接，每行一个或用逗号分开。有合法开放获取全文的会自动下载并导入；没有的放进「新文献 → 待下载」，之后把 PDF 拖进来会按 DOI 自动对上。") }}</p>
+    <textarea id="ids_text" name="text" rows="5" placeholder="10.1038/s41586-020-2843-2&#10;PMID: 33087930&#10;PMC7581502&#10;arXiv:1706.03762"></textarea>
+    <p class="small muted" id="ids_preview" aria-live="polite"></p>
+    <ul class="ids-results" id="ids_results" hidden></ul>
+    <div class="ev-actions"><button type="button" class="secondary" data-close>{{ _("关闭") }}</button><button type="submit" id="ids_submit">{{ _("添加") }}</button></div>
+  </form>
+</dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="ctx_menu" class="ctx-menu" hidden></div>
 <div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-labelledby="lb_title" hidden>

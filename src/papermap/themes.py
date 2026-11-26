@@ -28,9 +28,11 @@ def normalize(raw: dict | None) -> dict:
     raw = raw or {}
     palette = raw.get("palette") if raw.get("palette") in PALETTES else "blue"
     mode = raw.get("mode") if raw.get("mode") in APPEARANCES else "system"
-    from .i18n import normalize as _lang
+    from .i18n import LANGUAGES
 
-    return {"palette": palette, "mode": mode, "language": _lang(raw.get("language"))}
+    # "system" (or nothing chosen yet): follow the operating system's language
+    return {"palette": palette, "mode": mode,
+            "language": raw.get("language") if raw.get("language") in LANGUAGES else "system"}
 
 
 def _hsl(h, s, l, a=None):

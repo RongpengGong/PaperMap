@@ -13,6 +13,18 @@ import pytest
 from papermap import config as cfgmod
 from papermap.registry import Registry
 
+@pytest.fixture(autouse=True)
+def _chinese_system_language():
+    """Tests read the source (Simplified Chinese) interface unless a test picks another language,
+    whatever the language of the machine running them. (Not via monkeypatch: some tests undo theirs.)"""
+    from papermap import i18n
+
+    original = i18n.system_language
+    i18n.system_language = lambda: "zh-CN"
+    yield
+    i18n.system_language = original
+
+
 OWN_DOI = "10.1234/demo.2024.001"
 OWN_TITLE = "Spatial transcriptomics reveals fibroblast niches in liver cancer"
 REF_DOIS = ["10.1038/s41586-020-0001-1", "10.1016/j.cell.2019.01.002", "10.1126/science.abc1234"]
