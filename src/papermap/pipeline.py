@@ -402,7 +402,7 @@ class Pipeline:
                 return "retry_later"
         self.registry.update_paper(
             paper_id, card_json=result.data, prompt_version=PROMPT_VERSION, model=result.model,
-            status="done", status_detail=None,
+            status="done", status_detail=None, card_language=self.config.content_language,
         )
         try:
             self._refresh_card(paper_id)
@@ -759,7 +759,10 @@ class Pipeline:
             from .jobs import JobRunner
             from . import mobile_work
 
+            from . import recard
+
             self._jobs = JobRunner(self.registry, {"translate": self._job_translate, "skill": self._job_skill,
+                                                   "recard": lambda j, _: recard.run_job(self, j),
                                                    "zotero": self._job_zotero, "update": self._job_update,
                                                    "mobile_import": lambda j, _: mobile_work.import_pdf(self, j),
                                                    "mobile_card": lambda j, _: mobile_work.make_card(self, j)})

@@ -624,7 +624,57 @@
     document.getElementById("lb_expl").innerHTML = f.explanation_html || "";
     document.getElementById("lb_notes").hidden = !f.explanation_html;
     document.getElementById("lb_page").href = `/reader/${f.paper_id}?page=${f.page + 1}`;
+    paintRef(f);
   }
+  // drawing references: keep a figure, note why, correct its plot types
+  const lbRefBtn = document.getElementById("lb_ref_btn"), lbRefNote = document.getElementById("lb_ref_note");
+  const lbTypes = document.getElementById("lb_types");
+  function paintRef(f) {
+    if (!lbRefBtn) return;
+    const on = !!f.is_ref;
+    lbRefBtn.setAttribute("aria-pressed", String(on));
+    lbRefBtn.querySelector("[data-on]").hidden = !on; lbRefBtn.querySelector("[data-off]").hidden = on;
+    lbRefNote.hidden = !on;
+    if (document.activeElement !== lbRefNote) lbRefNote.value = f.ref_note || "";
+    const types = new Set(f.types || []);
+    lbTypes.hidden = !Array.isArray(f.types);
+    lbTypes.previousElementSibling.hidden = lbTypes.hidden;
+    lbTypes.querySelectorAll("[data-type]").forEach(b => {
+      const pressed = types.has(b.dataset.type);
+      b.classList.toggle("on", pressed); b.setAttribute("aria-pressed", String(pressed));
+    });
+  }
+  function syncCard(f) {  // keep the gallery card in step with the lightbox
+    document.querySelectorAll(".fig-card[data-fig]").forEach(card => {
+      let d; try { d = JSON.parse(card.dataset.fig); } catch (_) { return; }
+      if (d.id !== f.id) return;
+      Object.assign(d, { is_ref: f.is_ref, ref_note: f.ref_note, types: f.types });
+      card.dataset.fig = JSON.stringify(d);
+      card.classList.toggle("is-ref", !!f.is_ref);
+      let mark = card.querySelector(".fig-ref-mark");
+      if (f.is_ref && !mark) { mark = document.createElement("b"); mark.className = "fig-ref-mark"; mark.textContent = "★"; card.prepend(mark); }
+      if (!f.is_ref) mark?.remove();
+    });
+  }
+  async function saveRef(f, on, note) {
+    const j = await api(`/api/figure/${f.id}/ref`, note === undefined ? { on } : { on, note });
+    if (!j.ok) { toast(j.message || t("网络错误")); return; }
+    f.is_ref = on; if (note !== undefined) f.ref_note = note; if (!on) f.ref_note = "";
+    if (f === lbFig) paintRef(f);
+    syncCard(f);
+  }
+  lbRefBtn?.addEventListener("click", async () => {
+    const f = lbFig; if (!f) return;
+    await saveRef(f, !f.is_ref);
+    if (f.is_ref) { toast(t("已收藏为参考图")); lbRefNote.focus(); }
+  });
+  lbRefNote?.addEventListener("change", () => { const f = lbFig; if (f) saveRef(f, true, lbRefNote.value); });
+  lbTypes?.addEventListener("click", async e => {
+    const b = e.target.closest("[data-type]"); const f = lbFig; if (!b || !f) return;
+    const j = await api(`/api/figure/${f.id}/type`, { kind: b.dataset.type, on: !b.classList.contains("on") });
+    if (!j.ok) { toast(j.message || t("网络错误")); return; }
+    f.types = j.types; if (f === lbFig) paintRef(f); syncCard(f);
+  });
   // The gallery carries lightweight thumbnail records. Resolve the PDF revision
   // and any existing explanation from the owning paper before attaching the image.
   function fullFigure(f) {

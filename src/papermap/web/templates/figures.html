@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _("图片库 - PaperMap") }}{% endblock %}
 {% macro qs(over) -%}
-{%- set p = {"scope": scope, "kind": kind, "q": q, "main": main or "", "paper": paper or ""} -%}
+{%- set p = {"scope": scope, "kind": kind, "q": q, "main": main or "", "paper": paper or "", "ref": ref or ""} -%}
 {%- set _x = p.update(over) -%}
 /figures?{% for k, v in p.items() if v %}{{ k }}={{ v|urlencode }}{% if not loop.last %}&{% endif %}{% endfor %}
 {%- endmacro %}
@@ -9,6 +9,12 @@
 <h2>{{ _("图片库") }}</h2>
 <p class="muted">{{ _("按图注自动找出的论文图（含 Extended Data）。点开看大图和完整图注，可以让模型逐个面板讲解，讲解还能一键加到那篇论文的笔记里。") }}</p>
 <div class="fig-filters">
+  <div class="chips-row" role="group" aria-label="{{ _("参考图") }}">
+    <span class="label muted">{{ _("参考图") }}</span>
+    <a class="fchip {{ 'on' if not ref }}" href="{{ qs({'ref': ''}) }}">{{ _("全部图") }}</a>
+    <a class="fchip {{ 'on' if ref }}" href="{{ qs({'ref': 1}) }}">★ {{ _("我的参考图") }} <i>{{ ref_n }}</i></a>
+    <span class="muted small">{{ _("在大图里点「收藏为参考图」，可以写一句为什么收藏") }}</span>
+  </div>
   <div class="chips-row" role="group" aria-label="{{ _("按论文筛选") }}">
     <span class="label muted">{{ _("论文") }}</span>
     <a class="fchip {{ 'on' if not scope }}" href="{{ qs({'scope': ''}) }}">{{ _("全部") }}</a>
@@ -26,17 +32,17 @@
     {% for k, lbl, n in type_options if n %}<a class="fchip {{ 'on' if kind == k }}" href="{{ qs({'kind': k}) }}">{{ lbl }} <i>{{ n }}</i></a>{% endfor %}
   </div>
   <form method="get" action="/figures" class="row fig-search">
-    {% for k, v in {"scope": scope, "kind": kind, "paper": paper or ""}.items() if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    {% for k, v in {"scope": scope, "kind": kind, "paper": paper or "", "ref": ref or ""}.items() if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     <input type="search" name="q" value="{{ q|keep }}" placeholder="{{ _("在图注里搜索，例如 macrophage、CD8、Visium") }}" aria-label="{{ _("在图注里搜索") }}">
     <label class="inline small"><input type="checkbox" name="main" value="1" {{ 'checked' if main }} onchange="this.form.submit()"> {{ _("只看正文图") }}</label>
     <button>{{ _("筛选") }}</button>
   </form>
-  <p class="muted small">{{ total }} {{ _("张图") }}{% if scope or kind or q or main or paper %} · <a href="/figures">{{ _("清除筛选") }}</a>{% endif %} · {{ _("图型按图注里的词自动判断，可能有遗漏。") }}</p>
+  <p class="muted small">{{ total }} {{ _("张图") }}{% if scope or kind or q or main or paper or ref %} · <a href="/figures">{{ _("清除筛选") }}</a>{% endif %} · {{ _("图型按图注里的词自动判断，可能有遗漏。") }}</p>
 </div>
 <div id="fig_list">
 {% include "_figure_cards.html" %}
 </div>
-{% if not total %}<p class="muted">{% if scope or kind or q or main or paper %}{{ _("没有符合筛选条件的图。") }}{% else %}{{ _("还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。") }}{% endif %}</p>{% endif %}
+{% if not total %}<p class="muted">{% if ref and not ref_n %}{{ _("还没有参考图。打开任意一张图，点「收藏为参考图」。") }}{% elif scope or kind or q or main or paper or ref %}{{ _("没有符合筛选条件的图。") }}{% else %}{{ _("还没有图片。论文处理完后会自动识别；已有论文在启动时后台补齐。") }}{% endif %}</p>{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>

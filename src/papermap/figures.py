@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS figures (
     UNIQUE (paper_id, label)
 );
 CREATE TABLE IF NOT EXISTS figures_state (paper_id INTEGER PRIMARY KEY, signature TEXT);
+-- The user's drawing references. Keyed by paper and figure label, so a new PDF version keeps them.
+CREATE TABLE IF NOT EXISTS figure_refs (
+    paper_id INTEGER NOT NULL, label TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (paper_id, label)
+);
+-- Plot types the user added (on=1) or removed (on=0) where the legend words got it wrong.
+CREATE TABLE IF NOT EXISTS figure_type_edits (
+    paper_id INTEGER NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL, on_ INTEGER NOT NULL,
+    PRIMARY KEY (paper_id, label, kind)
+);
 CREATE TABLE IF NOT EXISTS figure_history (
     id INTEGER PRIMARY KEY, paper_id INTEGER NOT NULL, revision TEXT NOT NULL, label TEXT NOT NULL,
     explanation TEXT, model TEXT, UNIQUE(paper_id, revision, label)
@@ -136,6 +146,54 @@ def figure_types(legend: str | None) -> list[str]:
 @lru_cache(maxsize=8192)
 def _types(text: str) -> tuple[str, ...]:
     return tuple(k for k, _, rx in FIGURE_TYPES if rx.search(text))
+
+
+TYPE_KEYS = {k for k, _, _ in FIGURE_TYPES}
+MAX_NOTE = 2000
+
+
+def type_edits(registry: Registry) -> dict[tuple[int, str], dict[str, bool]]:
+    ensure_schema(registry)
+    out: dict[tuple[int, str], dict[str, bool]] = {}
+    for r in registry.query("SELECT paper_id, label, kind, on_ FROM figure_type_edits"):
+        out.setdefault((r["paper_id"], r["label"]), {})[r["kind"]] = bool(r["on_"])
+    return out
+
+
+def effective_types(legend: str | None, edits: dict[str, bool] | None) -> list[str]:
+    """Types from the legend words, corrected by the user's own additions and removals."""
+    auto = figure_types(legend)
+    edits = edits or {}
+    return [k for k, _, _ in FIGURE_TYPES if edits.get(k, k in auto)]
+
+
+def set_type(registry: Registry, paper_id: int, label: str, kind: str, on: bool, legend: str | None) -> list[str]:
+    if kind not in TYPE_KEYS:
+        raise ValueError("未知的图型")
+    ensure_schema(registry)
+    if on == (kind in figure_types(legend)):  # back to what the legend says: no edit needed
+        registry.execute("DELETE FROM figure_type_edits WHERE paper_id=? AND label=? AND kind=?", (paper_id, label, kind))
+    else:
+        registry.execute("INSERT OR REPLACE INTO figure_type_edits VALUES (?,?,?,?)", (paper_id, label, kind, int(on)))
+    return effective_types(legend, type_edits(registry).get((paper_id, label)))
+
+
+def refs(registry: Registry) -> dict[tuple[int, str], str]:
+    """(paper_id, label) -> note of every figure the user kept as a reference."""
+    ensure_schema(registry)
+    return {(r["paper_id"], r["label"]): r["note"] for r in registry.query("SELECT paper_id, label, note FROM figure_refs")}
+
+
+def set_ref(registry: Registry, paper_id: int, label: str, on: bool, note: str | None = None) -> None:
+    ensure_schema(registry)
+    if not on:
+        registry.execute("DELETE FROM figure_refs WHERE paper_id=? AND label=?", (paper_id, label))
+        return
+    note = (note or "").strip()[:MAX_NOTE] if note is not None else None
+    now = now_iso()
+    registry.execute("INSERT INTO figure_refs(paper_id, label, note, created_at, updated_at) VALUES (?,?,?,?,?) "
+                     "ON CONFLICT(paper_id, label) DO UPDATE SET note=COALESCE(?, note), updated_at=?",
+                     (paper_id, label, note or "", now, now, note, now))
 
 
 FIGURE_ROWS = "SELECT f.*, s.signature AS revision FROM figures f JOIN figures_state s ON s.paper_id=f.paper_id"

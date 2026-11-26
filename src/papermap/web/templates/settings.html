@@ -179,7 +179,15 @@
   <select id="output_language" name="output_language">
     {% set cur_out = cfg.raw.get('output_language') or 'auto' %}{% for l, name in output_languages.items() %}<option value="{{ l }}" {{ 'selected' if l == cur_out }}>{{ name }}</option>{% endfor %}
   </select>
-  <p class="muted small">{{ _("论文卡片、学科页、手册、问答和 AI 对话的语言。默认跟随界面语言；改了以后，新生成的内容用新语言，已有卡片在「重新生成」后更新。") }}</p>
+  <p class="muted small">{{ _("论文卡片、学科页、手册、问答和 AI 对话的语言。默认跟随界面语言；改了以后，新生成的内容用新语言，已有卡片可以在下面按新语言重新生成。") }}</p>
+  <div class="recard-box" id="recard_box" aria-live="polite">
+    <h3>{{ _("已有卡片的语言") }}</h3>
+    <p class="small" id="recard_summary">{{ _("正在统计…") }}</p>
+    <p class="small muted" id="recard_estimate" hidden></p>
+    <div class="row"><button type="button" class="secondary" id="recard_start" hidden>{{ _("按当前卡片语言重新生成") }}</button>
+      <button type="button" class="ghost" id="recard_stop" hidden>{{ _("停止") }}</button></div>
+    <p class="small muted">{{ _("只重新生成卡片内容，不重新分类；保存设置后再统计。你手动改过的卡片会跳过，失败的保留原卡片。关闭应用后下次启动会接着做。") }}</p>
+  </div>
   <label for="budget">{{ _("每月预算（美元，0") }} = {{ _("不限）") }}</label>
   <input type="number" id="budget" step="0.5" min="0" name="monthly_budget_usd" value="{{ cfg.llm.monthly_budget_usd }}">
   <p class="muted small">{{ _("美元预算用于按量付费的 API。订阅调用遵循服务商的套餐额度，不因这里的 API 预算用完而暂停。") }}</p>

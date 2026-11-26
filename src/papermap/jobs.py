@@ -67,10 +67,12 @@ class JobRunner:
                 lock = _worker_lock(self.registry.db_path)
                 if lock:
                     # A queued non-translation job cannot be replayed safely after an exit.
+                    # Translations and card regenerations resume; they are safe to replay.
                     conn.execute("UPDATE jobs SET status='error', message='interrupted (app closed)', updated_at=? "
-                                 "WHERE kind!='translate' AND status IN ('queued','running')", (now_iso(),))
+                                 "WHERE kind NOT IN ('translate','recard') AND status IN ('queued','running')",
+                                 (now_iso(),))
                     conn.execute("UPDATE jobs SET status='queued', message='', updated_at=? "
-                                 "WHERE kind='translate' AND status='running'", (now_iso(),))
+                                 "WHERE kind IN ('translate','recard') AND status='running'", (now_iso(),))
                 if request:
                     jid = self._enqueue(conn, *request)
                 pending = conn.execute("SELECT 1 FROM jobs WHERE status='queued' LIMIT 1").fetchone()

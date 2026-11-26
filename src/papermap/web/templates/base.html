@@ -161,7 +161,15 @@
     </div>
     <div class="lb-body">
       <img id="lb_img" alt="">
-      <div class="lb-side" id="lb_detail"><p class="small" id="lb_legend"></p><div id="lb_expl" class="md"></div></div>
+      <div class="lb-side" id="lb_detail">
+        <div class="lb-ref">
+          <button type="button" class="secondary" id="lb_ref_btn" aria-pressed="false"><span data-off>☆ {{ _("收藏为参考图") }}</span><span data-on hidden>★ {{ _("已收藏为参考图") }}</span></button>
+          <textarea id="lb_ref_note" rows="2" maxlength="2000" placeholder="{{ _("为什么收藏：配色、排版、图型、标注方式…（可选）") }}" aria-label="{{ _("参考图备注") }}" hidden></textarea>
+          <p class="small muted lb-types-head">{{ _("图型（按图注自动判断，点一下改正）") }}</p>
+          <div class="lb-types" id="lb_types">{% for k, lbl in figure_type_options %}<button type="button" data-type="{{ k }}" aria-pressed="false">{{ _(lbl) }}</button>{% endfor %}</div>
+        </div>
+        <p class="small" id="lb_legend"></p><div id="lb_expl" class="md"></div>
+      </div>
       <div class="lb-side lb-chat" id="lb_chat" hidden></div>
     </div>
   </div>

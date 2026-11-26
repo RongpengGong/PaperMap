@@ -272,7 +272,8 @@ MIGRATIONS = {
                "tags_json": "TEXT", "zotero_key": "TEXT",
                "reading_page": "INTEGER", "reading_offset": "REAL", "reading_at": "INTEGER",
                "card_override": "TEXT", "trash_path": "TEXT", "deleted_status": "TEXT",
-               "read_at": "TEXT"},  # when the user last marked the paper read (periodic reviews)  # the user's own edit of the card body (kept over regeneration)
+               "read_at": "TEXT",  # when the user last marked the paper read (periodic reviews)
+               "card_language": "TEXT"},  # content language the card text was generated in  # when the user last marked the paper read (periodic reviews)  # the user's own edit of the card body (kept over regeneration)
     "annotations": {"pdf_file": "INTEGER",  # which version of the PDF (files.id) when a paper has several
                     "uid": "TEXT",  # stable ID shared with a paired phone
                     "style": "TEXT NOT NULL DEFAULT 'highlight'"},  # highlight / underline

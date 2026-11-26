@@ -468,3 +468,55 @@
     if (j.ok) location.reload(); else window.pmToast(j.message || t("删除失败"));
   }));
 })();
+
+// ------------------------------------------------ regenerate cards in the current card language
+(function () {
+  const box = document.getElementById("recard_box");
+  if (!box) return;
+  const sum = document.getElementById("recard_summary"), est = document.getElementById("recard_estimate");
+  const startBtn = document.getElementById("recard_start"), stopBtn = document.getElementById("recard_stop");
+  let timer = null;
+  const money = v => "$" + (v < 0.01 && v > 0 ? v.toFixed(4) : v.toFixed(2));
+  const zh = /^zh/.test(document.documentElement.lang || "");
+  const P = zh ? { o: "（", c: "）", e: "。", s: "，" } : { o: " (", c: ")", e: ". ", s: ", " };
+  const tidy = text => text.replace(/\s{2,}/g, " ").trim();
+  function paint(s) {
+    const langs = s.by_lang.map(([name, n]) => `${name} ${n}`).join(P.s);
+    const b = s.batch && s.batch.running ? s.batch : null;
+    sum.textContent = tidy(`${t("共")} ${s.total} ${t("张卡片")}${langs ? P.o + langs + P.c : ""}${P.e}` +
+      (s.todo ? `${s.todo} ${t("张不是当前的卡片语言")}${P.o}${s.target_label}${P.c}${P.e}` : t("都已是当前的卡片语言。")) +
+      (s.edited ? ` ${s.edited} ${t("张你手动改过，会跳过。")}` : ""));
+    if (b) {
+      est.hidden = false;
+      est.textContent = `${t("正在重新生成：")}${b.done} / ${b.total}` + (b.failed ? `${t("，失败")} ${b.failed}` : "");
+    } else if (s.todo) {
+      const e = s.estimate;
+      est.hidden = false;
+      est.textContent = tidy(`${t("预计调用模型")} ${e.calls} ${t("次")}` +
+        (e.subscription ? t("（订阅额度）") : `${t("，约")} ${money(e.cost)}`) +
+        (e.model ? ` · ${e.model}` : "") +
+        (!e.subscription && e.budget ? ` · ${t("本月已用")} ${money(e.spent)} / ${money(e.budget)}` : ""));
+    } else if (s.batch && s.batch.total) {
+      est.hidden = false;
+      est.textContent = `${t("上一批：完成")} ${s.batch.done}` + (s.batch.failed ? `${t("，失败")} ${s.batch.failed}` : "") +
+        (s.batch.stopped ? `${t("，停止")} ${s.batch.stopped}` : "");
+    } else est.hidden = true;
+    startBtn.hidden = !s.todo || !!b;
+    stopBtn.hidden = !b;
+    clearTimeout(timer);
+    if (b) timer = setTimeout(load, 4000);
+  }
+  async function load() {
+    try { paint(await (await fetch("/api/recard")).json()); } catch (_) { /* server restarting */ }
+  }
+  startBtn.addEventListener("click", async () => {
+    if (!confirm(t("开始按当前卡片语言重新生成？") + "\n" + est.textContent)) return;
+    startBtn.disabled = true;
+    const j = await window.pmApi("/api/recard/start", {});
+    startBtn.disabled = false;
+    if (!j.ok) { window.pmToast?.(j.message || t("网络错误")); return; }
+    paint(j);
+  });
+  stopBtn.addEventListener("click", async () => { const j = await window.pmApi("/api/recard/stop", {}); if (j.ok) paint(j); });
+  load();
+})();

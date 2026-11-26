@@ -114,6 +114,9 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
     static_v = str(int(max(f.stat().st_mtime for f in (HERE / "static").iterdir())))
     templates.env.globals["static_v"] = static_v
     templates.env.globals["sign_in_providers"] = SIGN_IN_PROVIDERS
+    from ..figures import FIGURE_TYPES as _FIGURE_TYPES
+
+    templates.env.globals["figure_type_options"] = [(k, lbl) for k, lbl, _ in _FIGURE_TYPES]
     from .. import i18n
 
     def _lang() -> str:
@@ -780,10 +783,45 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             figmod.sync(registry, paper_id, pdf)
         else:
             figmod.ensure_schema(registry)
+        kept, edits = figmod.refs(registry), figmod.type_edits(registry)
         return [{"id": f["id"], "label": f["label"], "page": f["page"], "legend": f["legend"],
                  "revision": f["revision"] if pdf is not None else "",
-                 "explanation_html": md_html(f["explanation"]) if f["explanation"] else ""}
+                 "explanation_html": md_html(f["explanation"]) if f["explanation"] else "",
+                 "is_ref": (paper_id, f["label"]) in kept, "ref_note": kept.get((paper_id, f["label"]), ""),
+                 "types": figmod.effective_types(f["legend"], edits.get((paper_id, f["label"])))}
                 for f in registry.query(figmod.FIGURE_ROWS + " WHERE f.paper_id=? ORDER BY f.id", (paper_id,))]
+
+    @app.post("/api/figure/{fid}/ref")
+    async def figure_ref(fid: int, request: Request):
+        """Keep (or drop) a figure as a drawing reference, with an optional note."""
+        from .. import figures as figmod
+
+        body = await json_body(request)
+        figmod.ensure_schema(registry)
+        f = registry.one("SELECT paper_id, label FROM figures WHERE id=?", (fid,))
+        if f is None:
+            return {"ok": False, "message": _gettext(figmod.STALE_FIGURE)}
+        note = body.get("note")
+        figmod.set_ref(registry, f["paper_id"], f["label"], bool(body.get("on", True)),
+                       str(note) if note is not None else None)
+        return {"ok": True}
+
+    @app.post("/api/figure/{fid}/type")
+    async def figure_type(fid: int, request: Request):
+        """Correct the plot types guessed from the legend."""
+        from .. import figures as figmod
+
+        body = await json_body(request)
+        figmod.ensure_schema(registry)
+        f = registry.one("SELECT paper_id, label, legend FROM figures WHERE id=?", (fid,))
+        if f is None:
+            return {"ok": False, "message": _gettext(figmod.STALE_FIGURE)}
+        try:
+            types = figmod.set_type(registry, f["paper_id"], f["label"], str(body.get("kind", "")), bool(body.get("on")),
+                                    f["legend"])
+        except ValueError as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
+        return {"ok": True, "types": types}
 
     @app.get("/api/figure/{fid}.png")
     def figure_png(fid: int, scale: float = 2.0, revision: str | None = None):
@@ -840,7 +878,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     @app.get("/figures", response_class=HTMLResponse)
     def figures_page(request: Request, paper: int | None = None, scope: str = "", kind: str = "", q: str = "",
-                     main: int = 0, offset: int = 0, fragment: int = 0):
+                     main: int = 0, offset: int = 0, fragment: int = 0, ref: int = 0):
         """Figure gallery. Filters: papers (star / purpose / group / field), plot type named in the
         legend, legend words, main figures only. Pages of 60 so large libraries stay quick."""
         from .. import figures as figmod
@@ -866,7 +904,10 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             sql += " AND f.legend LIKE ?"
             params.append(f"%{w}%")
         rows = registry.query(sql + " ORDER BY p.id DESC, f.id", tuple(params))
-        typed = [(r, figmod.figure_types(r["legend"])) for r in rows]
+        kept, edits = figmod.refs(registry), figmod.type_edits(registry)
+        if ref:
+            rows = [r for r in rows if (r["paper_id"], r["label"]) in kept]
+        typed = [(r, figmod.effective_types(r["legend"], edits.get((r["paper_id"], r["label"])))) for r in rows]
         type_counts: dict[str, int] = {}
         for _, ts in typed:
             for t in ts:
@@ -876,6 +917,8 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         offset = max(0, offset)
         shown = typed[offset:offset + FIGURES_PAGE]
         ctx = dict(rows=[r for r, _ in shown], types={r["id"]: ts for r, ts in shown}, total=len(typed),
+                   kept={r["id"]: kept[(r["paper_id"], r["label"])] for r, _ in shown if (r["paper_id"], r["label"]) in kept},
+                   ref=ref, ref_n=len(kept),
                    offset=offset, next_offset=offset + FIGURES_PAGE if offset + FIGURES_PAGE < len(typed) else None,
                    paper=paper, scope=scope, kind=kind, q=q, main=main,
                    type_options=[(k, lbl, type_counts.get(k, 0)) for k, lbl, _ in figmod.FIGURE_TYPES],
@@ -1510,6 +1553,34 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         from .. import id_import
 
         return id_import.status(token)
+
+    def _recard_view(info: dict) -> dict:
+        return {k: v for k, v in info.items() if k != "todo"} | {"todo": len(info["todo"])}
+
+    @app.get("/api/recard")
+    def api_recard():
+        """Cards not in the current card language, with the cost of regenerating them."""
+        from .. import recard
+
+        return _recard_view(recard.overview(pipeline))
+
+    @app.post("/api/recard/start")
+    async def api_recard_start(request: Request):
+        from .. import recard
+
+        await json_body(request)
+        try:
+            res = await run_in_threadpool(recard.start, pipeline)
+        except ValueError as exc:
+            return {"ok": False, "message": _gettext(str(exc))}
+        return {"ok": True, **res, **_recard_view(recard.overview(pipeline))}
+
+    @app.post("/api/recard/stop")
+    async def api_recard_stop(request: Request):
+        from .. import recard
+
+        await json_body(request)
+        return {"ok": True, "stopped": recard.stop(registry), **_recard_view(recard.overview(pipeline))}
 
     @app.post("/bulk/start")
     def bulk_start(csrf: str = Form(...)):
