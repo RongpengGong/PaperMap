@@ -53,6 +53,12 @@ Under **设置 → AI 服务 → 翻译**, choose the default service for select
 - **Right-click formatting** in cards (highlight, custom colours, bold) without opening the editor; every change can be undone from the card's version history.
 - **⌘K** (Ctrl+K) jumps to any page, paper, field or question; the sidebar folds into sections; "What to read today" sits on top of the paper list; **Status** (under More) checks model, index, backups, sync and background jobs.
 - **Safety**: deleted papers go to a trash for 30 days; the whole knowledge folder can be mirrored daily to an external drive or cloud folder.
+- **Add by ID**: click **#** next to "Import PDF" (or press ⌘V outside a text box) and paste DOIs, PubMed IDs, PMC IDs, arXiv IDs or links. Open-access PDFs are downloaded and imported; the others wait under New papers → To download until you drag in the PDF.
+- **Figure library**: click a plot type (UMAP, heatmap, spatial map, survival curve…), a purpose tag such as "figure reference", a group or a field; search the legends or show main figures only. In a figure, **Keep as reference** saves it with a note under "My reference figures", and the plot-type buttons correct the automatic guess.
+- **Data resources**: click a repository, a use (generated / reused) or a paper scope, or search accessions, titles and context; the CSV export keeps the filters.
+- **Agent squads** (sidebar): topic review, evidence check and new-paper triage; from a paper's AI chat, deep reading. Results are sourced reports plus proposals you accept one by one. "Squad settings" picks a model per role and a cost cap.
+- **Recap** (sidebar): today's activity, weekly and monthly reports with questions worth pursuing, next week's plan and a lab-meeting outline.
+- **Languages**: the interface follows the system until you choose one (Settings → Appearance). Card language and translation target are set separately (Settings → Paper processing / Translate); "Language of existing cards" regenerates old cards in a new language after showing the cost.
 
 ## Plugins and local API
 

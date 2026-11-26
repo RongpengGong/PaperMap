@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "papermap"
-version = "0.1.1"
+version = "0.2.0"
 description = "Local literature manager: detect new PDFs, extract DOIs, build a Markdown knowledge map with an LLM."
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-or-later" }
