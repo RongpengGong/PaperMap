@@ -29,6 +29,10 @@ _RUN = threading.Lock()
 def ensure_schema(registry: Registry) -> None:
     with registry._lock:  # noqa: SLF001
         registry.conn.executescript(SCHEMA)
+        cols = {r[1] for r in registry.conn.execute("PRAGMA table_info(translation_audits)")}
+        if "dismissed_sig" not in cols:  # "checked, leave it": hidden until the translation or PDF changes
+            registry.conn.execute("ALTER TABLE translation_audits ADD COLUMN dismissed_sig TEXT")
+            registry.conn.commit()
 
 
 def _signature(content: bytes, revision: str) -> str:
@@ -94,10 +98,25 @@ def flagged(registry: Registry) -> list[dict]:
     """Translations with suspected gaps, for 待审核 (papers in the trash are left out)."""
     if not registry.one("SELECT 1 FROM sqlite_master WHERE type='table' AND name='translation_audits'"):
         return []
+    ensure_schema(registry)
     rows = registry.query("SELECT a.paper_id, a.pages_json, a.checked_at, p.title, p.first_author, p.year "
                           "FROM translation_audits a JOIN papers p ON p.id=a.paper_id "
-                          "WHERE a.pages_json != '[]' AND p.status='done' ORDER BY a.checked_at DESC")
-    return [{**dict(r), "pages": json.loads(r["pages_json"])} for r in rows]
+                          "WHERE a.pages_json != '[]' AND p.status='done' "
+                          "AND (a.dismissed_sig IS NULL OR a.dismissed_sig != a.signature)")
+    out = [{**dict(r), "pages": json.loads(r["pages_json"])} for r in rows]
+    # fewest suspected pages first: those are the quickest to check or patch
+    return sorted(out, key=lambda g: (len(g["pages"]), g["checked_at"]))
+
+
+def dismiss(registry: Registry, paper_ids: list[int] | None = None) -> int:
+    """Hide suspected gaps the user checked. They come back if the translation or PDF changes."""
+    ensure_schema(registry)
+    ids = [g["paper_id"] for g in flagged(registry)] if paper_ids is None else paper_ids
+    n = 0
+    for pid in ids:
+        n += registry.execute("UPDATE translation_audits SET dismissed_sig=signature WHERE paper_id=? "
+                              "AND pages_json != '[]'", (pid,)).rowcount
+    return n
 
 
 def flagged_count(registry: Registry) -> int:

@@ -1304,3 +1304,11 @@ body.remote-touch .md, body.remote-touch .card-view { font-size:15px; }
 .recard-box { margin:14px 0 4px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
 .recard-box h3 { margin:0 0 6px; }
 .recard-box .row { gap:8px; margin:6px 0; }
+.review-nav { margin:4px 0 14px; }
+.review-batch { gap:8px; margin:4px 0 10px; }
+.fchip-btn { padding:3px 10px; border-radius:999px; font-size:12px; }
+.ids-file .link-like { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.ids-results input[type=checkbox] { flex:none; margin:0; }
+.ds-papers { margin:0; padding:0; list-style:none; }
+.ds-papers li { padding:2px 0; }
+.ds-table tr.ds-shared td:first-child { border-left:3px solid var(--accent); }

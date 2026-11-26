@@ -13,6 +13,7 @@
     <span class="label muted">{{ _("参考图") }}</span>
     <a class="fchip {{ 'on' if not ref }}" href="{{ qs({'ref': ''}) }}">{{ _("全部图") }}</a>
     <a class="fchip {{ 'on' if ref }}" href="{{ qs({'ref': 1}) }}">★ {{ _("我的参考图") }} <i>{{ ref_n }}</i></a>
+    {% if ref and ref_n %}<button type="button" class="secondary fchip-btn" data-export-board>{{ _("导出参考图板") }}</button>{% endif %}
     <span class="muted small">{{ _("在大图里点「收藏为参考图」，可以写一句为什么收藏") }}</span>
   </div>
   <div class="chips-row" role="group" aria-label="{{ _("按论文筛选") }}">
@@ -66,6 +67,14 @@ document.addEventListener("click", async e => {
   }
   const a = e.target.closest("[data-fig]"); if (!a) return; e.preventDefault();
   pmOpenFigure(JSON.parse(a.dataset.fig));
+});
+document.querySelector("[data-export-board]")?.addEventListener("click", async e => {
+  const b = e.currentTarget, p = new URLSearchParams(location.search);
+  b.disabled = true;
+  const j = await window.pmApi("/api/figures/refs/export",
+    { scope: p.get("scope") || "", kind: p.get("kind") || "", q: p.get("q") || "", main: Number(p.get("main") || 0) });
+  b.disabled = false;
+  window.pmToast(j.ok ? `${t("已导出")} ${j.count} ${t("张参考图到知识库：")}${j.relative}` : (j.message || t("操作失败")), 6000);
 });
 document.querySelectorAll("select[data-nav]").forEach(s => s.addEventListener("change", () => { location.href = s.value; }));
 // keep loading as the reader scrolls

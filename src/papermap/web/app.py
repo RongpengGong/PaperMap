@@ -876,18 +876,15 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     FIGURES_PAGE = 60
 
-    @app.get("/figures", response_class=HTMLResponse)
-    def figures_page(request: Request, paper: int | None = None, scope: str = "", kind: str = "", q: str = "",
-                     main: int = 0, offset: int = 0, fragment: int = 0, ref: int = 0):
-        """Figure gallery. Filters: papers (star / purpose / group / field), plot type named in the
-        legend, legend words, main figures only. Pages of 60 so large libraries stay quick."""
+    def gallery_rows(paper=None, scope="", kind="", q="", main=0, ref=0):
+        """Figures matching the gallery filters: ([(row, types)], kept refs, type counts before `kind`)."""
         from .. import figures as figmod
-        from .. import purposes as purp
         from .. import qa as qamod
 
         figmod.ensure_schema(registry)
-        sql = ("SELECT f.id, f.label, f.page, f.legend, f.paper_id, s.signature AS revision, p.first_author, p.year, "
-               "p.title FROM figures f JOIN figures_state s ON s.paper_id=f.paper_id "
+        sql = ("SELECT f.id, f.label, f.page, f.legend, f.paper_id, f.x0, f.y0, f.x1, f.y1, s.signature AS revision, "
+               "p.first_author, p.year, p.title, p.journal, p.doi FROM figures f "
+               "JOIN figures_state s ON s.paper_id=f.paper_id "
                "JOIN papers p ON p.id=f.paper_id WHERE p.status != 'ignored'")
         params: list = []
         if paper:
@@ -899,8 +896,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
             params += ids
         if main:
             sql += " AND f.label NOT LIKE 'Extended%' AND f.label NOT LIKE 'Supplementary%'"
-        words = [w for w in q.split() if w][:6]
-        for w in words:
+        for w in [w for w in q.split() if w][:6]:
             sql += " AND f.legend LIKE ?"
             params.append(f"%{w}%")
         rows = registry.query(sql + " ORDER BY p.id DESC, f.id", tuple(params))
@@ -914,6 +910,43 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
                 type_counts[t] = type_counts.get(t, 0) + 1
         if kind:
             typed = [(r, ts) for r, ts in typed if kind in ts]
+        return typed, kept, type_counts
+
+    @app.post("/api/figures/refs/export")
+    async def figure_refs_export(request: Request):
+        """Write the reference figures (with the gallery's current filters) as a board in the knowledge folder."""
+        from .. import figures as figmod
+
+        body = await json_body(request)
+        typed, kept, _ = gallery_rows(None, str(body.get("scope", "")), str(body.get("kind", "")),
+                                      str(body.get("q", "")), int(body.get("main") or 0), 1)
+        if not typed:
+            return {"ok": False, "message": _gettext("还没有参考图。打开任意一张图，点「收藏为参考图」。")}
+        items = [{"row": r, "types": ts, "note": kept.get((r["paper_id"], r["label"]), "")} for r, ts in typed]
+        labels = {k: _gettext(str(lbl)) for k, lbl, _ in figmod.FIGURE_TYPES}
+        try:
+            folder = await run_in_threadpool(figmod.export_board, items, pipeline.pdf_for,
+                                             config.data_dir / "cache" / "figures", config.knowledge_dir / "figure-boards",
+                                             labels, _lang())
+        except OSError as exc:
+            return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
+        if body.get("reveal", True):
+            try:
+                _reveal(folder / "board.html")
+            except Exception:  # noqa: BLE001 - showing the folder is a convenience
+                pass
+        return {"ok": True, "path": str(folder), "count": len(items),
+                "relative": str(folder.relative_to(config.knowledge_dir))}
+
+    @app.get("/figures", response_class=HTMLResponse)
+    def figures_page(request: Request, paper: int | None = None, scope: str = "", kind: str = "", q: str = "",
+                     main: int = 0, offset: int = 0, fragment: int = 0, ref: int = 0):
+        """Figure gallery. Filters: papers (star / purpose / group / field), plot type named in the
+        legend, legend words, main figures only. Pages of 60 so large libraries stay quick."""
+        from .. import figures as figmod
+        from .. import purposes as purp
+
+        typed, kept, type_counts = gallery_rows(paper, scope, kind, q, main, ref)
         offset = max(0, offset)
         shown = typed[offset:offset + FIGURES_PAGE]
         ctx = dict(rows=[r for r, _ in shown], types={r["id"]: ts for r, ts in shown}, total=len(typed),
@@ -1005,7 +1038,7 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
 
     # --------------------------------------------------------- data resources
     @app.get("/resources", response_class=HTMLResponse)
-    def resources_page(request: Request, kind: str = "", role: str = "", scope: str = "", q: str = ""):
+    def resources_page(request: Request, kind: str = "", role: str = "", scope: str = "", q: str = "", view: str = ""):
         from .. import purposes as purp
         from .. import qa as qamod
         from .. import resources as res
@@ -1024,7 +1057,17 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         res.ensure_schema(registry)
         starred_n = registry.one("SELECT count(DISTINCT r.paper_id) AS n FROM data_resources r JOIN papers p "
                                  "ON p.id=r.paper_id WHERE p.starred=1 AND p.status!='ignored'")["n"]
+        datasets = []
+        if view == "datasets":  # one row per accession: which papers produced or reused it
+            by: dict[str, dict] = {}
+            for r in items:
+                key = r["accession"].lower()
+                d = by.setdefault(key, {"accession": r["accession"], "label": r["label"], "url": r["url"], "papers": []})
+                d["papers"].append(r)
+            datasets = sorted(by.values(), key=lambda d: (-len({p["paper_id"] for p in d["papers"]}), d["accession"]))
         return render(request, "resources.html", items=items, kind=kind, role=role, scope=scope, q=q,
+                      view=view, datasets=datasets,
+                      shared=sum(1 for d in datasets if len({p["paper_id"] for p in d["papers"]}) > 1),
                       kinds=[(k, lbl) for k, lbl, _, _ in res.PATTERNS], counts=counts, role_counts=role_counts,
                       roles=res.ROLE_LABELS, starred_n=starred_n, purpose_counts=purp.counts(registry),
                       groups=_flat_tree(registry.collection_tree()), fields=fields_with("data_resources"))
@@ -1539,14 +1582,35 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         """DOIs / PMIDs / PMC IDs / arXiv IDs pasted into the add dialog: open-access PDFs are fetched."""
         from .. import id_import
 
+        from .. import reflist
+
         body = await json_body(request)
         text = str(body.get("text", ""))[:20000]
         if body.get("preview"):
-            return {"ok": True, "ids": [{"kind": k, "id": v} for k, v in id_import.parse_ids(text)]}
+            if reflist.looks_like_references(text):
+                return {"ok": True, "mode": "refs", "refs": len(reflist.parse(text))}
+            return {"ok": True, "mode": "ids", "ids": [{"kind": k, "id": v} for k, v in id_import.parse_ids(text)]}
         job = id_import.start(pipeline, text)
         if not job["total"]:
             return {"ok": False, "message": _gettext("没有找到 DOI、PMID、PMCID 或 arXiv 编号")}
         return {"ok": True, **job}
+
+    @app.post("/api/reflist")
+    async def api_reflist(request: Request):
+        """A pasted reference list or BibTeX / RIS file: look each entry up (nothing is imported yet)."""
+        from .. import reflist
+
+        body = await json_body(request)
+        job = reflist.start(pipeline, str(body.get("text", ""))[:400000])
+        if not job["total"]:
+            return {"ok": False, "message": _gettext("没有识别出参考文献条目")}
+        return {"ok": True, **job}
+
+    @app.get("/api/reflist/{token}")
+    def api_reflist_status(token: str):
+        from .. import reflist
+
+        return reflist.status(token)
 
     @app.get("/api/import-ids/{token}")
     def api_import_ids_status(token: str):
@@ -1824,6 +1888,38 @@ def create_app(config: Config, registry: Registry, pipeline: Pipeline) -> FastAP
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return RedirectResponse(back if back.startswith("/") else "/review", status_code=303)
+
+    @app.post("/api/review/translations/dismiss")
+    async def review_translations_dismiss(request: Request):
+        """Mark suspected translation gaps as checked, for one paper or all listed ones."""
+        from .. import translation_audit
+
+        body = await json_body(request)
+        ids = None if body.get("all") else [int(x) for x in body.get("paper_ids", []) if str(x).isdigit()]
+        return {"ok": True, "dismissed": translation_audit.dismiss(registry, ids)}
+
+    @app.post("/api/review/labels")
+    async def review_labels_batch(request: Request):
+        """Decide every uncertain label on the review page at once: accept or reject them all."""
+        body = await json_body(request)
+        action = str(body.get("action", ""))
+        if action not in ("accept", "reject"):
+            return {"ok": False, "message": _gettext("无效的操作")}
+        min_conf = float(body.get("min_confidence") or 0)
+        papers = 0
+        for p in registry.query("SELECT id FROM papers WHERE status='done' AND needs_review=1"):
+            left = False
+            for r in registry.paper_field_rows(p["id"]):
+                if r["status"] != "suggested":
+                    continue
+                if action == "accept" and (r["confidence"] or 0) < min_conf:
+                    left = True
+                    continue
+                pipeline.set_label(p["id"], r["slug"], action)
+            if not left:
+                registry.update_paper(p["id"], needs_review=0)
+            papers += 1
+        return {"ok": True, "papers": papers}
 
     @app.post("/review/paper-ok")
     def review_paper_ok(csrf: str = Form(...), paper_id: int = Form(...)):

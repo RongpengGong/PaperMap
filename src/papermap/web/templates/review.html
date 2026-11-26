@@ -4,10 +4,24 @@
 <h2>{{ _("待审核") }}</h2>
 {% if error %}<div class="notice">{{ error }}</div>{% endif %}
 {% if busy %}<div class="notice ok">{{ _("后台正在处理，稍后刷新页面查看结果。") }}</div>{% endif %}
+{% set sections = [
+  ('rv-versions', _('版本改动'), version_checks|length),
+  ('rv-translations', _('可能漏译'), translation_gaps|length),
+  ('rv-squads', _('小队提议'), squad_runs|length),
+  ('rv-gaps', _('可能补上缺口'), gap_hits|length),
+  ('rv-updates', _('更新卡'), update_cards|length),
+  ('rv-labels', _('分类'), items|length),
+  ('rv-doi', _('DOI'), unverified|length),
+  ('rv-fields', _('新学科'), pending|length),
+] %}
+<nav class="chips-row review-nav" aria-label="{{ _("待审核分类") }}">
+  {% for anchor, label, n in sections if n %}<a class="fchip" href="#{{ anchor }}">{{ label }} <i>{{ n }}</i></a>{% else %}<span class="muted small">{{ _("没有待审核的事项。") }}</span>{% endfor %}
+  {% if model_review_pending %}<a class="fchip" href="/squads/settings#model-review">{{ _("小队模型评估") }} <i>{{ model_review_pending }}</i></a>{% endif %}
+</nav>
 
 {% if version_checks %}
 {% from "_version_checks.html" import vcheck %}
-<h3>{{ _("新版本里改动了的原文（") }}{{ version_checks|length }}）</h3>
+<h3 id="rv-versions">{{ _("新版本里改动了的原文（") }}{{ version_checks|length }}）</h3>
 <p class="muted small">{{ _("预印本出了正式版（或反过来）。你在旧版本上摘录或标注过的这些段落，在新版本里措辞改了或没找到。旧版本原样保留，点左边仍回到原来那一页；读过后点「已核对」。") }}</p>
 {% for c in version_checks %}{{ vcheck(c, true) }}{% endfor %}
 {% endif %}
@@ -17,38 +31,48 @@
 <p class="small">{{ _("评估者给 {n} 个角色提了换模型的建议，需要你逐个决定。", n=model_review_pending) }} <a href="/squads/settings#model-review">{{ _("去看建议") }}</a></p>
 {% endif %}
 {% if translation_gaps %}
-<h3>{{ _("可能漏译的全文译文") }}</h3>
-<p class="muted small">{{ _("本机对照 PDF 原文核对出的结果，不花翻译费用。「补译」只翻译缺少或切分改变的段落，其余沿用原译文。") }}</p>
+<h3 id="rv-translations">{{ _("可能漏译的全文译文（") }}{{ translation_gaps|length }}）</h3>
+<p class="muted small">{{ _("本机对照 PDF 原文核对出的结果，不花翻译费用。「补译」只翻译缺少或切分改变的段落，其余沿用原译文。漏译页数少的排在前面；核对过不需要补的点「不用补」，译文或 PDF 变了才会再出现。") }}</p>
+<div class="row review-batch">
+  <button type="button" class="secondary" data-patch-all>{{ _("全部补译") }}（{{ translation_gaps|rejectattr('busy')|list|length }}）</button>
+  <button type="button" class="ghost" data-dismiss-all-translations>{{ _("全部标为不用补") }}</button>
+</div>
 <ul class="translation-gaps">{% for g in translation_gaps %}
-  <li><a href="/?id={{ g.paper_id }}">{{ g.first_author or '' }} {{ g.year or '' }} · {{ g.title }}</a>
+  <li data-gap-paper="{{ g.paper_id }}"><a href="/?id={{ g.paper_id }}">{{ g.first_author or '' }} {{ g.year or '' }} · {{ g.title }}</a>
     <span class="muted small">{{ _("PDF 第 {pages} 页可能漏译", pages=g.ranges) }}</span>
-    {% if g.busy %}<span class="chip">{{ _("补译中") }}</span>{% else %}<button type="button" class="ghost-btn" data-patch-translation="{{ g.paper_id }}">{{ _("补译") }}</button>{% endif %}</li>
+    {% if g.busy %}<span class="chip">{{ _("补译中") }}</span>{% else %}<button type="button" class="ghost-btn" data-patch-translation="{{ g.paper_id }}">{{ _("补译") }}</button>
+    <button type="button" class="ghost-btn" data-dismiss-translation="{{ g.paper_id }}">{{ _("不用补") }}</button>{% endif %}</li>
 {% endfor %}</ul>
 {% endif %}
 {% if squad_runs %}
-<h3>{{ _("智能体小队的提议") }}</h3>
+<h3 id="rv-squads">{{ _("智能体小队的提议") }}</h3>
 <ul class="squad-review">{% for r in squad_runs %}<li><a href="/squad/{{ r.id }}#proposals">{{ r.title }}</a> <span class="muted small">{{ _("{n} 条待确认", n=r.pending) }}</span></li>{% endfor %}</ul>
 {% endif %}
 {% if gap_hits %}
 {% from "_gap_hits.html" import ghit %}
-<h3>{{ _("可能回答你问题的论文（") }}{{ gap_hits|length }}）</h3>
+<h3 id="rv-gaps">{{ _("可能回答你问题的论文（") }}{{ gap_hits|length }}）</h3>
 <p class="muted small">{{ _("全文检索发现这些论文碰到了你记下的证据缺口。先读给出的段落，再决定：让模型判断改变了什么、确认补上了缺口，或标为不相关。") }}</p>
 {% for h in gap_hits %}{{ ghit(h, 'paper') }}{% endfor %}
 {% endif %}
 
 {% if update_cards %}
 {% from "_update_cards.html" import ucard %}
-<h3>{{ _("待核对的更新卡（") }}{{ update_cards|length }}）</h3>
+<h3 id="rv-updates">{{ _("待核对的更新卡（") }}{{ update_cards|length }}）</h3>
 <p class="muted small">{{ _("模型判断的「这篇论文改变了什么」。点原句可回到 PDF 核对；确认或改写后进入学科页的「最近确认的变化」。") }}</p>
 {% for u in update_cards %}{{ ucard(u, 'paper', update_outcomes) }}{% endfor %}
 {% endif %}
-<h3>{{ _("分类需要确认（") }}{{ items|length }}）</h3>
+<h3 id="rv-labels">{{ _("分类需要确认（") }}{{ items|length }}）</h3>
 <p class="muted">{{ _("模型把握不大（置信度低于") }} {{ "%.0f"|format(100 * accept) }}{{ _("%）的标签放在这里，确认后才会进入知识地图。") }}</p>
+{% if items %}<div class="row review-batch">
+  <button type="button" class="secondary" data-labels="accept" data-min="0.45">{{ _("接受置信度 ≥ 45% 的建议") }}</button>
+  <button type="button" class="ghost" data-labels="accept" data-min="0">{{ _("全部接受") }}</button>
+  <button type="button" class="ghost" data-labels="reject">{{ _("全部拒绝") }}</button>
+</div>{% endif %}
 {% for p, labels in items %}
 <div class="card review-item">
   <div><a href="/paper/{{ p.id }}"><strong>{{ p.title }}</strong></a> <span class="muted">{{ p.first_author or '' }} {{ p.year or '' }} · {{ p.journal or '' }}</span></div>
   <div class="labels">
-  {% for l in labels %}
+  {% for l in labels|sort(attribute='confidence', reverse=true) %}
     <span class="label {{ l.status }} {{ l.axis }}" title="{{ l.reason or '' }}">
       {{ fname(l) }} <small>{{ "%.0f"|format(100 * l.confidence) }}%{% if l.is_primary and l.axis == 'method' %} {{ _("· 主要") }}{% endif %}</small>
       {% if l.status == 'suggested' %}
@@ -66,7 +90,7 @@
 </div>
 {% else %}<p class="muted">{{ _("没有需要确认的分类。") }}</p>{% endfor %}
 
-<h3>{{ _("DOI 未通过校验（") }}{{ unverified|length }}）</h3>
+<h3 id="rv-doi">{{ _("DOI 未通过校验（") }}{{ unverified|length }}）</h3>
 <p class="muted">{{ _("候选 DOI 查到的标题和 PDF 首页标题对不上。填入正确的 DOI，或者按「无 DOI」处理。") }}</p>
 {% for p in unverified %}
 <div class="card review-item">
@@ -82,7 +106,7 @@
 </div>
 {% else %}<p class="muted">{{ _("没有。") }}</p>{% endfor %}
 
-<h3>{{ _("待定新学科（") }}{{ pending|length }}）</h3>
+<h3 id="rv-fields">{{ _("待定新学科（") }}{{ pending|length }}）</h3>
 <p class="muted">{{ _("模型发现现有分类表覆盖不到的方向时会提议新类别；相似的提议会自动合并。攒够") }} {{ threshold }} {{ _("篇论文后会提示你决定（阈值可在「设置」里改），没攒够也可以提前处理。") }}</p>
 {% for r, papers in pending %}
 <div class="card review-item pending {{ 'ready' if r.n_papers >= threshold }}">

@@ -80,11 +80,14 @@
     const input = e.target; if (input.files.length) upload(input.files); input.value = "";
   });
 
-  // ------------------------------------------------ add papers by DOI / PMID / PMCID / arXiv
+  // ------------------------------------------------ add papers by DOI / PMID / PMCID / arXiv, or a reference list
   const idsDialog = document.getElementById("ids_dialog");
   const idsText = document.getElementById("ids_text");
   const idsResults = document.getElementById("ids_results");
   const idsPreview = document.getElementById("ids_preview");
+  const idsSubmit = document.getElementById("ids_submit");
+  const idsFile = document.getElementById("ids_file");
+  let idsMode = "ids", refItems = null;
   const looksLikeIds = s => /10\.\d{4,9}\/\S|\bPMC\s?\d{4,}|pubmed|arxiv|PMID|^\s*\d{5,9}(\s*[,;\n]\s*\d{5,9})*\s*$/i.test(s || "");
   const idStatus = () => ({
     downloading: [t("下载中"), "ok", t("找到开放获取全文，正在导入")],
@@ -92,66 +95,118 @@
     already: [t("已在库里"), "", ""], deleted: [t("已删除"), "warn", t("在回收站里，可在论文列表「已删除」中恢复")],
     not_found: [t("没找到"), "warn", t("OpenAlex 和 Crossref 都没有这个编号")], error: [t("出错"), "warn", ""],
   });
+  const refStatus = () => ({
+    found_oa: [t("有免费全文"), "ok"], found: [t("无免费全文"), "warn"], already: [t("已在库里"), ""],
+    not_found: [t("没找到"), "warn"], error: [t("出错"), "warn"],
+  });
+  function setSubmit() { idsSubmit.textContent = idsMode === "refs" ? t("逐条查找") : (idsMode === "pick" ? t("导入选中的") : t("添加")); }
   function openIds(prefill) {
     if (!idsDialog) return;
     if (prefill !== undefined) idsText.value = prefill;
-    idsResults.hidden = true; idsResults.innerHTML = ""; idsPreview.textContent = "";
+    idsResults.hidden = true; idsResults.innerHTML = ""; idsPreview.textContent = ""; refItems = null;
+    idsMode = "ids"; setSubmit();
     if (!idsDialog.open) idsDialog.showModal();
     idsText.focus(); previewIds();
   }
   let previewTimer;
   function previewIds() {
     clearTimeout(previewTimer);
+    refItems = null;
     previewTimer = setTimeout(async () => {
-      if (!idsText.value.trim()) { idsPreview.textContent = ""; return; }
-      const r = await fetch("/api/import-ids", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csrf, text: idsText.value, preview: true }) });
-      const j = await r.json();
+      if (!idsText.value.trim()) { idsPreview.textContent = ""; idsMode = "ids"; setSubmit(); return; }
+      const j = await api("/api/import-ids", { text: idsText.value, preview: true });
+      idsMode = j.mode === "refs" ? "refs" : "ids"; setSubmit();
+      if (j.mode === "refs") { idsPreview.textContent = `${t("看起来是参考文献表：")}${j.refs} ${t("条。点「逐条查找」，先看哪些已在库里、哪些有免费全文，再勾选导入。")}`; return; }
       const n = (j.ids || []).length;
       idsPreview.textContent = n ? `${t("识别到")} ${n} ${t("个编号：")}` + j.ids.slice(0, 8).map(x => x.id).join(", ") + (n > 8 ? " …" : "")
         : t("没有找到 DOI、PMID、PMCID 或 arXiv 编号");
     }, 250);
   }
-  function renderIdItem(it) {
-    const [label, cls, hint] = idStatus()[it.status] || [it.status, "", ""];
+  function row(label, cls, text, title) {
     const li = document.createElement("li");
     const st = document.createElement("span"); st.className = "ids-st " + cls; st.textContent = label;
-    const txt = document.createElement("span"); txt.className = "ids-t";
-    txt.textContent = it.title ? `${it.author || ""} ${it.year || ""} · ${it.title}` : it.id;
-    txt.title = [it.title || it.id, hint, it.message || ""].filter(Boolean).join("\n");
-    li.append(st, txt);
+    const tx = document.createElement("span"); tx.className = "ids-t"; tx.textContent = text; tx.title = title || text;
+    li.append(st, tx);
+    return li;
+  }
+  function renderIdItem(it) {
+    const [label, cls, hint] = idStatus()[it.status] || [it.status, "", ""];
+    const li = row(label, cls, it.title ? `${it.author || ""} ${it.year || ""} · ${it.title}` : it.id,
+      [it.title || it.id, hint, it.message || ""].filter(Boolean).join("\n"));
     if (it.paper_id) { const a = document.createElement("a"); a.href = "/?id=" + it.paper_id; a.textContent = t("打开"); li.append(a); }
     else if (it.status === "wanted" && it.landing) {
       const a = document.createElement("a"); a.href = it.landing; a.target = "_blank"; a.rel = "noopener"; a.textContent = t("出版商页面"); li.append(a);
     }
     return li;
   }
-  idsText?.addEventListener("input", previewIds);
+  function renderRefItem(it, i) {
+    const key = it.status === "found" && it.oa ? "found_oa" : it.status;
+    const [label, cls] = refStatus()[key] || [it.status, ""];
+    const li = row(label, cls, it.title ? `${it.author || ""} ${it.year || ""} · ${it.title}` : it.raw,
+      [it.raw, it.message || ""].filter(Boolean).join("\n"));
+    if (it.status === "found") {
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true; cb.dataset.ref = i;
+      cb.setAttribute("aria-label", t("导入这篇")); cb.addEventListener("change", countPicked);
+      li.prepend(cb);
+    } else if (it.paper_id) { const a = document.createElement("a"); a.href = "/?id=" + it.paper_id; a.textContent = t("打开"); li.append(a); }
+    return li;
+  }
+  function countPicked() {
+    const n = idsResults.querySelectorAll("input[data-ref]:checked").length;
+    idsSubmit.textContent = `${t("导入选中的")} ${n} ${t("篇")}`; idsSubmit.disabled = !n;
+  }
+  async function pollJob(url, j, render, list) {
+    let shown = 0;
+    while (true) {
+      for (; shown < j.items.length; shown++) list.append(render(j.items[shown], shown));
+      idsPreview.textContent = `${j.done} / ${j.total}`;
+      if (j.finished) return j;
+      await new Promise(res => setTimeout(res, 800));
+      j = await (await fetch(url + encodeURIComponent(j.token))).json();
+    }
+  }
+  async function importIds(text) {
+    const j = await api("/api/import-ids", { text });
+    if (!j.ok) { idsPreview.textContent = t(j.message || "添加失败"); return; }
+    idsResults.hidden = false; idsResults.innerHTML = "";
+    const done = await pollJob("/api/import-ids/", j, renderIdItem, idsResults);
+    idsPreview.textContent = t("完成。");
+    if (done.items.some(i => i.status === "downloading")) { refreshList(); startPolling(); }
+  }
+  function resetResults() {  // new text: forget the previous lookup
+    idsResults.hidden = true; idsResults.innerHTML = ""; idsSubmit.disabled = false;
+  }
+  idsText?.addEventListener("input", () => { resetResults(); previewIds(); });
+  idsFile?.addEventListener("change", async () => {
+    const f = idsFile.files[0]; if (!f) return;
+    idsText.value = await f.text(); idsFile.value = ""; resetResults(); previewIds();
+  });
   idsDialog?.querySelector("[data-close]")?.addEventListener("click", () => idsDialog.close());
   idsDialog?.querySelector("form")?.addEventListener("submit", async e => {
     e.preventDefault();
-    const btn = document.getElementById("ids_submit"); btn.disabled = true;
+    idsSubmit.disabled = true;
     try {
-      const r = await fetch("/api/import-ids", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csrf, text: idsText.value }) });
-      let j = await r.json();
-      if (!j.ok) { idsPreview.textContent = t(j.message || "添加失败"); return; }
-      idsResults.hidden = false; idsResults.innerHTML = "";
-      let shown = 0, imported = false;
-      while (true) {
-        for (; shown < j.items.length; shown++) {
-          idsResults.append(renderIdItem(j.items[shown]));
-          if (j.items[shown].status === "downloading") imported = true;
-        }
-        idsPreview.textContent = `${j.done} / ${j.total}`;
-        if (j.finished) break;
-        await new Promise(res => setTimeout(res, 800));
-        j = await (await fetch("/api/import-ids/" + encodeURIComponent(j.token))).json();
+      if (idsMode === "pick" && refItems) {
+        const picked = [...idsResults.querySelectorAll("input[data-ref]:checked")].map(cb => refItems[+cb.dataset.ref]);
+        const text = picked.map(it => it.kind === "pmid" ? "PMID: " + it.id : it.kind === "arxiv" ? "arXiv:" + it.id : (it.doi || it.id)).join("\n");
+        idsMode = "ids"; setSubmit();
+        await importIds(text);
+        return;
       }
-      idsPreview.textContent = t("完成。");
-      if (imported) { refreshList(); startPolling(); }
+      if (idsMode === "refs") {
+        const j = await api("/api/reflist", { text: idsText.value });
+        if (!j.ok) { idsPreview.textContent = t(j.message || "添加失败"); return; }
+        idsResults.hidden = false; idsResults.innerHTML = "";
+        const done = await pollJob("/api/reflist/", j, renderRefItem, idsResults);
+        refItems = done.items;
+        const c = k => done.items.filter(i => (k === "oa" ? i.status === "found" && i.oa : i.status === k)).length;
+        idsPreview.textContent = `${t("已在库里")} ${c("already")} · ${t("有免费全文")} ${c("oa")} · ${t("无免费全文")} ${c("found") - c("oa")} · ${t("没找到")} ${c("not_found") + c("error")}`;
+        idsMode = "pick"; countPicked();
+        return;
+      }
+      await importIds(idsText.value);
     } catch (err) { idsPreview.textContent = t("添加失败：") + err; }
-    finally { btn.disabled = false; }
+    finally { if (idsMode !== "pick") idsSubmit.disabled = false; }
   });
   document.addEventListener("click", e => { if (e.target.closest("#add_ids_btn")) openIds(""); });
   document.addEventListener("paste", e => {

@@ -141,7 +141,8 @@
   <form>
     <h2 id="ids_title">{{ _("按编号添加论文") }}</h2>
     <p class="muted small">{{ _("粘贴一个或多个 DOI、PubMed ID、PMC ID、arXiv 编号或它们的链接，每行一个或用逗号分开。有合法开放获取全文的会自动下载并导入；没有的放进「新文献 → 待下载」，之后把 PDF 拖进来会按 DOI 自动对上。") }}</p>
-    <textarea id="ids_text" name="text" rows="5" placeholder="10.1038/s41586-020-2843-2&#10;PMID: 33087930&#10;PMC7581502&#10;arXiv:1706.03762"></textarea>
+    <textarea id="ids_text" name="text" rows="6" placeholder="10.1038/s41586-020-2843-2&#10;PMID: 33087930&#10;PMC7581502&#10;arXiv:1706.03762"></textarea>
+    <p class="small muted ids-file">{{ _("也可以粘贴一整段参考文献表，或") }} <label class="link-like">{{ _("选择 BibTeX / RIS 文件") }}<input type="file" id="ids_file" accept=".bib,.ris,.txt,.nbib,text/plain" hidden></label>{{ _("：先逐条查找，再勾选要导入的。") }}</p>
     <p class="small muted" id="ids_preview" aria-live="polite"></p>
     <ul class="ids-results" id="ids_results" hidden></ul>
     <div class="ev-actions"><button type="button" class="secondary" data-close>{{ _("关闭") }}</button><button type="submit" id="ids_submit">{{ _("添加") }}</button></div>

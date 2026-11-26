@@ -299,3 +299,76 @@ def explain(config: Config, registry: Registry, llm: LLMClient, fig, png: bytes)
     if not updated.rowcount:
         raise ValueError(STALE_FIGURE)
     return res.raw
+
+
+# ------------------------------------------------------------------ reference board export
+def export_board(items: list[dict], pdf_for, cache_dir: Path, base_dir: Path, type_labels: dict[str, str],
+                 language: str = "zh-CN") -> Path:
+    """Write kept figures as a folder: images/, board.html (print to PDF) and a Markdown page for Obsidian.
+    Each item: {"row": figure row with paper fields and revision, "types": [...], "note": str}."""
+    import html
+    import shutil
+    from datetime import datetime
+
+    zh = language.startswith("zh")
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    folder = base_dir / f"{stamp}-{'参考图' if zh else 'reference-figures'}"
+    n = 1
+    while folder.exists():
+        n += 1
+        folder = base_dir / f"{stamp}-{n}-{'参考图' if zh else 'reference-figures'}"
+    (folder / "images").mkdir(parents=True)
+    cards, md = [], [f"# {'参考图' if zh else 'Reference figures'} · {stamp[:10]}", ""]
+    for i, it in enumerate(items, 1):
+        r = it["row"]
+        who = f"{r['first_author'] or '?'} {r['year'] or ''}".strip()
+        name = re.sub(r"[^A-Za-z0-9]+", "_", f"{i:02d} {who} {r['label']}").strip("_") + ".png"
+        pdf = pdf_for(r["paper_id"])
+        img_ok = False
+        if pdf is not None:
+            try:
+                shutil.copyfile(image(pdf, r, cache_dir, 2.0), folder / "images" / name)
+                img_ok = True
+            except (ValueError, OSError):
+                pass  # the PDF changed or is missing: keep the entry without its picture
+        types = [type_labels.get(t, t) for t in it["types"]]
+        doi = r["doi"] or ""
+        legend = " ".join((r["legend"] or "").split())
+        short = legend[:700] + ("…" if len(legend) > 700 else "")
+        source = f"{who} · {r['journal'] or ''}".rstrip(" ·")
+        cards.append(
+            "<figure class='card'>"
+            + (f"<img src='images/{html.escape(name)}' alt=''>" if img_ok else
+               f"<p class='missing'>{'找不到 PDF，未导出图片' if zh else 'PDF not found; picture not exported'}</p>")
+            + f"<figcaption><b>{html.escape(r['label'])}</b> · {html.escape(source)}"
+            + (f" · <a href='https://doi.org/{html.escape(doi)}'>{html.escape(doi)}</a>" if doi else "")
+            + (f"<p class='note'>{html.escape(it['note'])}</p>" if it["note"] else "")
+            + ("<p class='types'>" + "".join(f"<span>{html.escape(t)}</span>" for t in types) + "</p>" if types else "")
+            + f"<p class='legend'>{html.escape(short)}</p></figcaption></figure>")
+        md += [f"## {r['label']} · {who}", ""]
+        if img_ok:
+            md += [f"![{r['label']}](images/{name})", ""]
+        if it["note"]:
+            md += [f"**{'为什么收藏' if zh else 'Why'}**：{it['note']}" if zh else f"**Why:** {it['note']}", ""]
+        if types:
+            md += [("图型：" if zh else "Plot types: ") + ", ".join(types), ""]
+        md += [f"{r['title'] or ''} — {source}" + (f" · https://doi.org/{doi}" if doi else ""), "", f"> {short}", ""]
+    title = ("参考图" if zh else "Reference figures") + f" · {stamp[:10]}"
+    page = f"""<!doctype html><html lang="{'zh' if zh else 'en'}"><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<style>
+body {{ margin:24px; font:13px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; color:#1b1f27; }}
+h1 {{ font-size:20px; margin:0 0 4px; }} .sub {{ color:#6b7280; margin:0 0 18px; }}
+.grid {{ display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:16px; }}
+.card {{ margin:0; padding:10px; border:1px solid #e3e6ec; border-radius:10px; break-inside:avoid; }}
+.card img {{ width:100%; border-radius:6px; background:#fff; border:1px solid #eef0f3; }}
+figcaption {{ margin-top:8px; }} .note {{ margin:6px 0; font-weight:600; color:#1b54e8; }}
+.types span {{ display:inline-block; margin:0 4px 4px 0; padding:0 7px; border-radius:999px; background:#eef2fb; font-size:11px; }}
+.legend {{ color:#555b66; font-size:11.5px; margin:4px 0 0; }} .missing {{ color:#b45309; }}
+a {{ color:inherit; }}
+@media print {{ body {{ margin:10mm; }} .grid {{ grid-template-columns:1fr 1fr; }} }}
+</style></head><body>
+<h1>{html.escape(title)}</h1><p class="sub">{len(items)} {'张图 · 由 PaperMap 导出' if zh else 'figures · exported from PaperMap'}</p>
+<div class="grid">{''.join(cards)}</div></body></html>"""
+    (folder / "board.html").write_text(page, "utf-8")
+    (folder / f"{'参考图' if zh else 'reference-figures'}.md").write_text("\n".join(md).rstrip() + "\n", "utf-8")
+    return folder

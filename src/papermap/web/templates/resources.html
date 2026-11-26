@@ -4,11 +4,17 @@
 <h2>{{ _("数据资源") }}</h2>
 <p class="muted">{{ _("从论文全文里自动找出的数据库登录号和代码仓库（GEO、SRA、EGA、ArrayExpress、CNGB、GSA、dbGaP、PRIDE、Zenodo、GitHub、TCGA 等）。「本研究产生 / 引用的公开数据」是根据所在句子推断的，以原文为准；点页码可以跳到原文核对。") }}</p>
 {% macro qs(over) -%}
-{%- set p = {"kind": kind, "role": role, "scope": scope, "q": q} -%}
+{%- set p = {"kind": kind, "role": role, "scope": scope, "q": q, "view": view} -%}
 {%- set _x = p.update(over) -%}
 /resources?{% for k, v in p.items() if v %}{{ k }}={{ v|urlencode }}{% if not loop.last %}&{% endif %}{% endfor %}
 {%- endmacro %}
 <div class="fig-filters">
+  <div class="chips-row" role="group" aria-label="{{ _("显示方式") }}">
+    <span class="label muted">{{ _("显示") }}</span>
+    <a class="fchip {{ 'on' if view != 'datasets' }}" href="{{ qs({'view': ''}) }}">{{ _("按论文") }}</a>
+    <a class="fchip {{ 'on' if view == 'datasets' }}" href="{{ qs({'view': 'datasets'}) }}">{{ _("按数据集") }}</a>
+    <span class="muted small">{{ _("按数据集看：同一个登录号被库里哪些论文产生或引用") }}</span>
+  </div>
   <div class="chips-row" role="group" aria-label="{{ _("按数据库筛选") }}">
     <span class="label muted">{{ _("来源") }}</span>
     <a class="fchip {{ 'on' if not kind }}" href="{{ qs({'kind': ''}) }}">{{ _("全部") }}</a>
@@ -33,13 +39,29 @@
     </select>
   </div>
   <form method="get" action="/resources" class="row fig-search">
-    {% for k, v in {"kind": kind, "role": role, "scope": scope}.items() if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    {% for k, v in {"kind": kind, "role": role, "scope": scope, "view": view}.items() if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     <input type="search" name="q" value="{{ q|keep }}" placeholder="{{ _("搜索登录号、论文题目、作者或上下文，例如 GSE、HCC、Visium") }}" aria-label="{{ _("搜索数据资源") }}">
     <button>{{ _("筛选") }}</button>
     <span class="grow"></span>
     <a class="ghost-btn" data-download href="/resources.csv?kind={{ kind|urlencode }}&role={{ role|urlencode }}&scope={{ scope|urlencode }}&q={{ q|urlencode }}">{{ _("导出 CSV") }}</a>
   </form>
 </div>
+{% if view == 'datasets' %}
+<p class="muted small">{{ datasets|length }} {{ _("个数据集") }} · {{ shared }} {{ _("个被不止一篇论文提到") }}{% if kind or role or scope or q %} · <a href="/resources?view=datasets">{{ _("清除筛选") }}</a>{% endif %}</p>
+<table class="res-table ds-table">
+  <tr><th>{{ _("登录号 / 链接") }}</th><th>{{ _("来源") }}</th><th>{{ _("论文") }}</th></tr>
+  {% for d in datasets %}{% set n = d.papers|map(attribute='paper_id')|unique|list|length %}
+  <tr class="{{ 'ds-shared' if n > 1 }}">
+    <td><a target="_blank" rel="noopener" href="{{ d.url }}"><code>{{ d.accession }}</code></a>{% if n > 1 %}<br><span class="chip">{{ n }} {{ _("篇论文") }}</span>{% endif %}</td>
+    <td class="small">{{ d.label }}</td>
+    <td><ul class="ds-papers">{% for r in d.papers %}<li><span class="role-chip role-{{ r.role or 'none' }}">{{ _(roles[r.role]) }}</span>
+      <a href="/?id={{ r.paper_id }}" title="{{ r.title }}">{{ r.first_author or '?' }} {{ r.year or '' }}</a> <span class="muted small">{{ (r.title or '')[:90] }}</span>
+      <a class="small" href="/reader/{{ r.paper_id }}?page={{ (r.page or 0) + 1 }}&q={{ r.accession|urlencode }}">p.{{ (r.page or 0) + 1 }}</a></li>{% endfor %}</ul></td>
+  </tr>
+  {% else %}<tr><td colspan="3" class="muted">{{ _("没有找到。新论文处理完后会自动提取；已有论文在启动时后台补齐。") }}</td></tr>{% endfor %}
+</table>
+<p class="muted small">{{ _("同一数据集被多篇论文使用时，它们的结论可能不是独立验证。在证据笔记的「证据对照」里可以逐对记录样本是否重叠。") }}</p>
+{% else %}
 <p class="muted small">{{ items|length }} {{ _("条") }}{% if kind or role or scope or q %} · <a href="/resources">{{ _("清除筛选") }}</a>{% endif %}</p>
 <table class="res-table">
   <tr><th>{{ _("论文") }}</th><th>{{ _("题目") }}</th><th>{{ _("来源") }}</th><th>{{ _("登录号 / 链接") }}</th><th>{{ _("用途") }}</th><th>{{ _("上下文") }}</th></tr>
@@ -49,13 +71,14 @@
     <td class="res-title"><a href="/?id={{ r.paper_id }}" title="{{ r.title }}">{{ r.title or '' }}</a></td>
     <td class="small">{{ r.label }}</td>
     <td><a target="_blank" rel="noopener" href="{{ r.url }}"><code>{{ r.accession }}</code></a></td>
-    <td><span class="role-chip role-{{ r.role or 'none' }}">{{ roles[r.role] }}</span></td>
+    <td><span class="role-chip role-{{ r.role or 'none' }}">{{ _(roles[r.role]) }}</span></td>
     <td class="small muted">{{ r.context[:220] }}{% if r.context|length > 220 %}…{% endif %} <a href="/reader/{{ r.paper_id }}?page={{ (r.page or 0) + 1 }}&q={{ r.accession|urlencode }}">p.{{ (r.page or 0) + 1 }}</a></td>
   </tr>
   {% else %}
   <tr><td colspan="6" class="muted">{{ _("没有找到。新论文处理完后会自动提取；已有论文在启动时后台补齐。") }}</td></tr>
   {% endfor %}
 </table>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
